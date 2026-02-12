@@ -238,35 +238,21 @@ export default function ThreatMapPage() {
                                         key={`dot-${state.id}`}
                                         className="threat-dot cursor-pointer group"
                                         onClick={(e) => {
-                                            e.stopPropagation(); // Prevent double trigger
+                                            e.stopPropagation();
                                             setSelectedState(isSelected ? null : state.name);
                                         }}
                                         style={{ transformOrigin: `${state.x}px ${state.y}px`, opacity: hasActivity || isSelected ? 1 : 0.6 }}
                                     >
-                                        {/* Pulse ring for active states */}
+                                        {/* Pulse ring for active states - CSS Animation */}
                                         {hasActivity && (
                                             <circle
                                                 cx={state.x}
                                                 cy={state.y}
-                                                r={radius + 8}
-                                                fill="none"
-                                                stroke={color}
-                                                strokeWidth="1"
-                                                opacity="0.2"
-                                            >
-                                                <animate
-                                                    attributeName="r"
-                                                    values={`${radius + 2};${radius + 15};${radius + 2}`}
-                                                    dur="3s"
-                                                    repeatCount="indefinite"
-                                                />
-                                                <animate
-                                                    attributeName="opacity"
-                                                    values="0.2;0;0.2"
-                                                    dur="3s"
-                                                    repeatCount="indefinite"
-                                                />
-                                            </circle>
+                                                r={radius}
+                                                fill={color}
+                                                className="animate-svg-pulse pointer-events-none"
+                                                opacity="0.4"
+                                            />
                                         )}
 
                                         <circle
@@ -275,7 +261,8 @@ export default function ThreatMapPage() {
                                             r={radius}
                                             fill={isSelected ? "#fff" : color}
                                             filter={hasActivity ? "url(#glow)" : ""}
-                                            className="transition-all duration-300 group-hover:scale-125"
+                                            className="transition-transform duration-300 ease-out group-hover:scale-125 origin-center"
+                                            style={{ transformBox: "fill-box" }}
                                         />
 
                                         {/* State Label */}
