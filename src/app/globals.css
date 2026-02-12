@@ -1,0 +1,259 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,500&family=Source+Sans+3:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  /* ── War / Breaking-News palette ── */
+  --color-blood: #8B1A1A;
+  --color-blood-light: #B22222;
+  --color-ember: #D4380D;
+  --color-flame: #E85D04;
+  --color-sand: #C9A96E;
+  --color-sand-light: #E8D5B5;
+  --color-iron: #2D3436;
+  --color-iron-light: #4A5568;
+  --color-steel: #636E72;
+  --color-smoke: #B2BEC3;
+  --color-ash: #DFE6E9;
+  --color-bone: #F5F0EB;
+  --color-parchment: #FAF6F1;
+  --color-ink: #1A1A1A;
+  --color-urgent: #FF4136;
+  --color-caution: #FF851B;
+  --color-safe: #2ECC40;
+  --color-verified: #0074D9;
+  --color-developing: #FFDC00;
+
+  /* Glass surfaces */
+  --color-glass-light: rgba(255, 255, 255, 0.72);
+  --color-glass-dark: rgba(20, 20, 22, 0.78);
+  --color-glass-border-light: rgba(201, 169, 110, 0.25);
+  --color-glass-border-dark: rgba(201, 169, 110, 0.15);
+
+  /* Fonts */
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'Source Sans 3', 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', monospace;
+}
+
+/* ── Dark / Light mode variables ── */
+:root {
+  --bg-primary: var(--color-parchment);
+  --bg-secondary: var(--color-bone);
+  --bg-card: rgba(255, 255, 255, 0.85);
+  --bg-glass: var(--color-glass-light);
+  --border-glass: var(--color-glass-border-light);
+  --text-primary: var(--color-ink);
+  --text-secondary: var(--color-iron-light);
+  --text-muted: var(--color-steel);
+  --accent: var(--color-blood);
+  --accent-light: var(--color-blood-light);
+  --shadow-soft: 0 4px 24px rgba(0,0,0,0.06);
+  --shadow-elevated: 0 8px 40px rgba(0,0,0,0.10);
+  --border-subtle: rgba(0,0,0,0.08);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #0D0D0F;
+  --bg-secondary: #141416;
+  --bg-card: rgba(30, 30, 34, 0.85);
+  --bg-glass: var(--color-glass-dark);
+  --border-glass: var(--color-glass-border-dark);
+  --text-primary: #F0EDE8;
+  --text-secondary: #A8A29E;
+  --text-muted: #6B7280;
+  --accent: var(--color-ember);
+  --accent-light: var(--color-flame);
+  --shadow-soft: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-elevated: 0 8px 40px rgba(0,0,0,0.5);
+  --border-subtle: rgba(255,255,255,0.06);
+  color-scheme: dark;
+}
+
+/* ── Base resets ── */
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.4s ease, color 0.4s ease;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-steel); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-sand); }
+
+/* ── Glass effect utility ── */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--border-glass);
+}
+
+.glass-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.glass-card:hover {
+  box-shadow: var(--shadow-elevated);
+  transform: translateY(-2px);
+}
+
+/* ── Status badges ── */
+.badge-confirmed {
+  background: rgba(46,204,64,0.15);
+  color: var(--color-safe);
+  border: 1px solid rgba(46,204,64,0.3);
+}
+
+.badge-unconfirmed {
+  background: rgba(255,65,54,0.12);
+  color: var(--color-urgent);
+  border: 1px solid rgba(255,65,54,0.25);
+}
+
+.badge-developing {
+  background: rgba(255,220,0,0.15);
+  color: #B8860B;
+  border: 1px solid rgba(255,220,0,0.3);
+}
+
+[data-theme="dark"] .badge-developing {
+  color: var(--color-developing);
+}
+
+/* ── Breaking News Banner animation ── */
+@keyframes ticker {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+.ticker-scroll {
+  animation: ticker 30s linear infinite;
+}
+
+/* ── Pulse ring for urgent ── */
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(139,26,26,0.5); }
+  70% { box-shadow: 0 0 0 12px rgba(139,26,26,0); }
+  100% { box-shadow: 0 0 0 0 rgba(139,26,26,0); }
+}
+
+.pulse-urgent {
+  animation: pulse-ring 2s cubic-bezier(0.4,0,0.6,1) infinite;
+}
+
+/* ── Fade in from below ── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+
+/* ── Stagger delays ── */
+.stagger-1 { animation-delay: 0.1s; }
+.stagger-2 { animation-delay: 0.2s; }
+.stagger-3 { animation-delay: 0.3s; }
+.stagger-4 { animation-delay: 0.4s; }
+.stagger-5 { animation-delay: 0.5s; }
+
+/* ── Grain texture overlay ── */
+.bg-grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+[data-theme="dark"] .bg-grain::before {
+  opacity: 0.04;
+}
+
+/* ── Geometric pattern background ── */
+.bg-geo-pattern {
+  background-image:
+    linear-gradient(30deg, var(--border-subtle) 12%, transparent 12.5%, transparent 87%, var(--border-subtle) 87.5%, var(--border-subtle)),
+    linear-gradient(150deg, var(--border-subtle) 12%, transparent 12.5%, transparent 87%, var(--border-subtle) 87.5%, var(--border-subtle)),
+    linear-gradient(30deg, var(--border-subtle) 12%, transparent 12.5%, transparent 87%, var(--border-subtle) 87.5%, var(--border-subtle)),
+    linear-gradient(150deg, var(--border-subtle) 12%, transparent 12.5%, transparent 87%, var(--border-subtle) 87.5%, var(--border-subtle)),
+    linear-gradient(60deg, rgba(201,169,110,0.04) 25%, transparent 25.5%, transparent 75%, rgba(201,169,110,0.04) 75%, rgba(201,169,110,0.04)),
+    linear-gradient(60deg, rgba(201,169,110,0.04) 25%, transparent 25.5%, transparent 75%, rgba(201,169,110,0.04) 75%, rgba(201,169,110,0.04));
+  background-size: 80px 140px;
+  background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
+}
+
+/* ── Dot grid background ── */
+.bg-dot-grid {
+  background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── Custom pointer for interactive elements ── */
+a, button, [role="button"], input[type="submit"], 
+input[type="button"], select, .cursor-pointer {
+  cursor: pointer;
+}
+
+/* ── Number counter animation ── */
+@keyframes countUp {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-count {
+  animation: countUp 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ── Shimmer loading ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ── Border glow for cards ── */
+@keyframes border-glow {
+  0%, 100% { border-color: var(--border-subtle); }
+  50% { border-color: var(--color-sand); }
+}
+
+.glow-border {
+  animation: border-glow 3s ease-in-out infinite;
+}
+
+/* ── Selection color ── */
+::selection {
+  background: rgba(139, 26, 26, 0.25);
+  color: var(--text-primary);
+}
