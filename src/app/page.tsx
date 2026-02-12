@@ -10,11 +10,13 @@ import HorizontalBar from "@/components/HorizontalBar";
 import TimeSinceLastAttack from "@/components/TimeSinceLastAttack";
 import { CardSkeleton, AttackCardSkeleton, ChartSkeleton } from "@/components/Skeletons";
 import {
+  BoltIcon,
+  XCircleIcon,
   ExclamationTriangleIcon,
-  FireIcon,
-  HeartIcon,
-  UserGroupIcon,
+  LockClosedIcon,
   ArrowRightIcon,
+  ClockIcon,
+  CalendarDaysIcon,
   SignalIcon,
 } from "@heroicons/react/24/outline";
 
@@ -132,28 +134,28 @@ export default function DashboardPage() {
             <StatCard
               label="Total Attacks"
               value={stats.overview.totalAttacks}
-              icon={<ExclamationTriangleIcon className="w-5 h-5" />}
+              icon={<BoltIcon className="w-5 h-5" />}
               color="var(--color-blood)"
               delay={0}
             />
             <StatCard
               label="Lives Lost"
               value={stats.overview.totalKilled}
-              icon={<FireIcon className="w-5 h-5" />}
+              icon={<XCircleIcon className="w-5 h-5" />}
               color="var(--color-urgent)"
               delay={0.1}
             />
             <StatCard
               label="Injured"
               value={stats.overview.totalInjured}
-              icon={<HeartIcon className="w-5 h-5" />}
+              icon={<ExclamationTriangleIcon className="w-5 h-5" />}
               color="var(--color-caution)"
               delay={0.2}
             />
             <StatCard
               label="Kidnapped"
               value={stats.overview.totalKidnapped}
-              icon={<UserGroupIcon className="w-5 h-5" />}
+              icon={<LockClosedIcon className="w-5 h-5" />}
               color="var(--color-verified)"
               delay={0.3}
             />
@@ -174,14 +176,14 @@ export default function DashboardPage() {
           <StatCard
             label="Attacks (Last 7 Days)"
             value={stats.overview.attacksLast7Days}
-            icon={<SignalIcon className="w-5 h-5" />}
+            icon={<ClockIcon className="w-5 h-5" />}
             color="var(--color-ember)"
             delay={0.4}
           />
           <StatCard
             label="Attacks (Last 30 Days)"
             value={stats.overview.attacksLast30Days}
-            icon={<SignalIcon className="w-5 h-5" />}
+            icon={<CalendarDaysIcon className="w-5 h-5" />}
             color="var(--color-sand)"
             delay={0.5}
           />
@@ -204,7 +206,7 @@ export default function DashboardPage() {
                 value: m.count,
                 killed: m.killed,
               }))}
-              color="var(--color-blood)"
+              color="#8B1A1A"
             />
             <HorizontalBar
               title="Most Affected States"
