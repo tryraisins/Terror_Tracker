@@ -92,7 +92,7 @@ export default function ThreatMapPage() {
                         next[matchedKey].killed += attack.casualties?.killed || 0;
                         next[matchedKey].injured += attack.casualties?.injured || 0;
                         next[matchedKey].kidnapped += attack.casualties?.kidnapped || 0;
-                        if (next[matchedKey].recentAttacks.length < 50) {
+                        if (next[matchedKey].recentAttacks.length < 5) {
                             next[matchedKey].recentAttacks.push(attack);
                         }
                     }
@@ -307,7 +307,7 @@ export default function ThreatMapPage() {
                 <div className="lg:col-span-1 h-[600px] flex flex-col">
                     {/* Selected State Detail */}
                     {selected && (
-                        <div className="glass-card rounded-2xl p-5 mb-4 animate-fade-in-up flex-shrink-0">
+                        <div className="glass-card rounded-2xl p-5 mb-4 animate-fade-in-up flex-shrink-1 flex flex-col overflow-hidden" style={{ maxHeight: "500px" }}>
                             <div className="flex items-center justify-between mb-4">
                                 <h3
                                     className="text-lg font-bold"
@@ -340,128 +340,128 @@ export default function ThreatMapPage() {
                             </div>
 
                             {selected.recentAttacks.length > 0 ? (
-                                <div className="flex flex-col h-full min-h-0">
+                                <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar flex-1">
                                     <h4
-                                        className="text-xs font-bold uppercase tracking-wider mb-2 flex-shrink-0"
+                                        className="text-xs font-bold uppercase tracking-wider mb-2"
                                         style={{ color: "var(--text-muted)" }}
                                     >
                                         Recent Incidents
                                     </h4>
-                                    <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 max-h-[300px]">
-                                        {selected.recentAttacks.map((attack: any, idx) => (
-                                            <div
-                                                key={idx}
-                                                className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
-                                                style={{ background: "var(--bg-secondary)" }}
+                                    {selected.recentAttacks.map((attack: any, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
+                                            style={{ background: "var(--bg-secondary)" }}
+                                        >
+                                            <p
+                                                className="text-sm font-semibold leading-snug mb-2"
+                                                style={{ color: "var(--text-primary)" }}
                                             >
-                                                <p
-                                                    className="text-sm font-semibold leading-snug mb-2"
-                                                    style={{ color: "var(--text-primary)" }}
-                                                >
-                                                    {attack.title}
-                                                </p>
-                                                <p className="text-xs mb-2 line-clamp-3" style={{ color: "var(--text-secondary)" }}>
-                                                    {attack.description}
-                                                </p>
-                                                <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
-                                                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                                        {attack.date
-                                                            ? format(new Date(attack.date), "MMM d, yyyy")
-                                                            : ""}
-                                                    </span>
-                                                    {(attack.sources && attack.sources.length > 0) && (
-                                                        <a
-                                                            href={attack.sources[0].url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-[10px] font-bold hover:underline flex items-center gap-1"
-                                                            style={{ color: "var(--color-accent)" }}
-                                                        >
-                                                            Source <ArrowTopRightOnSquareIcon className="w-3 h-3" />
-                                                        </a>
-                                                    )}
-                                                </div>
+                                                {attack.title}
+                                            </p>
+                                            <p className="text-xs mb-2 line-clamp-3" style={{ color: "var(--text-secondary)" }}>
+                                                {attack.description}
+                                            </p>
+                                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                                                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                                    {attack.date
+                                                        ? format(new Date(attack.date), "MMM d, yyyy")
+                                                        : ""}
+                                                </span>
+                                                {(attack.sources && attack.sources.length > 0) && (
+                                                    <a
+                                                        href={attack.sources[0].url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-[10px] font-bold hover:underline flex items-center gap-1"
+                                                        style={{ color: "var(--color-accent)" }}
+                                                    >
+                                                        Source <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+                                                    </a>
+                                                )}
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                    ))}
                                 </div>
                             ) : (
                                 <div className="text-xs text-center py-2 text-muted">No recent incidents recorded.</div>
                             )}
-
-                            {/* Ranked States List */}
-                            <div className="glass-card rounded-2xl p-5 flex-1 overflow-hidden flex flex-col">
-                                <h3
-                                    className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
-                                    style={{
-                                        fontFamily: "var(--font-heading)",
-                                        color: "var(--text-muted)",
-                                    }}
-                                >
-                                    Affected Areas
-                                </h3>
-
-                                <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 custom-scrollbar">
-                                    {rankedStates.map((state, i) => {
-                                        const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
-                                        const isActive = selectedState === state.name;
-                                        return (
-                                            <button
-                                                key={state.name}
-                                                onClick={() => setSelectedState(isActive ? null : state.name)}
-                                                className="w-full text-left p-2.5 rounded-xl transition-all duration-200 hover:bg-[var(--border-subtle)] group relative overflow-hidden"
-                                                style={{
-                                                    background: isActive ? "var(--border-subtle)" : "transparent",
-                                                    opacity: state.count === 0 && !isActive ? 0.6 : 1,
-                                                }}
-                                            >
-                                                {/* Background bar for activity */}
-                                                {state.count > 0 && (
-                                                    <div
-                                                        className="absolute inset-y-0 left-0 rounded-xl opacity-10 transition-all duration-500"
-                                                        style={{
-                                                            width: `${barWidth}%`,
-                                                            background: `linear-gradient(90deg, ${getDotColor(state.count)}, transparent)`,
-                                                        }}
-                                                    />
-                                                )}
-
-                                                <div className="relative flex items-center justify-between">
-                                                    <div className="flex items-center gap-2.5">
-                                                        <span
-                                                            className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
-                                                            style={{
-                                                                background: "var(--border-subtle)",
-                                                                color: "var(--text-muted)",
-                                                            }}
-                                                        >
-                                                            {i + 1}
-                                                        </span>
-                                                        <span
-                                                            className="text-sm font-medium"
-                                                            style={{ color: "var(--text-primary)" }}
-                                                        >
-                                                            {state.name}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span
-                                                            className="text-xs font-bold"
-                                                            style={{
-                                                                color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)",
-                                                            }}
-                                                        >
-                                                            {state.count}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
                         </div>
+                    )}
+
+                    {/* Ranked States List */}
+                    <div className="glass-card rounded-2xl p-5 flex-1 overflow-hidden flex flex-col">
+                        <h3
+                            className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
+                            style={{
+                                fontFamily: "var(--font-heading)",
+                                color: "var(--text-muted)",
+                            }}
+                        >
+                            Affected Areas
+                        </h3>
+
+                        <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 custom-scrollbar">
+                            {rankedStates.map((state, i) => {
+                                const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
+                                const isActive = selectedState === state.name;
+                                return (
+                                    <button
+                                        key={state.name}
+                                        onClick={() => setSelectedState(isActive ? null : state.name)}
+                                        className="w-full text-left p-2.5 rounded-xl transition-all duration-200 hover:bg-[var(--border-subtle)] group relative overflow-hidden"
+                                        style={{
+                                            background: isActive ? "var(--border-subtle)" : "transparent",
+                                            opacity: state.count === 0 && !isActive ? 0.6 : 1,
+                                        }}
+                                    >
+                                        {/* Background bar for activity */}
+                                        {state.count > 0 && (
+                                            <div
+                                                className="absolute inset-y-0 left-0 rounded-xl opacity-10 transition-all duration-500"
+                                                style={{
+                                                    width: `${barWidth}%`,
+                                                    background: `linear-gradient(90deg, ${getDotColor(state.count)}, transparent)`,
+                                                }}
+                                            />
+                                        )}
+
+                                        <div className="relative flex items-center justify-between">
+                                            <div className="flex items-center gap-2.5">
+                                                <span
+                                                    className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+                                                    style={{
+                                                        background: "var(--border-subtle)",
+                                                        color: "var(--text-muted)",
+                                                    }}
+                                                >
+                                                    {i + 1}
+                                                </span>
+                                                <span
+                                                    className="text-sm font-medium"
+                                                    style={{ color: "var(--text-primary)" }}
+                                                >
+                                                    {state.name}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="text-xs font-bold"
+                                                    style={{
+                                                        color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)",
+                                                    }}
+                                                >
+                                                    {state.count}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
             </div>
-            </div>
-            );
+        </div>
+    );
 }
