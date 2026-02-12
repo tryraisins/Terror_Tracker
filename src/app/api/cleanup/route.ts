@@ -31,99 +31,82 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // Keywords that indicate attacker-only incidents
-    const attackerKeywords = [
-      "terrorists killed",
-      "terrorists neutralized",
-      "terrorists neutralised",
-      "bandits killed",
-      "bandits neutralized",
-      "bandits neutralised",
-      "insurgents killed",
-      "insurgents neutralized",
-      "insurgents neutralised",
-      "militants killed",
-      "militants neutralized",
-      "militants neutralised",
-      "gunmen killed",
-      "gunmen neutralized",
-      "gunmen neutralised",
-      "neutralized by",
-      "neutralised by",
-      "eliminated by",
-      "troops kill",
-      "troops neutralize",
-      "troops neutralise",
-      "military kills",
-      "military neutralizes",
-      "soldiers kill",
-      "army kills",
-      "air strikes kill",
-      "airstrike kills",
-      "air force kills",
-      "naf strikes",
-    ];
-
-    // Build regex OR pattern for matching
-    const keywordPattern = attackerKeywords
-      .map((kw) => kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .join("|");
-    const regex = new RegExp(keywordPattern, "i");
-
-    // Find all attacks where title or description matches attacker-only patterns
-    const allAttacks = await Attack.find({
-      $or: [
-        { title: { $regex: regex } },
-        { description: { $regex: regex } },
-      ],
-    })
-      .select("title description casualties date location")
+    // Fetch ALL attacks so we can do thorough text analysis
+    const allAttacks = await Attack.find({})
+      .select("title description casualties date location group")
       .lean();
 
-    // Further filter: only flag if civilian casualties are zero/null
-    // If civilians were ALSO killed, we keep the incident
-    const toRemove = allAttacks.filter((attack: any) => {
-      const killed = attack.casualties?.killed;
-      const injured = attack.casualties?.injured;
-      const kidnapped = attack.casualties?.kidnapped;
-      const displaced = attack.casualties?.displaced;
+    console.log(`[CLEANUP] Scanning ${allAttacks.length} total records...`);
 
-      // If there are civilian casualties recorded, keep it
-      // (the attacker keyword might appear in the description alongside civilian losses)
-      const hasCivilianCasualties =
-        (killed && killed > 0) ||
-        (injured && injured > 0) ||
-        (kidnapped && kidnapped > 0) ||
-        (displaced && displaced > 0);
+    const toRemove: any[] = [];
 
-      // Only remove if there are NO civilian casualties
-      // Since the old data might have attacker deaths in "killed", 
-      // check if the title/description strongly indicates attacker-only
-      if (!hasCivilianCasualties) return true;
+    for (const attack of allAttacks) {
+      const title = ((attack as any).title || "").toLowerCase();
+      const description = ((attack as any).description || "").toLowerCase();
+      const combined = `${title} ${description}`;
 
-      // If casualties exist but the title strongly suggests attacker-only kills
-      // (e.g., "30 terrorists killed by military"), also remove
-      const title = (attack.title || "").toLowerCase();
-      const strongAttackerOnly = [
-        /^\d+\s*(terrorists?|bandits?|insurgents?|militants?|gunmen)\s*(killed|neutrali[sz]ed|eliminated)/i,
-        /^(troops|military|soldiers?|army|air\s*force|naf)\s*(kill|neutrali[sz]e|eliminate)/i,
-      ];
+      // Check if this is a military/security operation against terrorists
+      const isSecurityOperation = /\b(troops?|soldiers?|military|army|air\s*force|naf|joint\s*task\s*force|jtf|operation\s*hadin\s*kai|ophk|operation\s*whirl\s*stroke|operation\s*safe\s*haven|defence\s*headquarters?|dhq|cjtf)\b/i.test(combined);
 
-      for (const pattern of strongAttackerOnly) {
-        if (pattern.test(title)) return true;
+      // Check if the incident describes neutralizing/killing attackers
+      const describesAttackerDeaths = /\b(neutrali[sz]ed?|eliminat(ed?|ing)|kill(ed|s|ing)?|took\s*out|wiped\s*out|gunned\s*down)\b.*\b(terrorists?|insurgents?|bandits?|militants?|iswap|boko\s*haram|fighters?|combatants?|gunmen|criminals?|kidnappers?)\b/i.test(combined) ||
+        /\b(terrorists?|insurgents?|bandits?|militants?|iswap|boko\s*haram|fighters?|combatants?|gunmen|criminals?|kidnappers?)\b.*\b(neutrali[sz]ed?|eliminat(ed?|ing)|kill(ed|s|ing)?|took\s*out|wiped\s*out|gunned\s*down)\b/i.test(combined);
+
+      // Check if there are ANY mentions of civilian harm
+      const mentionsCivilianHarm = /\b(civilians?\s*(killed|died|injured|wounded|kidnapped|abducted|displaced|affected|hurt|attacked|massacred|slaughtered))\b/i.test(combined) ||
+        /\b(villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children)\s*(were\s*)?(killed|died|injured|wounded|kidnapped|abducted|displaced|attacked)\b/i.test(combined) ||
+        /\b(killed|attacked|kidnapped|abducted)\s*(civilians?|villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children)\b/i.test(combined);
+
+      // Check if "rescued" is a key part (military rescuing kidnapped persons is a positive outcome, not an attack)
+      const isRescueOperation = /\b(rescued?|freed?|liberat(ed?|ing))\s*\d*\s*(abducted|kidnapped|captive|hostage)/i.test(combined);
+
+      if (isSecurityOperation && describesAttackerDeaths && !mentionsCivilianHarm) {
+        // This looks like a military operation report, not a civilian attack
+        toRemove.push(attack);
+        console.log(`[CLEANUP] Flagged: "${(attack as any).title}" — security operation, no civilian casualties mentioned`);
+        continue;
       }
 
-      return false;
-    });
+      // Also catch rescue-only operations (no attack on civilians)
+      if (isSecurityOperation && isRescueOperation && !mentionsCivilianHarm) {
+        const cas = (attack as any).casualties || {};
+        // If killed count seems to be attacker deaths (and no kidnapping/displacement of civilians)
+        if ((cas.killed > 0 || cas.injured > 0) && !cas.kidnapped && !cas.displaced) {
+          toRemove.push(attack);
+          console.log(`[CLEANUP] Flagged: "${(attack as any).title}" — rescue operation with attacker deaths only`);
+          continue;
+        }
+      }
+
+      // Catch records where casualties are purely attacker deaths based on number matching
+      // e.g., "neutralized 16 terrorists" and killed=16
+      if (describesAttackerDeaths && !mentionsCivilianHarm) {
+        const numberMatch = combined.match(/\b(neutrali[sz]ed?|eliminat(?:ed?|ing)|kill(?:ed|s|ing)?)\s+(?:more\s+than\s+)?(\d+)\s+(terrorists?|insurgents?|bandits?|militants?|fighters?|combatants?|gunmen|criminals?)/i);
+        if (numberMatch) {
+          const reportedAttackerKills = parseInt(numberMatch[2], 10);
+          const recordedKilled = (attack as any).casualties?.killed || 0;
+          // If the killed count matches or is close to the attacker count, it's attacker deaths
+          if (recordedKilled > 0 && recordedKilled <= reportedAttackerKills + 5) {
+            toRemove.push(attack);
+            console.log(`[CLEANUP] Flagged: "${(attack as any).title}" — killed count (${recordedKilled}) matches attacker deaths (${reportedAttackerKills})`);
+            continue;
+          }
+        }
+      }
+    }
+
+    console.log(`[CLEANUP] Found ${toRemove.length} attacker-only incidents out of ${allAttacks.length} total`);
 
     if (dryRun) {
       return setCORSHeaders(
         NextResponse.json({
           mode: "DRY RUN — nothing deleted",
-          message: `Found ${toRemove.length} attacker-only incidents that would be removed`,
+          totalScanned: allAttacks.length,
+          flagged: toRemove.length,
           incidents: toRemove.map((a: any) => ({
             id: a._id,
             title: a.title,
+            description: a.description?.slice(0, 200) + "...",
             date: a.date,
             location: a.location?.state,
             casualties: a.casualties,
@@ -140,6 +123,7 @@ export async function POST(req: NextRequest) {
     return setCORSHeaders(
       NextResponse.json({
         mode: "LIVE — records deleted",
+        totalScanned: allAttacks.length,
         deleted: result.deletedCount,
         incidents: toRemove.map((a: any) => ({
           id: a._id,
