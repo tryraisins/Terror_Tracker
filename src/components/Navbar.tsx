@@ -53,16 +53,12 @@ export default function Navbar() {
             <div className="flex items-center justify-between px-5 md:px-8">
                 {/* Logo */}
                 <Link href="/" className="flex items-center gap-3 group">
-                    <div className="relative">
-                        <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center
+                    <div
+                        className="w-9 h-9 rounded-lg flex items-center justify-center
               bg-gradient-to-br from-blood to-ember transition-transform 
               duration-300 group-hover:scale-110 group-hover:rotate-3"
-                        >
-                            <ShieldExclamationIcon className="w-5 h-5 text-white" />
-                        </div>
-                        {/* Alert dot */}
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-urgent rounded-full pulse-urgent" />
+                    >
+                        <ShieldExclamationIcon className="w-5 h-5 text-white" />
                     </div>
                     <div className="hidden sm:block">
                         <h1

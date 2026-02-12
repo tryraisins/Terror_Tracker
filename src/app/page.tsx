@@ -7,6 +7,7 @@ import StatCard from "@/components/StatCard";
 import AttackCard from "@/components/AttackCard";
 import BarChart from "@/components/BarChart";
 import HorizontalBar from "@/components/HorizontalBar";
+import TimeSinceLastAttack from "@/components/TimeSinceLastAttack";
 import { CardSkeleton, AttackCardSkeleton, ChartSkeleton } from "@/components/Skeletons";
 import {
   ExclamationTriangleIcon,
@@ -114,6 +115,11 @@ export default function DashboardPage() {
           Data sourced from verified news outlets, security reports, and field correspondents.
         </p>
       </div>
+
+      {/* Time Since Last Attack */}
+      {!loading && stats?.recentAttacks?.[0]?.date && (
+        <TimeSinceLastAttack lastAttackDate={stats.recentAttacks[0].date} />
+      )}
 
       {/* Stats Grid */}
       <section className="mb-12">
