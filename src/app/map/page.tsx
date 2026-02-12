@@ -6,6 +6,7 @@ import {
     MapPinIcon,
     ExclamationTriangleIcon,
     XMarkIcon,
+    ArrowTopRightOnSquareIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 import { NIGERIA_MAP_DATA, StateMapData } from "@/lib/mapData";
@@ -209,9 +210,9 @@ export default function ThreatMapPage() {
                                             fill={isSelected ? "rgba(255,255,255,0.1)" : "transparent"} // Fill only on selection/hover usually, or use low opacity
                                             style={{
                                                 fill: isSelected ? "var(--accent)" : "transparent",
-                                                fillOpacity: isSelected ? 0.1 : 0.02,
+                                                fillOpacity: isSelected ? 0.2 : 0.05,
                                                 stroke: isSelected ? "var(--text-primary)" : "var(--border-subtle)",
-                                                strokeWidth: isSelected ? 1.5 : 0.5
+                                                strokeWidth: isSelected ? 3 : 1.2
                                             }}
                                         />
 
@@ -268,13 +269,13 @@ export default function ThreatMapPage() {
                                         {/* State Label */}
                                         <text
                                             x={state.x}
-                                            y={state.y + radius + 12}
+                                            y={state.y + radius + 14}
                                             textAnchor="middle"
-                                            fill="var(--text-muted)"
-                                            fontSize="10"
-                                            fontWeight="500"
+                                            fill="#ffffff"
+                                            fontSize="13"
+                                            fontWeight="800"
                                             className={`transition-opacity duration-300 ${isSelected || hasActivity ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                            style={{ pointerEvents: "none", textShadow: "0 2px 4px rgba(0,0,0,0.8)" }}
+                                            style={{ pointerEvents: "none", textShadow: "0 2px 8px rgba(0,0,0,1)" }}
                                         >
                                             {state.name === "Federal Capital Territory" ? "FCT" : state.name}
                                         </text>
@@ -339,31 +340,48 @@ export default function ThreatMapPage() {
                             </div>
 
                             {selected.recentAttacks.length > 0 ? (
-                                <div>
+                                <div className="space-y-3">
                                     <h4
                                         className="text-xs font-bold uppercase tracking-wider mb-2"
                                         style={{ color: "var(--text-muted)" }}
                                     >
-                                        Latest Incident
+                                        Recent Incidents
                                     </h4>
-                                    <div
-                                        className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
-                                        style={{ background: "var(--bg-secondary)" }}
-                                    >
-                                        <p
-                                            className="text-xs font-semibold leading-snug mb-1 line-clamp-2"
-                                            style={{ color: "var(--text-primary)" }}
+                                    {selected.recentAttacks.map((attack: any, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
+                                            style={{ background: "var(--bg-secondary)" }}
                                         >
-                                            {selected.recentAttacks[0].title}
-                                        </p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                                {selected.recentAttacks[0].date
-                                                    ? format(new Date(selected.recentAttacks[0].date), "MMM d")
-                                                    : ""}
-                                            </span>
+                                            <p
+                                                className="text-sm font-semibold leading-snug mb-2"
+                                                style={{ color: "var(--text-primary)" }}
+                                            >
+                                                {attack.title}
+                                            </p>
+                                            <p className="text-xs mb-2 line-clamp-3" style={{ color: "var(--text-secondary)" }}>
+                                                {attack.description}
+                                            </p>
+                                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5">
+                                                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                                    {attack.date
+                                                        ? format(new Date(attack.date), "MMM d, yyyy")
+                                                        : ""}
+                                                </span>
+                                                {(attack.sources && attack.sources.length > 0) && (
+                                                    <a
+                                                        href={attack.sources[0].url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-[10px] font-bold hover:underline flex items-center gap-1"
+                                                        style={{ color: "var(--color-accent)" }}
+                                                    >
+                                                        Source <ArrowTopRightOnSquareIcon className="w-3 h-3" />
+                                                    </a>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    ))}
                                 </div>
                             ) : (
                                 <div className="text-xs text-center py-2 text-muted">No recent incidents recorded.</div>
