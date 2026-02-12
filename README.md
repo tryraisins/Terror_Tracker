@@ -18,7 +18,12 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
   - Pulse animations for critical/active threat zones.
 
 - **Automated Intelligence Gathering**:
-  - Integrated **Google Gemini AI** to scour news sources and social media for potential incidents.
+  - Integrated **Google Gemini 2.5 Flash** to scour news sources and social media for potential incidents.
+  - **Smart Casualty Filtering**: Automatically distinguishes between civilian/security force victims and neutralized terrorists. Counts only relevant human cost (civilians & security personnel), excluding attacker deaths.
+  - **Expanded Source Network**: Monitors key verified sources including:
+    - Zagazola Makama (Counter-Insurgency Expert)
+    - Peoples Gazette, Premium Times, HumAngle
+    - Validated Twitter/X intel accounts
   - Automated deduplication and verification logic to filter noise.
   - Scheduled data updates via cron jobs.
 
@@ -39,7 +44,7 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
 - **Frontend**: [Next.js 15](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS v4](https://tailwindcss.com/)
 - **Backend**: Next.js API Routes (Serverless)
 - **Database**: [MongoDB](https://www.mongodb.com/) (Mongoose ODM)
-- **AI/LLM**: [Google Gemini 1.5 Pro](https://ai.google.dev/) (via Vercel AI SDK)
+- **AI/LLM**: [Google Gemini 2.5 Flash](https://ai.google.dev/) (via Vercel AI SDK)
 - **Animations**: [GSAP](https://greensock.com/gsap/) & CSS Keyframes
 - **Icons**: [Heroicons](https://heroicons.com/)
 
@@ -98,12 +103,23 @@ Follow these instructions to set up the project locally for development and test
 The system uses an API route (`src/app/api/cron/update/route.ts`) designed to be triggered by an external cron service (like Vercel Cron or cron-job.org).
 
 - **Endpoint**: `POST /api/cron/update`
-- **Headers**: `Authorization: Bearer <CRON_SECRET>`
+- **Headers**: `x-cron-secret: <CRON_SECRET>`
 - **Function**:
-    1.  Fetches recent security-related news using specific keywords.
-    2.  Uses Gemini AI to parse the news into structured JSON (Title, Location, Casualties, etc.).
-    3.  Checks for duplicates in the database.
-    4.  Saves valid new incidents.
+    1.  Fetches recent security-related news using specific keywords and specialized sources.
+    2.  Uses Gemini 2.5 Flash to parse the news into structured JSON (Title, Location, Casualties, etc.).
+    3.  **Server-Side Filtering**: Rejects incidents where only attackers/terrorists were neutralized, ensuring stats reflect the true toll on the populace and security forces.
+    4.  Checks for duplicates in the database via strict hashing and fuzzy matching.
+    5.  Saves valid new incidents.
+
+## 🧹 Data Integrity & Cleanup
+
+A dedicated cleanup tool is available to retroactively sanitize the database of "attacker-killed" records (e.g., "Troops neutralized 30 terrorists") that may have been ingested.
+
+- **Endpoint**: `POST /api/cleanup`
+- **Headers**: `x-cron-secret: <CRON_SECRET>`
+- **Body**: `{ "dryRun": true }` (default) or `{ "dryRun": false }` (delete mode)
+
+The cleanup logic uses regex patterns to identify casualty reports associated purely with insurgents, while protecting records that mention civilian or security force victims (e.g., "Soldiers killed", "Professor abducted").
 
 ## 🤝 Contributing
 
