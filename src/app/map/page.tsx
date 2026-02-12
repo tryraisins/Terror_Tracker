@@ -60,7 +60,7 @@ export default function ThreatMapPage() {
 
     async function fetchMapData() {
         try {
-            const res = await fetch("/api/attacks?limit=1000&sort=date&order=desc");
+            const res = await fetch("/api/attacks?limit=1000&sort=date_desc", { cache: "no-store" });
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
 
