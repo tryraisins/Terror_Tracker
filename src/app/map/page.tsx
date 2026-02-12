@@ -8,54 +8,9 @@ import {
     XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
+import { NIGERIA_MAP_DATA, StateMapData } from "@/lib/mapData";
 
-// Precise Nigeria vector path (simplified for performance)
-// ViewBox: 0 0 800 640
-const NIGERIA_PATH = "M64.5,502.8 L64.5,502.8 L59.6,478.4 L69.3,456.4 L57.1,434.4 L57.1,434.4 L62,410 L81.5,402.7 L88.8,375.8 L76.6,356.3 L88.8,327 L88.8,295.2 L120.5,234.2 L149.8,209.8 L154.7,148.8 L164.5,126.8 L201.1,104.8 L223.1,68.2 L264.6,36.5 L303.7,29.1 L315.9,34 L369.6,26.7 L391.6,24.2 L455.1,19.4 L479.5,21.8 L540.6,31.6 L616.3,43.8 L677.3,73.1 L694.4,92.6 L718.8,119.5 L731.1,136.6 L750.6,183 L772.6,205 L775,224.5 L775,241.6 L792.1,263.6 L794.6,283.1 L784.8,300.2 L770.1,317.3 L760.4,324.6 L755.5,339.3 L748.2,341.7 L723.7,332 L699.3,310 L689.5,310 L665.1,317.3 L657.8,324.6 L648,322.2 L640.7,305.1 L626,295.3 L606.5,295.3 L589.4,307.5 L567.4,324.6 L552.8,346.6 L540.6,375.9 L523.5,397.9 L496.6,432 L477.1,454 L460,473.5 L428.2,490.6 L416,505.3 L389.2,497.9 L359.9,493 L328.1,495.5 L298.8,495.5 L269.5,476 L237.8,468.6 L213.3,454 L193.8,451.5 L176.7,461.3 L164.5,488.2 L149.8,505.3 L125.4,529.7 L98.5,527.2 L64.5,502.8 Z";
-
-// State centers mapped to the 800x640 viewBox
-const STATE_POSITIONS: Record<string, { x: number; y: number; }> = {
-    "Abia": { x: 380, y: 500 },
-    "Adamawa": { x: 700, y: 260 },
-    "Akwa Ibom": { x: 400, y: 530 },
-    "Anambra": { x: 350, y: 460 },
-    "Bauchi": { x: 500, y: 200 },
-    "Bayelsa": { x: 300, y: 530 },
-    "Benue": { x: 430, y: 370 },
-    "Borno": { x: 720, y: 130 },
-    "Cross River": { x: 440, y: 480 },
-    "Delta": { x: 280, y: 470 },
-    "Ebonyi": { x: 410, y: 460 },
-    "Edo": { x: 280, y: 410 },
-    "Ekiti": { x: 240, y: 370 },
-    "Enugu": { x: 380, y: 440 },
-    "FCT": { x: 350, y: 290 },
-    "Gombe": { x: 620, y: 220 },
-    "Imo": { x: 360, y: 490 },
-    "Jigawa": { x: 480, y: 100 },
-    "Kaduna": { x: 360, y: 200 },
-    "Kano": { x: 430, y: 110 },
-    "Katsina": { x: 360, y: 60 },
-    "Kebbi": { x: 150, y: 100 },
-    "Kogi": { x: 320, y: 350 },
-    "Kwara": { x: 200, y: 300 },
-    "Lagos": { x: 130, y: 440 },
-    "Nasarawa": { x: 400, y: 320 },
-    "Niger": { x: 250, y: 250 },
-    "Ogun": { x: 140, y: 400 },
-    "Ondo": { x: 220, y: 400 },
-    "Osun": { x: 190, y: 380 },
-    "Oyo": { x: 160, y: 350 },
-    "Plateau": { x: 480, y: 280 },
-    "Rivers": { x: 340, y: 540 },
-    "Sokoto": { x: 190, y: 60 },
-    "Taraba": { x: 600, y: 340 },
-    "Yobe": { x: 650, y: 120 },
-    "Zamfara": { x: 270, y: 110 },
-};
-
-interface StateData {
-    state: string;
+interface StateData extends StateMapData {
     count: number;
     killed: number;
     injured: number;
@@ -70,16 +25,16 @@ export default function ThreatMapPage() {
     const svgRef = useRef<SVGSVGElement>(null);
 
     useEffect(() => {
-        // Initialize state data structure with 0s for all states ensure list is never empty
+        // Initialize state data from the imported map data
         const initialData: Record<string, StateData> = {};
-        Object.keys(STATE_POSITIONS).forEach(state => {
-            initialData[state] = {
-                state,
+        Object.values(NIGERIA_MAP_DATA).forEach((s) => {
+            initialData[s.name] = {
+                ...s,
                 count: 0,
                 killed: 0,
                 injured: 0,
                 kidnapped: 0,
-                recentAttacks: []
+                recentAttacks: [],
             };
         });
         setStateData(initialData);
@@ -89,12 +44,17 @@ export default function ThreatMapPage() {
 
     useEffect(() => {
         if (!loading && svgRef.current) {
+            // Animate dots
             const dots = svgRef.current.querySelectorAll(".threat-dot");
             gsap.fromTo(
                 dots,
                 { scale: 0, opacity: 0, transformOrigin: "center center" },
                 { scale: 1, opacity: 1, duration: 0.5, stagger: 0.02, ease: "back.out(1.7)" }
             );
+
+            // Animate paths (states)
+            const paths = svgRef.current.querySelectorAll(".state-path");
+            gsap.fromTo(paths, { opacity: 0 }, { opacity: 1, duration: 1, stagger: 0.01 });
         }
     }, [loading]);
 
@@ -104,22 +64,26 @@ export default function ThreatMapPage() {
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
 
-            setStateData(prev => {
+            setStateData((prev) => {
                 const next = { ...prev };
 
                 for (const attack of data.attacks || []) {
-                    // Normalize state name (e.g. "Lagos State" -> "Lagos")
+                    // Normalize state name
                     let stateName = attack.location?.state || "Unknown";
                     stateName = stateName.replace(/\s+state$/i, "").trim();
 
-                    // Handle FCT
-                    if (stateName.toLowerCase().includes("abuja") || stateName.toLowerCase().includes("capital")) {
-                        stateName = "FCT";
+                    // Handle FCT variations
+                    if (
+                        stateName.toLowerCase().includes("abuja") ||
+                        stateName.toLowerCase().includes("capital") ||
+                        stateName.toLowerCase() === "fct"
+                    ) {
+                        stateName = "Federal Capital Territory";
                     }
 
-                    // Case-insensitive match against our map keys
-                    const matchedKey = Object.keys(STATE_POSITIONS).find(
-                        k => k.toLowerCase() === stateName.toLowerCase()
+                    // Case-insensitive match
+                    const matchedKey = Object.keys(next).find(
+                        (k) => k.toLowerCase() === stateName.toLowerCase()
                     );
 
                     if (matchedKey) {
@@ -158,11 +122,18 @@ export default function ThreatMapPage() {
         return 6 + intensity * 14;
     }
 
+    function getFillOpacity(count: number): number {
+        if (count === 0) return 0.2; // Base visibility
+        // Scale opacity from 0.3 to 0.8 based on intensity
+        return 0.3 + (count / maxCount) * 0.5;
+    }
+
     const selected = selectedState ? stateData[selectedState] : null;
 
-    // Sort states by count for the sidebar ranking
+    // Sort states by count for ranking
     const rankedStates = Object.values(stateData)
-        .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state)); // Secondary sort by name
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+        .slice(0, 37); // Show all states in list if needed, or stick to top 15
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
@@ -188,8 +159,7 @@ export default function ThreatMapPage() {
                     Nigeria Threat Map
                 </h1>
                 <p className="text-sm max-w-2xl" style={{ color: "var(--text-secondary)" }}>
-                    Geographic distribution of recorded attacks. Dot size and color represent incident
-                    frequency. Click any state to view details.
+                    Geographic distribution of recorded attacks. Hover over states to see details.
                 </p>
             </div>
 
@@ -198,7 +168,7 @@ export default function ThreatMapPage() {
                 <div className="lg:col-span-2">
                     <div
                         className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20"
-                        style={{ minHeight: "500px" }}
+                        style={{ minHeight: "600px" }}
                     >
                         {loading ? (
                             <div className="flex items-center justify-center h-full w-full absolute inset-0 z-10 bg-black/10 backdrop-blur-sm">
@@ -208,12 +178,11 @@ export default function ThreatMapPage() {
 
                         <svg
                             ref={svgRef}
-                            viewBox="0 0 800 640"
-                            className="w-full h-auto max-h-[600px]"
+                            viewBox="0 0 1000 812"
+                            className="w-full h-auto max-h-[700px]"
                             style={{ filter: "drop-shadow(0 0 20px rgba(0,0,0,0.3))" }}
                         >
                             <defs>
-                                {/* Glow filter for dots */}
                                 <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
                                     <feGaussianBlur stdDeviation="2.5" result="blur" />
                                     <feMerge>
@@ -221,43 +190,64 @@ export default function ThreatMapPage() {
                                         <feMergeNode in="SourceGraphic" />
                                     </feMerge>
                                 </filter>
-                                <linearGradient id="mapGradient" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0%" stopColor="var(--bg-secondary)" />
-                                    <stop offset="100%" stopColor="var(--border-subtle)" />
-                                </linearGradient>
                             </defs>
 
-                            {/* Nigeria Map Path */}
-                            <path
-                                d={NIGERIA_PATH}
-                                fill="url(#mapGradient)"
-                                stroke="var(--border-glass)"
-                                strokeWidth="1.5"
-                                className="transition-all duration-300"
-                            />
+                            {/* Render States */}
+                            {Object.values(stateData).map((state) => {
+                                const isSelected = selectedState === state.name;
+                                const hasActivity = state.count > 0;
+                                const fillColor = hasActivity ? getDotColor(state.count) : "var(--text-muted)";
 
-                            {/* Threat Dots */}
-                            {Object.entries(STATE_POSITIONS).map(([state, pos]) => {
-                                const data = stateData[state];
-                                if (!data) return null;
+                                return (
+                                    <g key={state.id}
+                                        onClick={() => setSelectedState(isSelected ? null : state.name)}
+                                        className="cursor-pointer group transition-opacity duration-300"
+                                    >
+                                        <path
+                                            d={state.path}
+                                            className="state-path transition-all duration-300"
+                                            fill={isSelected ? "rgba(255,255,255,0.1)" : "transparent"} // Fill only on selection/hover usually, or use low opacity
+                                            style={{
+                                                fill: isSelected ? "var(--accent)" : "transparent",
+                                                fillOpacity: isSelected ? 0.1 : 0.02,
+                                                stroke: isSelected ? "var(--text-primary)" : "var(--border-subtle)",
+                                                strokeWidth: isSelected ? 1.5 : 0.5
+                                            }}
+                                        />
 
-                                const radius = getDotRadius(data.count);
-                                const color = getDotColor(data.count);
-                                const isSelected = selectedState === state;
-                                const hasActivity = data.count > 0;
+                                        {/* Hover Overlay Path (invisible but broader target) */}
+                                        <path
+                                            d={state.path}
+                                            fill="transparent"
+                                            className="opacity-0 group-hover:opacity-10 transition-opacity duration-200"
+                                            style={{ fill: "var(--text-primary)" }}
+                                        />
+                                    </g>
+                                );
+                            })}
+
+                            {/* Render Dots on top */}
+                            {Object.values(stateData).map((state) => {
+                                const isSelected = selectedState === state.name;
+                                const hasActivity = state.count > 0;
+                                const color = getDotColor(state.count);
+                                const radius = getDotRadius(state.count);
 
                                 return (
                                     <g
-                                        key={state}
+                                        key={`dot-${state.id}`}
                                         className="threat-dot cursor-pointer group"
-                                        onClick={() => setSelectedState(isSelected ? null : state)}
-                                        style={{ transformOrigin: `${pos.x}px ${pos.y}px`, opacity: hasActivity || isSelected ? 1 : 0.4 }}
+                                        onClick={(e) => {
+                                            e.stopPropagation(); // Prevent double trigger
+                                            setSelectedState(isSelected ? null : state.name);
+                                        }}
+                                        style={{ transformOrigin: `${state.x}px ${state.y}px`, opacity: hasActivity || isSelected ? 1 : 0.6 }}
                                     >
                                         {/* Pulse ring for active states */}
                                         {hasActivity && (
                                             <circle
-                                                cx={pos.x}
-                                                cy={pos.y}
+                                                cx={state.x}
+                                                cy={state.y}
                                                 r={radius + 8}
                                                 fill="none"
                                                 stroke={color}
@@ -279,28 +269,27 @@ export default function ThreatMapPage() {
                                             </circle>
                                         )}
 
-                                        {/* Main Dot */}
                                         <circle
-                                            cx={pos.x}
-                                            cy={pos.y}
+                                            cx={state.x}
+                                            cy={state.y}
                                             r={radius}
                                             fill={isSelected ? "#fff" : color}
                                             filter={hasActivity ? "url(#glow)" : ""}
                                             className="transition-all duration-300 group-hover:scale-125"
                                         />
 
-                                        {/* State Label (Always visible for context) */}
+                                        {/* State Label */}
                                         <text
-                                            x={pos.x}
-                                            y={pos.y + radius + 10}
+                                            x={state.x}
+                                            y={state.y + radius + 12}
                                             textAnchor="middle"
                                             fill="var(--text-muted)"
-                                            fontSize="8"
+                                            fontSize="10"
                                             fontWeight="500"
                                             className={`transition-opacity duration-300 ${isSelected || hasActivity ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                            style={{ pointerEvents: "none" }}
+                                            style={{ pointerEvents: "none", textShadow: "0 2px 4px rgba(0,0,0,0.8)" }}
                                         >
-                                            {state}
+                                            {state.name === "Federal Capital Territory" ? "FCT" : state.name}
                                         </text>
                                     </g>
                                 );
@@ -308,14 +297,14 @@ export default function ThreatMapPage() {
                         </svg>
 
                         {/* Legend Overlay */}
-                        <div className="absolute bottom-4 left-4 p-3 rounded-xl glass border border-white/5">
+                        <div className="absolute bottom-4 left-4 p-3 rounded-xl glass border border-white/5 pointer-events-none">
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Intensity</span>
                                 {[
                                     { color: "var(--color-safe)", label: "Low Activity" },
                                     { color: "var(--color-caution)", label: "Moderate" },
                                     { color: "var(--color-urgent)", label: "Critical" },
-                                ].map(l => (
+                                ].map((l) => (
                                     <div key={l.label} className="flex items-center gap-2">
                                         <span className="w-2 h-2 rounded-full" style={{ background: l.color }} />
                                         <span className="text-[10px] text-secondary">{l.label}</span>
@@ -336,7 +325,7 @@ export default function ThreatMapPage() {
                                     className="text-lg font-bold"
                                     style={{ fontFamily: "var(--font-heading)" }}
                                 >
-                                    {selected.state}
+                                    {selected.name}
                                 </h3>
                                 <button
                                     onClick={() => setSelectedState(null)}
@@ -362,7 +351,6 @@ export default function ThreatMapPage() {
                                 </div>
                             </div>
 
-                            {/* Recent attacks in state */}
                             {selected.recentAttacks.length > 0 ? (
                                 <div>
                                     <h4
@@ -383,7 +371,9 @@ export default function ThreatMapPage() {
                                         </p>
                                         <div className="flex items-center gap-2 mt-1">
                                             <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                                {selected.recentAttacks[0].date ? format(new Date(selected.recentAttacks[0].date), "MMM d") : ""}
+                                                {selected.recentAttacks[0].date
+                                                    ? format(new Date(selected.recentAttacks[0].date), "MMM d")
+                                                    : ""}
                                             </span>
                                         </div>
                                     </div>
@@ -394,7 +384,7 @@ export default function ThreatMapPage() {
                         </div>
                     )}
 
-                    {/* Ranked States List - Scrollable */}
+                    {/* Ranked States List */}
                     <div className="glass-card rounded-2xl p-5 flex-1 overflow-hidden flex flex-col">
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
@@ -409,17 +399,15 @@ export default function ThreatMapPage() {
                         <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 custom-scrollbar">
                             {rankedStates.map((state, i) => {
                                 const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
-                                const isActive = selectedState === state.state;
+                                const isActive = selectedState === state.name;
                                 return (
                                     <button
-                                        key={state.state}
-                                        onClick={() =>
-                                            setSelectedState(isActive ? null : state.state)
-                                        }
+                                        key={state.name}
+                                        onClick={() => setSelectedState(isActive ? null : state.name)}
                                         className="w-full text-left p-2.5 rounded-xl transition-all duration-200 hover:bg-[var(--border-subtle)] group relative overflow-hidden"
                                         style={{
                                             background: isActive ? "var(--border-subtle)" : "transparent",
-                                            opacity: state.count === 0 && !isActive ? 0.6 : 1
+                                            opacity: state.count === 0 && !isActive ? 0.6 : 1,
                                         }}
                                     >
                                         {/* Background bar for activity */}
@@ -448,13 +436,15 @@ export default function ThreatMapPage() {
                                                     className="text-sm font-medium"
                                                     style={{ color: "var(--text-primary)" }}
                                                 >
-                                                    {state.state}
+                                                    {state.name}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <span
                                                     className="text-xs font-bold"
-                                                    style={{ color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)" }}
+                                                    style={{
+                                                        color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)",
+                                                    }}
                                                 >
                                                     {state.count}
                                                 </span>
