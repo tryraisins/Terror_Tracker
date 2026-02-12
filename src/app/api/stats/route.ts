@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
       Attack.find({})
         .sort({ date: -1 })
         .limit(5)
-        .select("title date location group casualties status")
+        .select("title date location group casualties status sources")
         .lean(),
     ]);
 
@@ -117,13 +117,25 @@ export async function GET(req: NextRequest) {
           killed: g.killed,
         })
       ),
-      byMonth: byMonth.map(
-        (m: { _id: number; count: number; killed: number }) => ({
-          month: m._id,
-          count: m.count,
-          killed: m.killed,
-        })
-      ),
+      byMonth: (() => {
+        // Build a lookup from the aggregation results
+        const monthMap = new Map<number, { count: number; killed: number }>();
+        byMonth.forEach((m: { _id: number; count: number; killed: number }) => {
+          monthMap.set(m._id, { count: m.count, killed: m.killed });
+        });
+        // Fill in all months from Jan to current month with zeros where no data exists
+        const currentMonth = now.getMonth() + 1; // 1-indexed
+        const allMonths = [];
+        for (let i = 1; i <= currentMonth; i++) {
+          const data = monthMap.get(i);
+          allMonths.push({
+            month: i,
+            count: data?.count || 0,
+            killed: data?.killed || 0,
+          });
+        }
+        return allMonths;
+      })(),
       recentAttacks,
     });
 

@@ -18,7 +18,7 @@ const features = [
         icon: CpuChipIcon,
         title: "AI-Powered Collection",
         description:
-            "Uses Google Gemini 2.5 Flash with web search grounding to scan verified news sources, security reports, and field correspondents for the latest incident data.",
+            "Uses Google Gemini with web search grounding to scan verified news sources, security reports, and field correspondents for the latest incident data.",
     },
     {
         icon: ClockIcon,

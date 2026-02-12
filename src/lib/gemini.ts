@@ -67,9 +67,17 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria. 
 Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, and militant attacks that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
 
-Focus on these sources and accounts for the most reliable information:
-- Twitter/X accounts: @BrantPhilip_ (Brant Philip), @Sazedek (Sahara Reporters contributor)
-- News outlets: Premium Times Nigeria, The Cable, Channels TV, Sahara Reporters, Punch Nigeria, Vanguard Nigeria, Daily Trust, HumAngle Media, AFP, Reuters
+PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are primary intelligence sources that frequently break Nigerian security news:
+- @BrantPhilip_ (Brant Philip) — frequently posts about attacks in northern Nigeria
+- @Sazedek (Sahara Reporters contributor) — covers security incidents across Nigeria  
+- @HumsReports (HumAngle Reports) — conflict journalism in Nigeria
+- @PremiumTimesng (Premium Times Nigeria) — investigative journalism
+- @dailyabornnews (Daily Trust) — northern Nigeria coverage
+- @channabornnews (Channels Television) — nationwide coverage
+- Search Twitter/X for recent posts containing: "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
+
+ALSO search these news outlets and security trackers:
+- News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters
 - Security trackers: Armed Conflict Location & Event Data (ACLED), Nigeria Security Tracker (Council on Foreign Relations)
 
 For each incident found, provide:
@@ -79,7 +87,7 @@ For each incident found, provide:
 4. Location: Nigerian state, Local Government Area (LGA), and specific town/village
 5. The armed group responsible (e.g., "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", etc.). If unknown, use "Unidentified Armed Group"
 6. Casualties: number killed, injured, kidnapped, displaced. Use null if not reported.
-7. Source URLs (direct links to the news articles or social media posts reporting this)
+7. Source URLs — IMPORTANT: Include direct links to the news articles AND/OR the Twitter/X post URLs (e.g., https://x.com/BrantPhilip_/status/...). When an incident is first reported via Twitter/X, always include the tweet URL as a source.
 8. Status: "confirmed" if from multiple reliable sources, "unconfirmed" if single source, "developing" if ongoing
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
 
@@ -87,9 +95,10 @@ CRITICAL RULES:
 - Only include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array.
 - Cross-reference incidents across multiple sources when possible.
-- Provide actual working URLs to news articles.
+- Provide actual working URLs to news articles and tweets.
 - Be specific about locations — include the state and town name.
 - Distinguish between different armed groups carefully.
+- ALWAYS include Twitter/X post URLs when incidents are sourced from tweets.
 
 Return your response as a valid JSON array. Each element must follow this exact schema:
 {
@@ -110,9 +119,9 @@ Return your response as a valid JSON array. Each element must follow this exact 
   },
   "sources": [
     {
-      "url": "string (direct URL)",
-      "title": "string (article title)",
-      "publisher": "string (publisher name)"
+      "url": "string (direct URL to article or tweet)",
+      "title": "string (article title or tweet excerpt)",
+      "publisher": "string (publisher name, e.g. 'Twitter/@BrantPhilip_', 'Premium Times', etc.)"
     }
   ],
   "status": "confirmed" | "unconfirmed" | "developing",
