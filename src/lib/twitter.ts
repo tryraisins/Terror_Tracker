@@ -1,4 +1,8 @@
 import { Scraper, SearchMode } from "@the-convocation/twitter-scraper";
+import {
+  cycleTLSFetch,
+  cycleTLSExit,
+} from "@the-convocation/twitter-scraper/cycletls";
 
 /**
  * Twitter/X accounts to monitor for Nigerian security incidents.
@@ -68,6 +72,7 @@ let isLoggedIn = false;
 
 /**
  * Get or create the Twitter scraper instance.
+ * Uses CycleTLS to bypass Cloudflare bot detection (mimics Chrome TLS fingerprint).
  * Handles login with cookie persistence.
  */
 async function getScraper(): Promise<Scraper> {
@@ -75,7 +80,10 @@ async function getScraper(): Promise<Scraper> {
     return scraperInstance;
   }
 
-  const scraper = new Scraper();
+  // Use CycleTLS fetch to bypass Cloudflare's TLS fingerprint detection
+  const scraper = new Scraper({
+    fetch: cycleTLSFetch,
+  });
 
   const username = process.env.TWITTER_USERNAME;
   const password = process.env.TWITTER_PASSWORD;
@@ -107,7 +115,7 @@ async function getScraper(): Promise<Scraper> {
     }
 
     // Fresh login
-    console.log("[TWITTER] Logging in...");
+    console.log("[TWITTER] Logging in with CycleTLS...");
     await scraper.login(username, password, email);
     isLoggedIn = true;
     scraperInstance = scraper;
@@ -123,6 +131,18 @@ async function getScraper(): Promise<Scraper> {
   } catch (error) {
     console.error("[TWITTER] Login failed:", error);
     throw error;
+  }
+}
+
+/**
+ * Cleanup CycleTLS resources. Call this when done with all Twitter operations.
+ */
+export async function cleanupTwitter(): Promise<void> {
+  try {
+    cycleTLSExit();
+    console.log("[TWITTER] CycleTLS cleanup complete");
+  } catch {
+    // Ignore cleanup errors
   }
 }
 
@@ -334,5 +354,8 @@ export async function fetchAllRelevantTweets(): Promise<ScrapedTweet[]> {
   } catch (error) {
     console.error("[TWITTER] Fatal error:", error);
     return [];
+  } finally {
+    // Always cleanup CycleTLS resources
+    await cleanupTwitter();
   }
 }

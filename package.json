@@ -12,6 +12,7 @@
     "@google/generative-ai": "^0.24.1",
     "@heroicons/react": "^2.2.0",
     "@the-convocation/twitter-scraper": "^0.21.1",
+    "cycletls": "^2.0.5",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.4",
     "gsap": "^3.14.2",
