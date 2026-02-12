@@ -22,6 +22,7 @@ export interface RawAttackData {
     title: string;
     publisher: string;
   }[];
+  civilianCasualties: boolean;
   status: "confirmed" | "unconfirmed" | "developing";
   tags: string[];
 }
@@ -86,7 +87,7 @@ For each incident found, provide:
 3. Exact date and time (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
 4. Location: Nigerian state, Local Government Area (LGA), and specific town/village
 5. The armed group responsible (e.g., "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", etc.). If unknown, use "Unidentified Armed Group"
-6. Casualties: number killed, injured, kidnapped, displaced. Use null if not reported.
+6. Casualties: number of CIVILIANS and SECURITY FORCES killed, injured, kidnapped, displaced. Do NOT include terrorists, attackers, insurgents, bandits, or militants in the killed or injured counts. Only count victims (civilians, soldiers, police, vigilantes). Use null if not reported.
 7. Source URLs — IMPORTANT: Include direct links to the news articles AND/OR the Twitter/X post URLs (e.g., https://x.com/BrantPhilip_/status/...). When an incident is first reported via Twitter/X, always include the tweet URL as a source.
 8. Status: "confirmed" if from multiple reliable sources, "unconfirmed" if single source, "developing" if ongoing
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
@@ -99,6 +100,8 @@ CRITICAL RULES:
 - Be specific about locations — include the state and town name.
 - Distinguish between different armed groups carefully.
 - ALWAYS include Twitter/X post URLs when incidents are sourced from tweets.
+- CASUALTY COUNTING: The killed and injured counts must ONLY include civilians and security forces (soldiers, police). NEVER count dead or injured terrorists, attackers, insurgents, bandits, or militants. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed by military") with zero civilian or security force casualties, DO NOT include that incident at all.
+- Set "civilianCasualties" to true if any civilians or security forces were killed, injured, kidnapped, or displaced. Set to false if ONLY attackers were killed/injured.
 
 Return your response as a valid JSON array. Each element must follow this exact schema:
 {
@@ -112,11 +115,12 @@ Return your response as a valid JSON array. Each element must follow this exact 
   },
   "group": "string",
   "casualties": {
-    "killed": number or null,
-    "injured": number or null,
+    "killed": number or null (civilians and security forces ONLY),
+    "injured": number or null (civilians and security forces ONLY),
     "kidnapped": number or null,
     "displaced": number or null
   },
+  "civilianCasualties": true or false,
   "sources": [
     {
       "url": "string (direct URL to article or tweet)",

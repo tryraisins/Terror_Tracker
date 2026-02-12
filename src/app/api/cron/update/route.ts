@@ -32,11 +32,35 @@ export async function POST(req: NextRequest) {
         return;
       }
 
+      // Filter out incidents where only terrorists/attackers were killed
+      // We only want incidents involving civilian or security force casualties
+      const filteredAttacks = rawAttacks.filter((attack) => {
+        // If Gemini explicitly marked no civilian casualties, skip
+        if (attack.civilianCasualties === false) {
+          console.log(`[CRON] Skipping attacker-only incident: ${attack.title}`);
+          return false;
+        }
+
+        // Extra safety: if all casualty counts are 0 or null, still include 
+        // (could be kidnapping/displacement or developing situation)
+        const { killed, injured, kidnapped, displaced } = attack.casualties || {};
+        const hasCasualties = (killed && killed > 0) || (injured && injured > 0) || 
+                              (kidnapped && kidnapped > 0) || (displaced && displaced > 0);
+        
+        // If no casualties at all but status is "developing", include it
+        if (!hasCasualties && attack.status === "developing") return true;
+        
+        // If it has casualties and civilianCasualties wasn't explicitly false, include
+        return true;
+      });
+
+      console.log(`[CRON] After filtering: ${filteredAttacks.length} incidents with civilian casualties (removed ${rawAttacks.length - filteredAttacks.length} attacker-only incidents)`);
+
       let saved = 0;
       let duplicates = 0;
       let errors = 0;
 
-      for (const rawAttack of rawAttacks) {
+      for (const rawAttack of filteredAttacks) {
         try {
           const hash = generateAttackHash(rawAttack);
 
@@ -125,7 +149,7 @@ export async function POST(req: NextRequest) {
       }
 
       console.log(
-        `[CRON] Update complete — processed: ${rawAttacks.length}, saved: ${saved}, duplicates: ${duplicates}, errors: ${errors}`
+        `[CRON] Update complete — fetched: ${rawAttacks.length}, filtered: ${filteredAttacks.length}, saved: ${saved}, duplicates: ${duplicates}, errors: ${errors}`
       );
     } catch (error) {
       console.error("[CRON] Fatal error:", error);
