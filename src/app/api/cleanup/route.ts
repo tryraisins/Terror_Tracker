@@ -52,13 +52,33 @@ export async function POST(req: NextRequest) {
       const describesAttackerDeaths = /\b(neutrali[sz]ed?|eliminat(ed?|ing)|kill(ed|s|ing)?|took\s*out|wiped\s*out|gunned\s*down)\b.*\b(terrorists?|insurgents?|bandits?|militants?|iswap|boko\s*haram|fighters?|combatants?|gunmen|criminals?|kidnappers?)\b/i.test(combined) ||
         /\b(terrorists?|insurgents?|bandits?|militants?|iswap|boko\s*haram|fighters?|combatants?|gunmen|criminals?|kidnappers?)\b.*\b(neutrali[sz]ed?|eliminat(ed?|ing)|kill(ed|s|ing)?|took\s*out|wiped\s*out|gunned\s*down)\b/i.test(combined);
 
-      // Check if there are ANY mentions of civilian harm
+      // Check if there are ANY mentions of civilian/non-combatant/security force harm
+      // Expanded whitelist to include security forces and specific professions
       const mentionsCivilianHarm = /\b(civilians?\s*(killed|died|injured|wounded|kidnapped|abducted|displaced|affected|hurt|attacked|massacred|slaughtered))\b/i.test(combined) ||
-        /\b(villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children)\s*(were\s*)?(killed|died|injured|wounded|kidnapped|abducted|displaced|attacked)\b/i.test(combined) ||
-        /\b(killed|attacked|kidnapped|abducted)\s*(civilians?|villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children)\b/i.test(combined);
+        /\b(villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children|teachers?|lecturers?|professors?|doctors?|nurses?|drivers?|commuters?|pastors?|imams?|clerics?|traditional\s*rulers?|monarchs?|youths?|traders?|marketers?|soldiers?|troops?|police?|officers?|personnel?|vigilantes?|hunters?|security\s*operatives?)\s*(were\s*)?(killed|died|injured|wounded|kidnapped|abducted|displaced|attacked|missing|ambushed)\b/i.test(combined) ||
+        /\b(killed|attacked|kidnapped|abducted|murdered|assassinated|ambushed)\s*(civilians?|villagers?|residents?|farmers?|herders?|travell?ers?|passengers?|worshippers?|students?|women|children|teachers?|lecturers?|professors?|doctors?|nurses?|drivers?|commuters?|pastors?|imams?|clerics?|traditional\s*rulers?|monarchs?|youths?|traders?|marketers?|soldiers?|troops?|police?|officers?|personnel?|vigilantes?|hunters?|security\s*operatives?)\b/i.test(combined);
+
+      // Check for active voice where the group is the subject (e.g., "ISWAP kills...", "Bandits kidnap...")
+      // This almost always indicates a civilian/security force attack, NOT a counter-insurgency op
+        const isActiveAttack = /\b(boko\s*haram|iswap|bandits?|gunmen|terrorists?|insurgents?|militants?)\s+(kill(ed|s|ing)?|abduct(ed|s|ing)?|attack(ed|s|ing)?|kidnap(ped|s|ping)?|storm(ed|s|ing)?|invad(ed|s|ing)?|raid(ed|s|ing)?)/i.test(title);
 
       // Check if "rescued" is a key part (military rescuing kidnapped persons is a positive outcome, not an attack)
       const isRescueOperation = /\b(rescued?|freed?|liberat(ed?|ing))\s*\d*\s*(abducted|kidnapped|captive|hostage)/i.test(combined);
+
+      // 1. If it mentions civilian harm explicitly, KEEP IT
+      if (mentionsCivilianHarm) continue;
+
+      // 2. If it's an active attack by a group (e.g. "ISWAP kills professor"), KEEP IT
+      if (isActiveAttack) {
+          // Double check: if it says "Terrorists killed by troops", that's NOT an active attack by the group
+          // But "ISWAP kills professor" IS.
+          // The regex above checks for "Group VERB", so passive voice like "Terrorists were killed" won't match "Terrorists kill".
+          // However, "Terrorists killed" (past participle) matches "Terrorists killed" (active past tense).
+          // We need to be careful with "Sheriff killed" vs "Sheriff was killed".
+          
+          // Let's rely on the security operation check as a strong negative signal
+          if (!isSecurityOperation) continue; 
+      }
 
       if (isSecurityOperation && describesAttackerDeaths && !mentionsCivilianHarm) {
         // This looks like a military operation report, not a civilian attack
