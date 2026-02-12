@@ -112,8 +112,7 @@ const AttackSchema = new Schema<IAttack>(
   }
 );
 
-// Compound index for dedup queries
-AttackSchema.index({ hash: 1 }, { unique: true });
+// Compound indexes for query performance
 AttackSchema.index({ date: -1, "location.state": 1 });
 AttackSchema.index({ createdAt: -1 });
 

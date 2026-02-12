@@ -55,7 +55,7 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-preview-05-20",
+    model: "gemini-2.5-flash",
     // Enable Google Search as a tool
     tools: [{ googleSearch: {} } as any],
   });
