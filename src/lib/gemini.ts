@@ -65,7 +65,7 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   threeDaysAgo.setDate(today.getDate() - 3);
 
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria. 
-Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, and militant attacks that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
+Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
 
 PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are primary intelligence sources that frequently break Nigerian security news:
 - @BrantPhilip_ (Brant Philip) — frequently posts about attacks in northern Nigeria
@@ -74,7 +74,7 @@ PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are 
 - @PremiumTimesng (Premium Times Nigeria) — investigative journalism
 - @dailyabornnews (Daily Trust) — northern Nigeria coverage
 - @channabornnews (Channels Television) — nationwide coverage
-- Search Twitter/X for recent posts containing: "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
+- Search Twitter/X for recent posts containing: "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "unknown gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
 
 ALSO search these news outlets and security trackers:
 - News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters
