@@ -269,15 +269,8 @@ export default function DashboardPage() {
               No Incidents Recorded Yet
             </h3>
             <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-secondary)" }}>
-              The tracker will begin populating once the cron job is configured and starts
-              fetching data from news sources. Set up the cron job at{" "}
-              <a href="https://cron-job.org" target="_blank" rel="noopener noreferrer"
-                className="underline hover:text-blood-light transition-colors"
-                style={{ color: "var(--accent)" }}
-              >
-                cron-job.org
-              </a>{" "}
-              to trigger hourly updates.
+              The tracker will begin populating once it starts
+              fetching data from news sources.
             </p>
           </div>
         )}

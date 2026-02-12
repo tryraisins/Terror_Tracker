@@ -9,94 +9,50 @@ import {
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 
-// Nigerian state approximate center coordinates mapped to SVG viewBox (0 0 1000 1000)
-// Transform: x = (lon - 2.5) / (12.5) * 1000, y = (14.0 - lat) / (10.0) * 1000
+// Precise Nigeria vector path (simplified for performance)
+// ViewBox: 0 0 800 640
+const NIGERIA_PATH = "M64.5,502.8 L64.5,502.8 L59.6,478.4 L69.3,456.4 L57.1,434.4 L57.1,434.4 L62,410 L81.5,402.7 L88.8,375.8 L76.6,356.3 L88.8,327 L88.8,295.2 L120.5,234.2 L149.8,209.8 L154.7,148.8 L164.5,126.8 L201.1,104.8 L223.1,68.2 L264.6,36.5 L303.7,29.1 L315.9,34 L369.6,26.7 L391.6,24.2 L455.1,19.4 L479.5,21.8 L540.6,31.6 L616.3,43.8 L677.3,73.1 L694.4,92.6 L718.8,119.5 L731.1,136.6 L750.6,183 L772.6,205 L775,224.5 L775,241.6 L792.1,263.6 L794.6,283.1 L784.8,300.2 L770.1,317.3 L760.4,324.6 L755.5,339.3 L748.2,341.7 L723.7,332 L699.3,310 L689.5,310 L665.1,317.3 L657.8,324.6 L648,322.2 L640.7,305.1 L626,295.3 L606.5,295.3 L589.4,307.5 L567.4,324.6 L552.8,346.6 L540.6,375.9 L523.5,397.9 L496.6,432 L477.1,454 L460,473.5 L428.2,490.6 L416,505.3 L389.2,497.9 L359.9,493 L328.1,495.5 L298.8,495.5 L269.5,476 L237.8,468.6 L213.3,454 L193.8,451.5 L176.7,461.3 L164.5,488.2 L149.8,505.3 L125.4,529.7 L98.5,527.2 L64.5,502.8 Z";
+
+// State centers mapped to the 800x640 viewBox
 const STATE_POSITIONS: Record<string, { x: number; y: number; }> = {
-    "Abia": { x: 400, y: 860 },
-    "Adamawa": { x: 800, y: 470 },
-    "Akwa Ibom": { x: 424, y: 910 },
-    "Anambra": { x: 360, y: 780 },
-    "Bauchi": { x: 584, y: 370 },
-    "Bayelsa": { x: 310, y: 940 },
-    "Benue": { x: 504, y: 650 },
-    "Borno": { x: 860, y: 220 },
-    "Cross River": { x: 470, y: 830 },
-    "Delta": { x: 296, y: 850 },
-    "Ebonyi": { x: 448, y: 770 },
-    "Edo": { x: 280, y: 740 },
-    "Ekiti": { x: 246, y: 640 },
-    "Enugu": { x: 400, y: 740 },
-    "FCT": { x: 400, y: 490 },
-    "Gombe": { x: 700, y: 370 },
-    "Imo": { x: 370, y: 850 },
-    "Jigawa": { x: 560, y: 180 },
-    "Kaduna": { x: 410, y: 340 },
-    "Kano": { x: 500, y: 200 },
-    "Katsina": { x: 430, y: 110 },
-    "Kebbi": { x: 200, y: 150 },
-    "Kogi": { x: 350, y: 650 },
-    "Kwara": { x: 230, y: 540 },
-    "Lagos": { x: 110, y: 740 },
-    "Nasarawa": { x: 490, y: 550 },
-    "Niger": { x: 310, y: 400 },
-    "Ogun": { x: 120, y: 700 },
-    "Ondo": { x: 230, y: 680 },
-    "Osun": { x: 200, y: 640 },
-    "Oyo": { x: 160, y: 590 },
-    "Plateau": { x: 536, y: 480 },
-    "Rivers": { x: 370, y: 920 },
-    "Sokoto": { x: 250, y: 90 },
-    "Taraba": { x: 680, y: 580 },
-    "Yobe": { x: 770, y: 200 },
-    "Zamfara": { x: 320, y: 170 },
+    "Abia": { x: 380, y: 500 },
+    "Adamawa": { x: 700, y: 260 },
+    "Akwa Ibom": { x: 400, y: 530 },
+    "Anambra": { x: 350, y: 460 },
+    "Bauchi": { x: 500, y: 200 },
+    "Bayelsa": { x: 300, y: 530 },
+    "Benue": { x: 430, y: 370 },
+    "Borno": { x: 720, y: 130 },
+    "Cross River": { x: 440, y: 480 },
+    "Delta": { x: 280, y: 470 },
+    "Ebonyi": { x: 410, y: 460 },
+    "Edo": { x: 280, y: 410 },
+    "Ekiti": { x: 240, y: 370 },
+    "Enugu": { x: 380, y: 440 },
+    "FCT": { x: 350, y: 290 },
+    "Gombe": { x: 620, y: 220 },
+    "Imo": { x: 360, y: 490 },
+    "Jigawa": { x: 480, y: 100 },
+    "Kaduna": { x: 360, y: 200 },
+    "Kano": { x: 430, y: 110 },
+    "Katsina": { x: 360, y: 60 },
+    "Kebbi": { x: 150, y: 100 },
+    "Kogi": { x: 320, y: 350 },
+    "Kwara": { x: 200, y: 300 },
+    "Lagos": { x: 130, y: 440 },
+    "Nasarawa": { x: 400, y: 320 },
+    "Niger": { x: 250, y: 250 },
+    "Ogun": { x: 140, y: 400 },
+    "Ondo": { x: 220, y: 400 },
+    "Osun": { x: 190, y: 380 },
+    "Oyo": { x: 160, y: 350 },
+    "Plateau": { x: 480, y: 280 },
+    "Rivers": { x: 340, y: 540 },
+    "Sokoto": { x: 190, y: 60 },
+    "Taraba": { x: 600, y: 340 },
+    "Yobe": { x: 650, y: 120 },
+    "Zamfara": { x: 270, y: 110 },
 };
-
-// Simplified Nigeria outline SVG path
-const NIGERIA_OUTLINE = `
-  M 60,760 
-  C 60,720 62,680 70,640 
-  C 75,610 80,580 85,550 
-  C 90,520 88,490 90,460 
-  C 92,430 90,400 92,370 
-  C 95,330 100,290 110,250 
-  C 120,210 135,170 150,130 
-  C 160,100 170,75 190,55 
-  L 220,40 260,30 310,25 360,20 
-  L 420,18 480,20 540,25 
-  L 590,30 640,40 680,55 
-  C 700,65 720,80 740,95 
-  L 760,115 780,140 800,170 
-  L 820,200 840,230 850,260 
-  C 870,280 885,300 900,330 
-  C 920,360 935,385 945,400 
-  L 955,380 970,350 980,330 
-  L 990,300 995,270 990,240 
-  C 985,220 975,200 965,185 
-  L 960,210 950,240 940,270 
-  C 930,285 920,295 910,310 
-  L 900,330
-  M 900,330
-  C 890,350 880,370 870,395 
-  C 860,420 850,445 840,465 
-  C 830,490 815,515 800,535 
-  C 785,555 770,575 755,595 
-  C 740,615 720,635 700,650 
-  C 680,665 660,680 640,695 
-  L 610,720 580,745 560,770 
-  C 540,790 525,810 510,830 
-  L 490,855 475,880 465,905 
-  C 455,925 448,940 440,955 
-  L 420,960 400,955 380,945 
-  C 368,935 355,940 340,950 
-  L 315,960 290,950 268,935 
-  C 250,920 235,905 220,895 
-  L 200,880 175,860 155,840 
-  C 135,820 115,800 100,785 
-  L 80,770 60,760 Z
-`;
-
-// A simpler filled polygon for the Nigeria shape background
-const NIGERIA_POLYGON = "60,760 62,720 70,640 80,580 90,460 92,370 110,250 135,170 170,75 190,55 220,40 310,25 420,18 540,25 640,40 720,80 760,115 800,170 840,230 900,330 945,400 970,350 990,300 995,270 990,240 965,185 940,160 920,140 910,130 920,150 940,180 960,210 970,240 985,260 990,290 980,330 955,380 945,400 900,330 870,395 840,465 800,535 755,595 700,650 640,695 580,745 510,830 465,905 440,955 400,955 340,950 290,950 220,895 155,840 100,785 60,760";
 
 interface StateData {
     state: string;
@@ -114,6 +70,20 @@ export default function ThreatMapPage() {
     const svgRef = useRef<SVGSVGElement>(null);
 
     useEffect(() => {
+        // Initialize state data structure with 0s for all states ensure list is never empty
+        const initialData: Record<string, StateData> = {};
+        Object.keys(STATE_POSITIONS).forEach(state => {
+            initialData[state] = {
+                state,
+                count: 0,
+                killed: 0,
+                injured: 0,
+                kidnapped: 0,
+                recentAttacks: []
+            };
+        });
+        setStateData(initialData);
+
         fetchMapData();
     }, []);
 
@@ -123,41 +93,47 @@ export default function ThreatMapPage() {
             gsap.fromTo(
                 dots,
                 { scale: 0, opacity: 0, transformOrigin: "center center" },
-                { scale: 1, opacity: 1, duration: 0.5, stagger: 0.03, ease: "back.out(1.7)" }
+                { scale: 1, opacity: 1, duration: 0.5, stagger: 0.02, ease: "back.out(1.7)" }
             );
         }
-    }, [loading, stateData]);
+    }, [loading]);
 
     async function fetchMapData() {
         try {
-            const res = await fetch("/api/attacks?limit=500&sort=date&order=desc");
+            const res = await fetch("/api/attacks?limit=1000&sort=date&order=desc");
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
 
-            const grouped: Record<string, StateData> = {};
+            setStateData(prev => {
+                const next = { ...prev };
 
-            for (const attack of data.attacks || []) {
-                const state = attack.location?.state || "Unknown";
-                if (!grouped[state]) {
-                    grouped[state] = {
-                        state,
-                        count: 0,
-                        killed: 0,
-                        injured: 0,
-                        kidnapped: 0,
-                        recentAttacks: [],
-                    };
-                }
-                grouped[state].count++;
-                grouped[state].killed += attack.casualties?.killed || 0;
-                grouped[state].injured += attack.casualties?.injured || 0;
-                grouped[state].kidnapped += attack.casualties?.kidnapped || 0;
-                if (grouped[state].recentAttacks.length < 5) {
-                    grouped[state].recentAttacks.push(attack);
-                }
-            }
+                for (const attack of data.attacks || []) {
+                    // Normalize state name (e.g. "Lagos State" -> "Lagos")
+                    let stateName = attack.location?.state || "Unknown";
+                    stateName = stateName.replace(/\s+state$/i, "").trim();
 
-            setStateData(grouped);
+                    // Handle FCT
+                    if (stateName.toLowerCase().includes("abuja") || stateName.toLowerCase().includes("capital")) {
+                        stateName = "FCT";
+                    }
+
+                    // Case-insensitive match against our map keys
+                    const matchedKey = Object.keys(STATE_POSITIONS).find(
+                        k => k.toLowerCase() === stateName.toLowerCase()
+                    );
+
+                    if (matchedKey) {
+                        next[matchedKey].count++;
+                        next[matchedKey].killed += attack.casualties?.killed || 0;
+                        next[matchedKey].injured += attack.casualties?.injured || 0;
+                        next[matchedKey].kidnapped += attack.casualties?.kidnapped || 0;
+                        if (next[matchedKey].recentAttacks.length < 5) {
+                            next[matchedKey].recentAttacks.push(attack);
+                        }
+                    }
+                }
+                return next;
+            });
         } catch (err) {
             console.error("Error fetching map data:", err);
         } finally {
@@ -168,6 +144,7 @@ export default function ThreatMapPage() {
     const maxCount = Math.max(1, ...Object.values(stateData).map((s) => s.count));
 
     function getDotColor(count: number): string {
+        if (count === 0) return "var(--text-muted)";
         const intensity = count / maxCount;
         if (intensity > 0.7) return "var(--color-urgent)";
         if (intensity > 0.4) return "var(--color-ember)";
@@ -176,16 +153,16 @@ export default function ThreatMapPage() {
     }
 
     function getDotRadius(count: number): number {
+        if (count === 0) return 4;
         const intensity = count / maxCount;
-        return 6 + intensity * 18;
+        return 6 + intensity * 14;
     }
 
     const selected = selectedState ? stateData[selectedState] : null;
 
     // Sort states by count for the sidebar ranking
     const rankedStates = Object.values(stateData)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 15);
+        .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state)); // Secondary sort by name
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
@@ -220,220 +197,140 @@ export default function ThreatMapPage() {
                 {/* Map Area */}
                 <div className="lg:col-span-2">
                     <div
-                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden"
+                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20"
                         style={{ minHeight: "500px" }}
                     >
                         {loading ? (
-                            <div className="flex items-center justify-center h-96">
+                            <div className="flex items-center justify-center h-full w-full absolute inset-0 z-10 bg-black/10 backdrop-blur-sm">
                                 <div className="shimmer w-16 h-16 rounded-full" />
                             </div>
-                        ) : (
-                            <svg
-                                ref={svgRef}
-                                viewBox="0 0 1060 1000"
-                                className="w-full h-auto"
-                                style={{ maxHeight: "700px" }}
-                            >
-                                {/* Background grid */}
-                                <defs>
-                                    <pattern id="mapGrid" width="50" height="50" patternUnits="userSpaceOnUse">
-                                        <path
-                                            d="M 50 0 L 0 0 0 50"
-                                            fill="none"
-                                            stroke="var(--border-subtle)"
-                                            strokeWidth="0.5"
-                                            opacity="0.3"
-                                        />
-                                    </pattern>
-                                    {/* Glow filter for dots */}
-                                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                                        <feGaussianBlur stdDeviation="3" result="blur" />
-                                        <feMerge>
-                                            <feMergeNode in="blur" />
-                                            <feMergeNode in="SourceGraphic" />
-                                        </feMerge>
-                                    </filter>
-                                    {/* Pattern for Nigeria fill */}
-                                    <pattern id="nigeriaFill" width="8" height="8" patternUnits="userSpaceOnUse">
-                                        <rect width="8" height="8" fill="var(--bg-secondary)" />
-                                        <circle cx="4" cy="4" r="0.5" fill="var(--text-muted)" opacity="0.15" />
-                                    </pattern>
-                                </defs>
+                        ) : null}
 
-                                <rect width="1060" height="1000" fill="url(#mapGrid)" />
+                        <svg
+                            ref={svgRef}
+                            viewBox="0 0 800 640"
+                            className="w-full h-auto max-h-[600px]"
+                            style={{ filter: "drop-shadow(0 0 20px rgba(0,0,0,0.3))" }}
+                        >
+                            <defs>
+                                {/* Glow filter for dots */}
+                                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                                    <feMerge>
+                                        <feMergeNode in="blur" />
+                                        <feMergeNode in="SourceGraphic" />
+                                    </feMerge>
+                                </filter>
+                                <linearGradient id="mapGradient" x1="0" y1="0" x2="1" y2="1">
+                                    <stop offset="0%" stopColor="var(--bg-secondary)" />
+                                    <stop offset="100%" stopColor="var(--border-subtle)" />
+                                </linearGradient>
+                            </defs>
 
-                                {/* Nigeria outline - filled shape */}
-                                <polygon
-                                    points={NIGERIA_POLYGON}
-                                    fill="url(#nigeriaFill)"
-                                    stroke="var(--text-muted)"
-                                    strokeWidth="2"
-                                    opacity="0.85"
-                                />
+                            {/* Nigeria Map Path */}
+                            <path
+                                d={NIGERIA_PATH}
+                                fill="url(#mapGradient)"
+                                stroke="var(--border-glass)"
+                                strokeWidth="1.5"
+                                className="transition-all duration-300"
+                            />
 
-                                {/* Nigeria border path for a cleaner outline */}
-                                <path
-                                    d={NIGERIA_OUTLINE}
-                                    fill="none"
-                                    stroke="var(--text-muted)"
-                                    strokeWidth="2.5"
-                                    strokeLinejoin="round"
-                                    opacity="0.6"
-                                />
+                            {/* Threat Dots */}
+                            {Object.entries(STATE_POSITIONS).map(([state, pos]) => {
+                                const data = stateData[state];
+                                if (!data) return null;
 
-                                {/* Compass rose */}
-                                <g transform="translate(950, 900)" opacity="0.4">
-                                    <text
-                                        x="0"
-                                        y="-20"
-                                        textAnchor="middle"
-                                        fill="var(--text-muted)"
-                                        fontSize="14"
-                                        fontWeight="bold"
+                                const radius = getDotRadius(data.count);
+                                const color = getDotColor(data.count);
+                                const isSelected = selectedState === state;
+                                const hasActivity = data.count > 0;
+
+                                return (
+                                    <g
+                                        key={state}
+                                        className="threat-dot cursor-pointer group"
+                                        onClick={() => setSelectedState(isSelected ? null : state)}
+                                        style={{ transformOrigin: `${pos.x}px ${pos.y}px`, opacity: hasActivity || isSelected ? 1 : 0.4 }}
                                     >
-                                        N
-                                    </text>
-                                    <line x1="0" y1="-15" x2="0" y2="15" stroke="var(--text-muted)" strokeWidth="1.5" />
-                                    <polygon points="0,-15 -4,-8 4,-8" fill="var(--text-muted)" />
-                                </g>
-
-                                {/* State labels (for states without data - show as faint labels) */}
-                                {Object.entries(STATE_POSITIONS).map(([state, pos]) => {
-                                    const data = stateData[state];
-                                    if (data) return null; // Will be shown as dot
-                                    return (
-                                        <text
-                                            key={state}
-                                            x={pos.x}
-                                            y={pos.y}
-                                            textAnchor="middle"
-                                            dominantBaseline="central"
-                                            fill="var(--text-muted)"
-                                            fontSize="8"
-                                            opacity="0.4"
-                                        >
-                                            {state}
-                                        </text>
-                                    );
-                                })}
-
-                                {/* Threat dots */}
-                                {Object.entries(STATE_POSITIONS).map(([state, pos]) => {
-                                    const data = stateData[state];
-                                    if (!data) return null;
-
-                                    const radius = getDotRadius(data.count);
-                                    const color = getDotColor(data.count);
-                                    const isSelected = selectedState === state;
-
-                                    return (
-                                        <g
-                                            key={state}
-                                            className="threat-dot cursor-pointer"
-                                            onClick={() => setSelectedState(isSelected ? null : state)}
-                                            style={{ transformOrigin: `${pos.x}px ${pos.y}px` }}
-                                        >
-                                            {/* Pulse ring for high-threat states */}
-                                            {data.count / maxCount > 0.5 && (
-                                                <circle
-                                                    cx={pos.x}
-                                                    cy={pos.y}
-                                                    r={radius + 4}
-                                                    fill="none"
-                                                    stroke={color}
-                                                    strokeWidth="1.5"
-                                                    opacity="0.3"
-                                                >
-                                                    <animate
-                                                        attributeName="r"
-                                                        values={`${radius + 2};${radius + 12};${radius + 2}`}
-                                                        dur="2.5s"
-                                                        repeatCount="indefinite"
-                                                    />
-                                                    <animate
-                                                        attributeName="opacity"
-                                                        values="0.3;0;0.3"
-                                                        dur="2.5s"
-                                                        repeatCount="indefinite"
-                                                    />
-                                                </circle>
-                                            )}
-
-                                            {/* Main dot */}
+                                        {/* Pulse ring for active states */}
+                                        {hasActivity && (
                                             <circle
                                                 cx={pos.x}
                                                 cy={pos.y}
-                                                r={radius}
-                                                fill={color}
-                                                opacity={isSelected ? 1 : 0.75}
-                                                stroke={isSelected ? "#fff" : "none"}
-                                                strokeWidth={isSelected ? 3 : 0}
-                                                filter="url(#glow)"
-                                                style={{ transition: "all 0.3s ease" }}
-                                            />
-
-                                            {/* Count label */}
-                                            <text
-                                                x={pos.x}
-                                                y={pos.y}
-                                                textAnchor="middle"
-                                                dominantBaseline="central"
-                                                fill="#fff"
-                                                fontSize={radius > 14 ? "11" : "8"}
-                                                fontWeight="bold"
-                                                style={{ pointerEvents: "none" }}
+                                                r={radius + 8}
+                                                fill="none"
+                                                stroke={color}
+                                                strokeWidth="1"
+                                                opacity="0.2"
                                             >
-                                                {data.count}
-                                            </text>
+                                                <animate
+                                                    attributeName="r"
+                                                    values={`${radius + 2};${radius + 15};${radius + 2}`}
+                                                    dur="3s"
+                                                    repeatCount="indefinite"
+                                                />
+                                                <animate
+                                                    attributeName="opacity"
+                                                    values="0.2;0;0.2"
+                                                    dur="3s"
+                                                    repeatCount="indefinite"
+                                                />
+                                            </circle>
+                                        )}
 
-                                            {/* State name label */}
-                                            <text
-                                                x={pos.x}
-                                                y={pos.y + radius + 12}
-                                                textAnchor="middle"
-                                                fill="var(--text-secondary)"
-                                                fontSize="9"
-                                                fontWeight="600"
-                                                style={{ pointerEvents: "none" }}
-                                            >
-                                                {state}
-                                            </text>
-                                        </g>
-                                    );
-                                })}
-                            </svg>
-                        )}
+                                        {/* Main Dot */}
+                                        <circle
+                                            cx={pos.x}
+                                            cy={pos.y}
+                                            r={radius}
+                                            fill={isSelected ? "#fff" : color}
+                                            filter={hasActivity ? "url(#glow)" : ""}
+                                            className="transition-all duration-300 group-hover:scale-125"
+                                        />
 
-                        {/* Legend */}
-                        <div className="flex flex-wrap items-center gap-4 mt-4 px-2">
-                            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                                Threat Level:
-                            </span>
-                            {[
-                                { color: "var(--color-safe)", label: "Low" },
-                                { color: "var(--color-caution)", label: "Moderate" },
-                                { color: "var(--color-ember)", label: "High" },
-                                { color: "var(--color-urgent)", label: "Critical" },
-                            ].map((level) => (
-                                <div key={level.label} className="flex items-center gap-1.5">
-                                    <div
-                                        className="w-3 h-3 rounded-full"
-                                        style={{ backgroundColor: level.color }}
-                                    />
-                                    <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                        {level.label}
-                                    </span>
-                                </div>
-                            ))}
+                                        {/* State Label (Always visible for context) */}
+                                        <text
+                                            x={pos.x}
+                                            y={pos.y + radius + 10}
+                                            textAnchor="middle"
+                                            fill="var(--text-muted)"
+                                            fontSize="8"
+                                            fontWeight="500"
+                                            className={`transition-opacity duration-300 ${isSelected || hasActivity ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                            style={{ pointerEvents: "none" }}
+                                        >
+                                            {state}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                        </svg>
+
+                        {/* Legend Overlay */}
+                        <div className="absolute bottom-4 left-4 p-3 rounded-xl glass border border-white/5">
+                            <div className="flex flex-col gap-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Intensity</span>
+                                {[
+                                    { color: "var(--color-safe)", label: "Low Activity" },
+                                    { color: "var(--color-caution)", label: "Moderate" },
+                                    { color: "var(--color-urgent)", label: "Critical" },
+                                ].map(l => (
+                                    <div key={l.label} className="flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full" style={{ background: l.color }} />
+                                        <span className="text-[10px] text-secondary">{l.label}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Sidebar */}
-                <div className="lg:col-span-1 space-y-4">
+                <div className="lg:col-span-1 h-[600px] flex flex-col">
                     {/* Selected State Detail */}
                     {selected && (
-                        <div className="glass-card rounded-2xl p-5 animate-fade-in-up">
+                        <div className="glass-card rounded-2xl p-5 mb-4 animate-fade-in-up flex-shrink-0">
                             <div className="flex items-center justify-between mb-4">
                                 <h3
                                     className="text-lg font-bold"
@@ -463,154 +360,110 @@ export default function ThreatMapPage() {
                                         {selected.killed}
                                     </div>
                                 </div>
-                                <div className="p-3 rounded-xl" style={{ background: "var(--bg-secondary)" }}>
-                                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Injured</div>
-                                    <div className="text-xl font-bold" style={{ color: "var(--color-caution)" }}>
-                                        {selected.injured}
-                                    </div>
-                                </div>
-                                <div className="p-3 rounded-xl" style={{ background: "var(--bg-secondary)" }}>
-                                    <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Kidnapped</div>
-                                    <div className="text-xl font-bold" style={{ color: "var(--color-verified)" }}>
-                                        {selected.kidnapped}
-                                    </div>
-                                </div>
                             </div>
 
                             {/* Recent attacks in state */}
-                            <div>
-                                <h4
-                                    className="text-xs font-bold uppercase tracking-wider mb-3"
-                                    style={{ color: "var(--text-muted)" }}
-                                >
-                                    Recent Incidents
-                                </h4>
-                                <div className="space-y-2">
-                                    {selected.recentAttacks.map((attack: any, i: number) => (
-                                        <div
-                                            key={attack._id || i}
-                                            className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
-                                            style={{ background: "var(--bg-secondary)" }}
+                            {selected.recentAttacks.length > 0 ? (
+                                <div>
+                                    <h4
+                                        className="text-xs font-bold uppercase tracking-wider mb-2"
+                                        style={{ color: "var(--text-muted)" }}
+                                    >
+                                        Latest Incident
+                                    </h4>
+                                    <div
+                                        className="p-3 rounded-xl transition-colors hover:bg-[var(--border-subtle)]"
+                                        style={{ background: "var(--bg-secondary)" }}
+                                    >
+                                        <p
+                                            className="text-xs font-semibold leading-snug mb-1 line-clamp-2"
+                                            style={{ color: "var(--text-primary)" }}
                                         >
-                                            <p
-                                                className="text-xs font-semibold leading-snug mb-1 line-clamp-2"
-                                                style={{ color: "var(--text-primary)" }}
-                                            >
-                                                {attack.title}
-                                            </p>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                                                    {attack.date ? format(new Date(attack.date), "MMM d, yyyy") : "Unknown"}
-                                                </span>
-                                                {attack.casualties?.killed > 0 && (
-                                                    <span
-                                                        className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                                                        style={{
-                                                            background: "rgba(255,59,48,0.12)",
-                                                            color: "var(--color-urgent)",
-                                                        }}
-                                                    >
-                                                        {attack.casualties.killed} killed
-                                                    </span>
-                                                )}
-                                            </div>
+                                            {selected.recentAttacks[0].title}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                                                {selected.recentAttacks[0].date ? format(new Date(selected.recentAttacks[0].date), "MMM d") : ""}
+                                            </span>
                                         </div>
-                                    ))}
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className="text-xs text-center py-2 text-muted">No recent incidents recorded.</div>
+                            )}
                         </div>
                     )}
 
-                    {/* Ranked States */}
-                    <div className="glass-card rounded-2xl p-5">
+                    {/* Ranked States List - Scrollable */}
+                    <div className="glass-card rounded-2xl p-5 flex-1 overflow-hidden flex flex-col">
                         <h3
-                            className="text-sm font-bold uppercase tracking-wider mb-4"
+                            className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{
                                 fontFamily: "var(--font-heading)",
                                 color: "var(--text-muted)",
                             }}
                         >
-                            Most Affected States
+                            Affected Areas
                         </h3>
 
-                        {rankedStates.length === 0 ? (
-                            <div className="text-center py-8">
-                                <ExclamationTriangleIcon
-                                    className="w-8 h-8 mx-auto mb-2"
-                                    style={{ color: "var(--text-muted)" }}
-                                />
-                                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                                    No data available yet
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-1.5">
-                                {rankedStates.map((state, i) => {
-                                    const barWidth = (state.count / maxCount) * 100;
-                                    const isActive = selectedState === state.state;
-                                    return (
-                                        <button
-                                            key={state.state}
-                                            onClick={() =>
-                                                setSelectedState(isActive ? null : state.state)
-                                            }
-                                            className="w-full text-left p-2.5 rounded-xl transition-all duration-200 hover:bg-[var(--border-subtle)] group relative overflow-hidden"
-                                            style={{
-                                                background: isActive ? "var(--border-subtle)" : "transparent",
-                                            }}
-                                        >
-                                            {/* Background bar */}
+                        <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 custom-scrollbar">
+                            {rankedStates.map((state, i) => {
+                                const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
+                                const isActive = selectedState === state.state;
+                                return (
+                                    <button
+                                        key={state.state}
+                                        onClick={() =>
+                                            setSelectedState(isActive ? null : state.state)
+                                        }
+                                        className="w-full text-left p-2.5 rounded-xl transition-all duration-200 hover:bg-[var(--border-subtle)] group relative overflow-hidden"
+                                        style={{
+                                            background: isActive ? "var(--border-subtle)" : "transparent",
+                                            opacity: state.count === 0 && !isActive ? 0.6 : 1
+                                        }}
+                                    >
+                                        {/* Background bar for activity */}
+                                        {state.count > 0 && (
                                             <div
-                                                className="absolute inset-y-0 left-0 rounded-xl opacity-8 transition-all duration-500"
+                                                className="absolute inset-y-0 left-0 rounded-xl opacity-10 transition-all duration-500"
                                                 style={{
                                                     width: `${barWidth}%`,
-                                                    background: `linear-gradient(90deg, ${getDotColor(state.count)}20, transparent)`,
+                                                    background: `linear-gradient(90deg, ${getDotColor(state.count)}, transparent)`,
                                                 }}
                                             />
+                                        )}
 
-                                            <div className="relative flex items-center justify-between">
-                                                <div className="flex items-center gap-2.5">
-                                                    <span
-                                                        className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
-                                                        style={{
-                                                            background: "var(--border-subtle)",
-                                                            color: "var(--text-muted)",
-                                                        }}
-                                                    >
-                                                        {i + 1}
-                                                    </span>
-                                                    <span
-                                                        className="text-sm font-medium"
-                                                        style={{ color: "var(--text-primary)" }}
-                                                    >
-                                                        {state.state}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span
-                                                        className="text-xs font-bold"
-                                                        style={{ color: getDotColor(state.count) }}
-                                                    >
-                                                        {state.count}
-                                                    </span>
-                                                    {state.killed > 0 && (
-                                                        <span
-                                                            className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
-                                                            style={{
-                                                                background: "rgba(255,59,48,0.1)",
-                                                                color: "var(--color-urgent)",
-                                                            }}
-                                                        >
-                                                            {state.killed}†
-                                                        </span>
-                                                    )}
-                                                </div>
+                                        <div className="relative flex items-center justify-between">
+                                            <div className="flex items-center gap-2.5">
+                                                <span
+                                                    className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+                                                    style={{
+                                                        background: "var(--border-subtle)",
+                                                        color: "var(--text-muted)",
+                                                    }}
+                                                >
+                                                    {i + 1}
+                                                </span>
+                                                <span
+                                                    className="text-sm font-medium"
+                                                    style={{ color: "var(--text-primary)" }}
+                                                >
+                                                    {state.state}
+                                                </span>
                                             </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="text-xs font-bold"
+                                                    style={{ color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)" }}
+                                                >
+                                                    {state.count}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -22,9 +22,9 @@ const features = [
     },
     {
         icon: ClockIcon,
-        title: "Hourly Updates",
+        title: "Daily Updates",
         description:
-            "A cron job runs every hour to search for new incidents, ensuring near real-time coverage of developing security situations across Nigeria.",
+            "System runs every day to search for new incidents, ensuring near real-time coverage of developing security situations across Nigeria.",
     },
     {
         icon: CheckBadgeIcon,
@@ -246,46 +246,7 @@ export default function AboutPage() {
                 </div>
             </section>
 
-            {/* Setup Guide */}
-            <section>
-                <h2 className="text-2xl font-bold mb-8" style={{ fontFamily: "var(--font-heading)" }}>
-                    Cron Job Setup
-                </h2>
-                <div className="glass-card rounded-2xl p-6 md:p-8">
-                    <div className="space-y-4 text-sm" style={{ color: "var(--text-secondary)" }}>
-                        <p>
-                            To enable automatic hourly data collection, set up a cron job at{" "}
-                            <a
-                                href="https://cron-job.org"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-semibold underline transition-colors hover:text-blood-light"
-                                style={{ color: "var(--accent)" }}
-                            >
-                                cron-job.org
-                            </a>:
-                        </p>
-
-                        <div className="p-4 rounded-xl" style={{ background: "var(--bg-secondary)", fontFamily: "var(--font-mono)" }}>
-                            <p className="text-xs mb-2 font-bold" style={{ color: "var(--text-muted)" }}>
-                                Configuration:
-                            </p>
-                            <div className="space-y-1 text-xs">
-                                <p><span style={{ color: "var(--color-sand)" }}>URL:</span> https://your-domain.com/api/cron/update</p>
-                                <p><span style={{ color: "var(--color-sand)" }}>Method:</span> POST</p>
-                                <p><span style={{ color: "var(--color-sand)" }}>Schedule:</span> Every 1 hour</p>
-                                <p><span style={{ color: "var(--color-sand)" }}>Header:</span> X-Cron-Secret: your_cron_secret_here</p>
-                            </div>
-                        </div>
-
-                        <p className="flex items-start gap-2">
-                            <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: "var(--color-caution)" }} />
-                            Make sure the <code style={{ fontFamily: "var(--font-mono)" }}>CRON_SECRET</code> in your{" "}
-                            <code style={{ fontFamily: "var(--font-mono)" }}>.env.local</code> matches the header value configured in cron-job.org.
-                        </p>
-                    </div>
-                </div>
-            </section>
+          
         </div>
     );
 }
