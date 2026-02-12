@@ -307,7 +307,7 @@ export default function ThreatMapPage() {
                 <div className="lg:col-span-1 h-[600px] flex flex-col">
                     {/* Selected State Detail */}
                     {selected && (
-                        <div className="glass-card rounded-2xl p-5 mb-4 animate-fade-in-up flex-shrink-1 flex flex-col overflow-hidden" style={{ maxHeight: "500px" }}>
+                        <div className="glass-card rounded-2xl p-5 mb-4 animate-fade-in-up flex-shrink-0">
                             <div className="flex items-center justify-between mb-4">
                                 <h3
                                     className="text-lg font-bold"
@@ -340,7 +340,7 @@ export default function ThreatMapPage() {
                             </div>
 
                             {selected.recentAttacks.length > 0 ? (
-                                <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar flex-1">
+                                <div className="space-y-3">
                                     <h4
                                         className="text-xs font-bold uppercase tracking-wider mb-2"
                                         style={{ color: "var(--text-muted)" }}
