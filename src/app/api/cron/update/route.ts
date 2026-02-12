@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { after } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
-import { fetchRecentAttacks, generateAttackHash } from "@/lib/gemini";
+import { fetchRecentAttacks, generateAttackHash, parseTweetsWithGemini, RawAttackData } from "@/lib/gemini";
+import { fetchAllRelevantTweets } from "@/lib/twitter";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 export const maxDuration = 60;
@@ -23,12 +24,40 @@ export async function POST(req: NextRequest) {
 
       console.log("[CRON] Starting attack data update...");
 
-      const rawAttacks = await fetchRecentAttacks();
+      // Run both data sources in parallel
+      const [geminiResult, twitterResult] = await Promise.allSettled([
+        fetchRecentAttacks(),
+        fetchAllRelevantTweets(),
+      ]);
 
-      console.log(`[CRON] Gemini returned ${rawAttacks.length} potential incidents`);
+      // Process Gemini results
+      let geminiAttacks: RawAttackData[] = [];
+      if (geminiResult.status === "fulfilled") {
+        geminiAttacks = geminiResult.value;
+        console.log(`[CRON] Gemini returned ${geminiAttacks.length} incidents from news`);
+      } else {
+        console.error("[CRON] Gemini search failed:", geminiResult.reason);
+      }
+
+      // Process Twitter results — parse tweets with Gemini
+      let twitterAttacks: RawAttackData[] = [];
+      if (twitterResult.status === "fulfilled" && twitterResult.value.length > 0) {
+        console.log(`[CRON] Twitter returned ${twitterResult.value.length} relevant tweets, parsing with Gemini...`);
+        twitterAttacks = await parseTweetsWithGemini(twitterResult.value);
+        console.log(`[CRON] Extracted ${twitterAttacks.length} incidents from tweets`);
+      } else if (twitterResult.status === "rejected") {
+        console.error("[CRON] Twitter scraping failed:", twitterResult.reason);
+      } else {
+        console.log("[CRON] No relevant tweets found");
+      }
+
+      // Merge both sources, Gemini news first, then Twitter
+      const rawAttacks = [...geminiAttacks, ...twitterAttacks];
+
+      console.log(`[CRON] Total: ${rawAttacks.length} potential incidents (${geminiAttacks.length} news + ${twitterAttacks.length} tweets)`);
 
       if (rawAttacks.length === 0) {
-        console.log("[CRON] No new attacks found");
+        console.log("[CRON] No new attacks found from any source");
         return;
       }
 

@@ -157,3 +157,104 @@ Respond ONLY with the JSON array, no other text. If no incidents are found, resp
     throw error;
   }
 }
+
+/**
+ * Parse scraped tweets using Gemini to extract structured attack data.
+ * This takes raw tweet text and uses Gemini to identify and structure
+ * any security incidents described in the tweets.
+ */
+export async function parseTweetsWithGemini(
+  tweets: { text: string; username: string; url: string; timestamp: Date }[]
+): Promise<RawAttackData[]> {
+  if (tweets.length === 0) return [];
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash",
+    tools: [{ googleSearch: {} } as any],
+  });
+
+  // Format tweets for the prompt
+  const tweetBlock = tweets
+    .map(
+      (t, i) =>
+        `[Tweet ${i + 1}] @${t.username} (${t.timestamp.toISOString()}):\n"${t.text}"\nURL: ${t.url}`
+    )
+    .join("\n\n");
+
+  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
+
+Below are tweets from Twitter/X that may describe terrorist attacks, insurgent attacks, bandit attacks, or militant attacks in Nigeria. Analyze each tweet and extract any REAL security incidents described.
+
+TWEETS:
+${tweetBlock}
+
+INSTRUCTIONS:
+- Only extract incidents that are clearly about REAL attacks/violence in Nigeria.
+- If multiple tweets describe the SAME incident, merge them into one entry.
+- Use the tweet URL as a source.
+- If a tweet is not about a specific attack/incident, SKIP it.
+- Cross-reference with your knowledge to fill in details if the tweet is brief.
+- Use Google Search to verify and enrich the incident details if possible.
+- Do NOT fabricate incidents. Only report what is described or confirmed.
+
+For each incident, return this JSON structure:
+{
+  "title": "string",
+  "description": "string (detailed description combining info from tweet and any additional context)",
+  "date": "ISO 8601 datetime string",
+  "location": {
+    "state": "string (Nigerian state name)",
+    "lga": "string or 'Unknown'",
+    "town": "string or 'Unknown'"
+  },
+  "group": "string (e.g. 'Boko Haram', 'ISWAP', 'Bandits', 'Unknown Gunmen')",
+  "casualties": {
+    "killed": number or null,
+    "injured": number or null,
+    "kidnapped": number or null,
+    "displaced": number or null
+  },
+  "sources": [
+    {
+      "url": "string (the tweet URL)",
+      "title": "string (tweet excerpt or description)",
+      "publisher": "string (e.g. 'Twitter/@BrantPhilip_')"
+    }
+  ],
+  "status": "confirmed" | "unconfirmed" | "developing",
+  "tags": ["string"]
+}
+
+Respond ONLY with a JSON array. If no real incidents are found, respond with [].`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    const cleanedText = text
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+
+    const attacks: RawAttackData[] = JSON.parse(cleanedText);
+
+    return attacks.filter(
+      (attack) =>
+        attack.title &&
+        attack.description &&
+        attack.date &&
+        attack.location?.state &&
+        attack.group
+    );
+  } catch (error) {
+    console.error("Error parsing tweets with Gemini:", error);
+    return [];
+  }
+}
