@@ -77,7 +77,7 @@ PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are 
 - Search Twitter/X for recent posts containing: "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
 
 ALSO search these news outlets and security trackers:
-- News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters
+- News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), Zagazola Network (network.zagazola.org), AFP, Reuters
 - Security trackers: Armed Conflict Location & Event Data (ACLED), Nigeria Security Tracker (Council on Foreign Relations)
 
 For each incident found, provide:
