@@ -58,6 +58,12 @@ export async function GET(req: NextRequest) {
       ];
     }
 
+    // Casualty filter
+    const { casualtyType } = parseResult.data;
+    if (casualtyType) {
+      filter[`casualties.${casualtyType}`] = { $gt: 0 };
+    }
+
     // Sort
     let sortObj: Record<string, 1 | -1> = { date: -1 };
     if (sort === "date_asc") sortObj = { date: 1 };

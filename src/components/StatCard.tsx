@@ -15,23 +15,25 @@ interface StatCardProps {
 export default function StatCard({ label, value, icon, trend, color = "var(--accent)", delay = 0 }: StatCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
     const valueRef = useRef<HTMLDivElement>(null);
+    const bgRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!cardRef.current || !valueRef.current) return;
 
+        // Intro animation
         gsap.fromTo(
             cardRef.current,
-            { opacity: 0, y: 30, scale: 0.95 },
-            { opacity: 1, y: 0, scale: 1, duration: 0.7, delay, ease: "power3.out" }
+            { opacity: 0, y: 20 },
+            { opacity: 1, y: 0, duration: 0.6, delay, ease: "power2.out" }
         );
 
-        // Animate counter
+        // Counter animation
         if (typeof value === "number") {
             const obj = { val: 0 };
             gsap.to(obj, {
                 val: value,
-                duration: 1.5,
-                delay: delay + 0.3,
+                duration: 1.2,
+                delay: delay + 0.2,
                 ease: "power2.out",
                 onUpdate: () => {
                     if (valueRef.current) {
@@ -42,53 +44,94 @@ export default function StatCard({ label, value, icon, trend, color = "var(--acc
         }
     }, [value, delay]);
 
+    const handleMouseEnter = () => {
+        if (bgRef.current) {
+            gsap.to(bgRef.current, { scale: 1.2, opacity: 0.15, duration: 0.4 });
+        }
+    };
+
+    const handleMouseLeave = () => {
+        if (bgRef.current) {
+            gsap.to(bgRef.current, { scale: 1, opacity: 0.05, duration: 0.4 });
+        }
+    };
+
     return (
         <div
             ref={cardRef}
-            className="glass-card rounded-2xl p-6 relative overflow-hidden group"
-            style={{ opacity: 0 }}
+            className="glass-card rounded-2xl p-6 relative overflow-hidden group transition-colors duration-300"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            style={{
+                opacity: 0,
+                borderColor: "var(--border-subtle)"
+            }}
         >
-            {/* Accent glow */}
+            {/* Background Decor */}
             <div
-                className="absolute -top-12 -right-12 w-32 h-32 rounded-full blur-3xl opacity-10 
-        transition-opacity duration-500 group-hover:opacity-20"
-                style={{ background: color }}
+                ref={bgRef}
+                className="absolute -right-6 -top-6 w-32 h-32 rounded-full blur-3xl pointer-events-none"
+                style={{
+                    background: color,
+                    opacity: 0.05,
+                    transition: "opacity 0.3s ease"
+                }}
             />
 
-            <div className="relative z-10">
-                <div className="flex items-start justify-between mb-4">
+            <div className="relative z-10 flex flex-col h-full justify-between">
+                <div className="flex justify-between items-start mb-4">
+                    {/* Icon Container */}
                     <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center"
-                        style={{ background: `${color}15`, color }}
+                        className="w-12 h-12 rounded-xl flex items-center justify-center transition-transform duration-500 ease-out group-hover:rotate-3"
+                        style={{
+                            background: `linear-gradient(135deg, ${color}15, ${color}05)`,
+                            border: `1px solid ${color}20`,
+                            color: color
+                        }}
                     >
                         {icon}
                     </div>
+
+                    {/* Trend Pill (Optional) */}
                     {trend && (
-                        <span
-                            className="text-xs font-semibold px-2 py-1 rounded-lg"
+                        <div
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold"
                             style={{
                                 background: trend.startsWith("+")
-                                    ? "rgba(255,65,54,0.12)"
-                                    : "rgba(46,204,64,0.12)",
-                                color: trend.startsWith("+") ? "var(--color-urgent)" : "var(--color-safe)",
+                                    ? "rgba(255, 65, 54, 0.1)"
+                                    : "rgba(46, 204, 64, 0.1)",
+                                color: trend.startsWith("+")
+                                    ? "var(--color-urgent)"
+                                    : "var(--color-safe)",
+                                border: `1px solid ${trend.startsWith("+") ? "rgba(255,65,54,0.2)" : "rgba(46,204,64,0.2)"}`
                             }}
                         >
                             {trend}
-                        </span>
+                        </div>
                     )}
                 </div>
 
-                <div
-                    ref={valueRef}
-                    className="text-3xl font-bold mb-1"
-                    style={{ fontFamily: "var(--font-heading)", color }}
-                >
-                    {typeof value === "number" ? "0" : value}
+                <div>
+                    <div
+                        ref={valueRef}
+                        className="text-4xl font-bold tracking-tight mb-1"
+                        style={{
+                            fontFamily: "var(--font-heading)",
+                            color: "var(--text-primary)"
+                        }}
+                    >
+                        {typeof value === "number" ? "0" : value}
+                    </div>
+                    <div className="text-sm font-medium tracking-wide uppercase opacity-70" style={{ color: "var(--text-secondary)" }}>
+                        {label}
+                    </div>
                 </div>
 
-                <p className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
-                    {label}
-                </p>
+                {/* Bottom decorative line */}
+                <div
+                    className="absolute bottom-0 left-0 h-1 bg-current opacity-0 transition-all duration-500 group-hover:opacity-100 group-hover:w-full w-0"
+                    style={{ background: color }}
+                />
             </div>
         </div>
     );

@@ -11,7 +11,7 @@ import TimeSinceLastAttack from "@/components/TimeSinceLastAttack";
 import { CardSkeleton, AttackCardSkeleton, ChartSkeleton } from "@/components/Skeletons";
 import {
   BoltIcon,
-  XCircleIcon,
+  UserMinusIcon,
   ExclamationTriangleIcon,
   LockClosedIcon,
   ArrowRightIcon,
@@ -126,42 +126,42 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <section className="mb-12">
         {loading ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
           </div>
         ) : stats ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard
-              label="Total Attacks"
+              label="Total Incidents"
               value={stats.overview.totalAttacks}
-              icon={<BoltIcon className="w-5 h-5" />}
+              icon={<BoltIcon className="w-6 h-6" />}
               color="var(--color-blood)"
               delay={0}
             />
             <StatCard
               label="Lives Lost"
               value={stats.overview.totalKilled}
-              icon={<XCircleIcon className="w-5 h-5" />}
+              icon={<UserMinusIcon className="w-6 h-6" />}
               color="var(--color-urgent)"
               delay={0.1}
             />
             <StatCard
               label="Injured"
               value={stats.overview.totalInjured}
-              icon={<ExclamationTriangleIcon className="w-5 h-5" />}
+              icon={<ExclamationTriangleIcon className="w-6 h-6" />}
               color="var(--color-caution)"
               delay={0.2}
             />
             <StatCard
               label="Kidnapped"
               value={stats.overview.totalKidnapped}
-              icon={<LockClosedIcon className="w-5 h-5" />}
+              icon={<LockClosedIcon className="w-6 h-6" />}
               color="var(--color-verified)"
               delay={0.3}
             />
           </div>
         ) : (
-          <div className="glass-card rounded-2xl p-8 text-center">
+          <div className="glass-card rounded-2xl p-8 text-center bg-grain">
             <ExclamationTriangleIcon className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} />
             <p style={{ color: "var(--text-secondary)" }}>
               Unable to load statistics. Please check your database connection.
@@ -172,18 +172,18 @@ export default function DashboardPage() {
 
       {/* Secondary Stats */}
       {stats && !loading && (
-        <section className="grid grid-cols-2 gap-4 mb-12">
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-12">
           <StatCard
             label="Attacks (Last 7 Days)"
             value={stats.overview.attacksLast7Days}
-            icon={<ClockIcon className="w-5 h-5" />}
+            icon={<ClockIcon className="w-6 h-6" />}
             color="var(--color-ember)"
             delay={0.4}
           />
           <StatCard
             label="Attacks (Last 30 Days)"
             value={stats.overview.attacksLast30Days}
-            icon={<CalendarDaysIcon className="w-5 h-5" />}
+            icon={<CalendarDaysIcon className="w-6 h-6" />}
             color="var(--color-sand)"
             delay={0.5}
           />

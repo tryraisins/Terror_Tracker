@@ -58,6 +58,7 @@ export default function IncidentsPage() {
     const [search, setSearch] = useState("");
     const [state, setState] = useState("");
     const [status, setStatus] = useState("");
+    const [casualtyType, setCasualtyType] = useState("");
     const [sort, setSort] = useState("date_desc");
     const [page, setPage] = useState(1);
 
@@ -71,6 +72,7 @@ export default function IncidentsPage() {
             if (search) params.set("search", search);
             if (state) params.set("state", state);
             if (status) params.set("status", status);
+            if (casualtyType) params.set("casualtyType", casualtyType);
 
             const res = await fetch(`/api/attacks?${params.toString()}`);
             if (!res.ok) throw new Error("Failed to fetch");
@@ -82,7 +84,7 @@ export default function IncidentsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, state, status, sort]);
+    }, [page, search, state, status, casualtyType, sort]);
 
     useEffect(() => {
         fetchAttacks();
@@ -103,11 +105,12 @@ export default function IncidentsPage() {
         setSearch("");
         setState("");
         setStatus("");
+        setCasualtyType("");
         setSort("date_desc");
         setPage(1);
     };
 
-    const hasActiveFilters = search || state || status || sort !== "date_desc";
+    const hasActiveFilters = search || state || status || casualtyType || sort !== "date_desc";
 
     return (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
@@ -190,7 +193,7 @@ export default function IncidentsPage() {
             ${showFilters ? "max-h-60 opacity-100 mt-4" : "max-h-0 opacity-0"}
           `}
                 >
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                         {/* State filter */}
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5"
@@ -238,6 +241,31 @@ export default function IncidentsPage() {
                                 <option value="confirmed">Confirmed</option>
                                 <option value="unconfirmed">Unconfirmed</option>
                                 <option value="developing">Developing</option>
+                            </select>
+                        </div>
+
+                        {/* Casualty filter */}
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5"
+                                style={{ color: "var(--text-muted)" }}>
+                                Casualty Type
+                            </label>
+                            <select
+                                value={casualtyType}
+                                onChange={(e) => { setCasualtyType(e.target.value); setPage(1); }}
+                                className="w-full px-3 py-2 rounded-xl text-sm border outline-none transition-all
+                  focus:ring-2 focus:ring-blood/30"
+                                style={{
+                                    background: "var(--bg-secondary)",
+                                    borderColor: "var(--border-subtle)",
+                                    color: "var(--text-primary)",
+                                }}
+                                id="casualty-filter"
+                            >
+                                <option value="">Any</option>
+                                <option value="killed">Killed</option>
+                                <option value="injured">Injured</option>
+                                <option value="kidnapped">Kidnapped</option>
                             </select>
                         </div>
 
