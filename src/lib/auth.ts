@@ -14,7 +14,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export async function createSession(userId: string, username: string) {
-  const token = sign({ userId, username }, JWT_SECRET, { expiresIn: "8h" });
+  const token = sign({ userId, username }, JWT_SECRET, { expiresIn: "30d" });
   const cookieStore = await cookies();
   
   cookieStore.set(COOKIE_NAME, token, {
@@ -22,7 +22,7 @@ export async function createSession(userId: string, username: string) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
-    maxAge: 8 * 60 * 60, // 8 hours
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   });
 }
 

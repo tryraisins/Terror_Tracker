@@ -54,6 +54,7 @@ interface Pagination {
 
 export default function AdminPage() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     const [attacks, setAttacks] = useState<AttackData[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [loading, setLoading] = useState(false);
@@ -100,6 +101,22 @@ export default function AdminPage() {
             setLoading(false);
         }
     }, [isAuthenticated, page, search, state, status, casualtyType, sort]);
+
+    useEffect(() => {
+        const checkAuth = async () => {
+            try {
+                const res = await fetch("/api/auth/check");
+                if (res.ok) {
+                    setIsAuthenticated(true);
+                }
+            } catch (err) {
+                console.error("Auth check failed", err);
+            } finally {
+                setIsCheckingAuth(false);
+            }
+        };
+        checkAuth();
+    }, []);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -167,6 +184,14 @@ export default function AdminPage() {
     };
 
     const hasActiveFilters = search || state || status || casualtyType || sort !== "date_desc";
+
+    if (isCheckingAuth) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-[#0a0a0a]">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blood"></div>
+            </div>
+        );
+    }
 
     if (!isAuthenticated) {
         return <LoginModal onSuccess={() => setIsAuthenticated(true)} />;
