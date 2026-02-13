@@ -22,7 +22,11 @@ export async function GET() {
 
       console.log(`Found ${candidates.length} candidates to check.`);
 
-      for (const candidate of candidates) {
+      for (const [index, candidate] of candidates.entries()) {
+        const candidateId = candidate._id;
+        const candidateTitle = candidate.title; 
+        console.log(`[${index + 1}/${candidates.length}] Processing candidate: ${candidateId} - "${candidateTitle.substring(0, 50)}..."`);
+
         try {
           // Find potential duplicates (same state, close date)
           // Date range: +/- 2 days to be safe
@@ -31,32 +35,38 @@ export async function GET() {
           startDate.setDate(startDate.getDate() - 2);
           const endDate = new Date(attackDate);
           endDate.setDate(endDate.getDate() + 2);
+          
+          console.log(`   Searching matches in ${candidate.location?.state} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})...`);
 
           const potentialMatches = await Attack.find({
             _id: { $ne: candidate._id }, // Exclude self
             "location.state": candidate.location.state,
             date: { $gte: startDate, $lte: endDate }
-          }).limit(10); // Limit to 10 potential matches to avoid massive prompt
+          }).limit(10); // Limit to 10 potential matches
+          
+          console.log(`   Found ${potentialMatches.length} potential matches.`);
 
           if (potentialMatches.length === 0) {
             // No potential matches, just mark as checked
             await Attack.findByIdAndUpdate(candidate._id, {
               $addToSet: { tags: "checked_duplicate" }
             });
-            console.log(`No potential matches for ${candidate._id}. Marked checked.`);
+            console.log(`   No matches. Marked ${candidate._id} as checked.`);
             continue;
           }
 
           // Compare with Gemini
+          console.log(`   Asking Gemini to compare...`);
           const result = await checkDuplicateAttack(candidate, potentialMatches);
+          console.log(`   Gemini Result: Is Duplicate? ${result.isDuplicate} (${result.reason.substring(0, 100)}...)`);
 
           if (result.isDuplicate && result.duplicateOfId) {
-            console.log(`Duplicate found for ${candidate._id}: matches ${result.duplicateOfId}`);
+            console.log(`   DUPLICATE DETECTED! Matches existing report ${result.duplicateOfId}`);
             
             if (result.betterReport === "existing") {
               // Existing is better, delete candidate
               await Attack.findByIdAndDelete(candidate._id);
-              console.log(`Deleted candidate ${candidate._id} in favor of ${result.duplicateOfId}`);
+              console.log(`   ACTION: Deleted CANDIDATE ${candidate._id} in favor of existing ${result.duplicateOfId}`);
             } else {
               // Candidate is better, delete existing
               await Attack.findByIdAndDelete(result.duplicateOfId);
@@ -64,18 +74,18 @@ export async function GET() {
               await Attack.findByIdAndUpdate(candidate._id, {
                 $addToSet: { tags: "checked_duplicate" }
               });
-              console.log(`Deleted existing ${result.duplicateOfId} in favor of candidate ${candidate._id}`);
+              console.log(`   ACTION: Deleted EXISTING ${result.duplicateOfId} in favor of candidate ${candidate._id}`);
             }
           } else {
             // Not a duplicate
             await Attack.findByIdAndUpdate(candidate._id, {
               $addToSet: { tags: "checked_duplicate" }
             });
-            console.log(`Confirmed unique: ${candidate._id}. Marked checked.`);
+            console.log(`   Confirmed UNIQUE. Marked ${candidate._id} as checked.`);
           }
 
         } catch (innerError) {
-          console.error(`Error processing candidate ${candidate._id}:`, innerError);
+          console.error(`   ERROR processing candidate ${candidate._id}:`, innerError);
         }
       }
       console.log("Background duplicate check completed.");
