@@ -32,12 +32,7 @@ export async function connectDB(): Promise<typeof mongoose> {
   // If a connection promise is already in progress, await it
   if (!cached!.promise) {
     const opts: mongoose.ConnectOptions = {
-      bufferCommands: false,
-      // Aggressive caching for serverless: 1 connection per lambda is usually sufficient
-      maxPoolSize: 1, 
-      // Allow scaling to zero by not enforcing a minimum pool size
-      minPoolSize: 0,
-      // Close idle connections after 10s to release resources on the DB server
+      bufferCommands: false, // Disable buffering to fail fast on connection errors
       maxIdleTimeMS: 10000,
       socketTimeoutMS: 45000,
       serverSelectionTimeoutMS: 5000,
