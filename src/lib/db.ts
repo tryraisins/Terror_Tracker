@@ -16,39 +16,47 @@ declare global {
   var mongooseCache: MongooseCache | undefined;
 }
 
-const cached: MongooseCache = global.mongooseCache ?? { conn: null, promise: null };
+// Global variable pattern to preserve connection across hot reloads in dev
+// and reuse connection in serverless environments (if container is warm)
+let cached = global.mongooseCache;
 
-if (!global.mongooseCache) {
-  global.mongooseCache = cached;
+if (!cached) {
+  cached = global.mongooseCache = { conn: null, promise: null };
 }
 
 export async function connectDB(): Promise<typeof mongoose> {
-  if (cached.conn) {
+  if (cached && cached.conn) {
     return cached.conn;
   }
 
-  if (!cached.promise) {
+  // If a connection promise is already in progress, await it
+  if (!cached!.promise) {
     const opts: mongoose.ConnectOptions = {
       bufferCommands: false,
-      maxPoolSize: 10,
-      minPoolSize: 2,
+      // Aggressive caching for serverless: 1 connection per lambda is usually sufficient
+      maxPoolSize: 1, 
+      // Allow scaling to zero by not enforcing a minimum pool size
+      minPoolSize: 0,
+      // Close idle connections after 10s to release resources on the DB server
+      maxIdleTimeMS: 10000,
       socketTimeoutMS: 45000,
       serverSelectionTimeoutMS: 5000,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((m) => {
+    cached!.promise = mongoose.connect(MONGODB_URI, opts).then((m) => {
+      console.log("Mongoose connected successfully");
       return m;
     });
   }
 
   try {
-    cached.conn = await cached.promise;
+    cached!.conn = await cached!.promise;
   } catch (e) {
-    cached.promise = null;
+    cached!.promise = null;
     throw e;
   }
 
-  return cached.conn;
+  return cached!.conn;
 }
 
 export default connectDB;
