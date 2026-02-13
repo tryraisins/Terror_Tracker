@@ -147,6 +147,32 @@ Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN I
 
     let attacks: RawAttackData[] = JSON.parse(cleanedText);
 
+    // Fix grounding redirect URLs using actual metadata
+    const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any;
+    const groundingChunks = groundingMetadata?.groundingChunks || [];
+    
+    if (groundingChunks.length > 0) {
+      attacks.forEach(attack => {
+        attack.sources.forEach(source => {
+          if (source.url.includes("grounding-api-redirect") || !source.url.startsWith("http")) {
+            // Try to find matching chunk by title
+            const match = groundingChunks.find((chunk: any) => 
+               chunk.web?.title && source.title && 
+               (chunk.web.title.toLowerCase().includes(source.title.toLowerCase()) || 
+                source.title.toLowerCase().includes(chunk.web.title.toLowerCase()))
+            );
+            
+            if (match?.web?.uri) {
+              source.url = match.web.uri;
+            } else {
+              // Fallback to Google Search if source is not found
+              source.url = `https://www.google.com/search?q=${encodeURIComponent(attack.title + " " + source.publisher)}`;
+            }
+          }
+        });
+      });
+    }
+
     // Filter out banned sources
     const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal"];
     
