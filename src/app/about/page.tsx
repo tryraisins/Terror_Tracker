@@ -66,7 +66,7 @@ const dataSources = [
     { name: "@BrantPhilip_", type: "X/Twitter" },
     { name: "@Sazedek", type: "X/Twitter" },
     { name: "ACLED", type: "Database" },
-    { name: "CFR Nigeria Security Tracker", type: "Database" },
+
 ];
 
 export default function AboutPage() {
@@ -121,7 +121,7 @@ export default function AboutPage() {
                     </p>
                     <p>
                         The project was created to fill a critical gap in accessible, real-time security data. While
-                        organizations like ACLED and the Council on Foreign Relations maintain excellent databases,
+                        organizations like ACLED maintain excellent databases,
                         NATracker provides a more immediate, continuously updated view by scanning news sources hourly.
                     </p>
                     <p>
@@ -246,7 +246,7 @@ export default function AboutPage() {
                 </div>
             </section>
 
-          
+
         </div>
     );
 }

@@ -79,7 +79,7 @@ PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are 
 
 ALSO search these news outlets and security trackers:
 - News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters
-- Security trackers: Armed Conflict Location & Event Data (ACLED), Nigeria Security Tracker (Council on Foreign Relations), Zagazola Makama (network.zagazola.org)
+- Security trackers: Armed Conflict Location & Event Data (ACLED), Zagazola Makama (network.zagazola.org)
 
 For each incident found, provide:
 1. A clear, concise title
