@@ -68,6 +68,7 @@ const dataSources = [
     { name: "Zagazola Makama", type: "Security" },
     { name: "@BrantPhilip_", type: "X/Twitter" },
     { name: "@Sazedek", type: "X/Twitter" },
+    { name: "Wikipedia", type: "Reference" },
 ];
 
 export default function AboutPage() {
