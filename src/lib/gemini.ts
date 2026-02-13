@@ -70,12 +70,8 @@ Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks,
 
 PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are primary intelligence sources that frequently break Nigerian security news:
 - @BrantPhilip_ (Brant Philip) — frequently posts about attacks in northern Nigeria
-- @Sazedek (Sahara Reporters contributor) — covers security incidents across Nigeria  
-- @HumsReports (HumAngle Reports) — conflict journalism in Nigeria
-- @PremiumTimesng (Premium Times Nigeria) — investigative journalism
-- @dailyabornnews (Daily Trust) — northern Nigeria coverage
-- @channabornnews (Channels Television) — nationwide coverage
-- Search Twitter/X for recent posts containing: "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "unknown gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
+- @Sazedek (Sahara Reporters contributor) — covers security incidents across Nigeria
+- Search Twitter/X for recent posts containing any order of these keywords (case-insensitive): "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "unknown gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria", "Boko Haram"
 
 ALSO search these news outlets and security trackers:
 - News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters

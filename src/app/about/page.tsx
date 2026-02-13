@@ -61,12 +61,13 @@ const dataSources = [
     { name: "Daily Trust", type: "News" },
     { name: "HumAngle Media", type: "Security" },
     { name: "The Cable", type: "News" },
+    { name: "Peoples Gazette", type: "News" },
     { name: "Reuters", type: "Wire" },
     { name: "AFP", type: "Wire" },
+    { name: "ACLED", type: "Database" },
+    { name: "Zagazola Makama", type: "Security" },
     { name: "@BrantPhilip_", type: "X/Twitter" },
     { name: "@Sazedek", type: "X/Twitter" },
-    { name: "ACLED", type: "Database" },
-
 ];
 
 export default function AboutPage() {
