@@ -4,29 +4,39 @@ import Attack from "@/lib/models/Attack";
 import { checkDuplicateAttack } from "@/lib/gemini";
 
 
-export const maxDuration = 300; // 5 minutes
+
+export const maxDuration = 300; // 5 minutes (still useful for the platform, but we return early)
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const startTime = Date.now();
+  const TIMEOUT_MS = 20000; // 20 seconds soft timeout to ensure response < 30s
+
   try {
     await connectDB();
-    console.log("Starting duplicate check (synchronous mode)...");
+    console.log("Starting time-boxed duplicate check...");
 
-    // Get 5 random unchecked reports
-    // We use $sample to get random documents
-    // Added maxTimeMS to fail fast if DB is hanging
+    // Get 5 random candidates
     const candidates = await Attack.aggregate([
       { $match: { tags: { $ne: "checked_duplicate" } } },
       { $sample: { size: 5 } }
-    ]).option({ maxTimeMS: 15000 }); 
+    ]); // Removed maxTimeMS from aggregate to avoid cursor timeout issues during fetch
 
-    console.log(`Found ${candidates.length} candidates to check.`);
+    console.log(`Found ${candidates.length} candidates.`);
     
     const results = [];
+    let processedCount = 0;
 
     for (const [index, candidate] of candidates.entries()) {
+      // CRITICAL: Check time budget before starting a new heavy task
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        console.log(`Time budget exhausted (${TIMEOUT_MS}ms). Returning early.`);
+        break;
+      }
+
       const candidateId = candidate._id;
       const candidateTitle = candidate.title; 
-      console.log(`[${index + 1}/${candidates.length}] Processing candidate: ${candidateId} - "${candidateTitle.substring(0, 50)}..."`);
+      console.log(`[${index + 1}/${candidates.length}] Processing: "${candidateTitle.substring(0, 40)}..."`);
 
       try {
         // Find potential matches
@@ -35,70 +45,57 @@ export async function GET() {
         startDate.setDate(startDate.getDate() - 3);
         const endDate = new Date(attackDate);
         endDate.setDate(endDate.getDate() + 3);
-        
-        console.log(`   Searching matches in ${candidate.location?.state} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})...`);
 
         const potentialMatches = await Attack.find({
-          _id: { $ne: candidate._id }, // Exclude self
+          _id: { $ne: candidate._id },
           "location.state": candidate.location.state,
           date: { $gte: startDate, $lte: endDate }
-        }).limit(10).maxTimeMS(10000); 
-        
-        console.log(`   Found ${potentialMatches.length} potential matches.`);
+        }).limit(10); 
 
         if (potentialMatches.length === 0) {
-          await Attack.findByIdAndUpdate(candidate._id, {
-            $addToSet: { tags: "checked_duplicate" }
-          });
-          console.log(`   No matches. Marked ${candidate._id} as checked.`);
+          await Attack.findByIdAndUpdate(candidate._id, { $addToSet: { tags: "checked_duplicate" } });
           results.push({ id: candidate._id, status: "checked_no_matches" });
+          processedCount++;
           continue;
         }
 
-        // Compare with Gemini
-        console.log(`   Asking Gemini to compare...`);
+        // Heavy operation: Gemini Check
         const result = await checkDuplicateAttack(candidate, potentialMatches);
-        console.log(`   Gemini Result: Is Duplicate? ${result.isDuplicate} (${result.reason.substring(0, 100)}...)`);
 
         if (result.isDuplicate && result.duplicateOfId) {
           if (result.betterReport === "existing") {
             await Attack.findByIdAndDelete(candidate._id);
-            console.log(`   ACTION: Deleted CANDIDATE ${candidate._id} in favor of existing ${result.duplicateOfId}`);
             results.push({ id: candidate._id, status: "deleted_duplicate", duplicateOf: result.duplicateOfId });
           } else {
             await Attack.findByIdAndDelete(result.duplicateOfId);
-            await Attack.findByIdAndUpdate(candidate._id, {
-              $addToSet: { tags: "checked_duplicate" }
-            });
-            console.log(`   ACTION: Deleted EXISTING ${result.duplicateOfId} in favor of candidate ${candidate._id}`);
+            await Attack.findByIdAndUpdate(candidate._id, { $addToSet: { tags: "checked_duplicate" } });
             results.push({ id: candidate._id, status: "kept_better_version", deleted: result.duplicateOfId });
           }
         } else {
-          await Attack.findByIdAndUpdate(candidate._id, {
-            $addToSet: { tags: "checked_duplicate" }
-          });
-          console.log(`   Confirmed UNIQUE. Marked ${candidate._id} as checked.`);
+          await Attack.findByIdAndUpdate(candidate._id, { $addToSet: { tags: "checked_duplicate" } });
           results.push({ id: candidate._id, status: "confirmed_unique" });
         }
+        processedCount++;
 
       } catch (innerError) {
-        console.error(`   ERROR processing candidate ${candidate._id}:`, innerError);
+        console.error(`Error on candidate ${candidate._id}:`, innerError);
         results.push({ id: candidate._id, status: "error", error: String(innerError) });
       }
     }
 
-    console.log("Duplicate check completed.");
+    const duration = (Date.now() - startTime) / 1000;
+    console.log(`Duplicate check finished in ${duration}s. Processed ${processedCount}/${candidates.length}.`);
+
     return NextResponse.json({ 
-      message: "Duplicate check completed", 
-      count: candidates.length,
+      message: processedCount === candidates.length ? "Batch completed" : "Batch partial (time limit)",
+      duration_seconds: duration,
+      processed: processedCount,
+      total_candidates: candidates.length,
       results 
     });
 
   } catch (error) {
     console.error("Duplicate check failed:", error);
-    return NextResponse.json({ 
-      error: "Duplicate check failed", 
-      details: String(error) 
-    }, { status: 500 });
+    return NextResponse.json({ error: "Failed", details: String(error) }, { status: 500 });
   }
 }
