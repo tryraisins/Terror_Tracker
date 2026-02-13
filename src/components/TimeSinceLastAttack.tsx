@@ -60,10 +60,10 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
     }
 
     const units = [
-        { label: "Days", value: time.days },
-        { label: "Hours", value: time.hours },
-        { label: "Minutes", value: time.minutes },
-        { label: "Seconds", value: time.seconds },
+        { label: time.days === 1 ? "Day" : "Days", value: time.days },
+        { label: time.hours === 1 ? "Hour" : "Hours", value: time.hours },
+        { label: time.minutes === 1 ? "Minute" : "Minutes", value: time.minutes },
+        { label: time.seconds === 1 ? "Second" : "Seconds", value: time.seconds },
     ];
 
     return (

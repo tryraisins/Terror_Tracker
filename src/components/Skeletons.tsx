@@ -2,13 +2,14 @@
 
 export function CardSkeleton() {
     return (
-        <div className="glass-card rounded-2xl p-6">
-            <div className="flex items-start justify-between mb-4">
-                <div className="shimmer h-11 w-11 rounded-xl" />
-                <div className="shimmer h-6 w-16 rounded-lg" />
+        <div className="glass-card rounded-2xl p-6 relative overflow-hidden h-full min-h-[180px] flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+                <div className="shimmer h-4 w-24 rounded-md opacity-70" />
+                <div className="shimmer h-10 w-10 rounded-xl opacity-80" />
             </div>
-            <div className="shimmer h-8 w-24 rounded-lg mb-2" />
-            <div className="shimmer h-4 w-32 rounded-lg" />
+            <div className="mt-4">
+                <div className="shimmer h-12 w-32 rounded-lg" />
+            </div>
         </div>
     );
 }
