@@ -39,9 +39,18 @@ interface AttackCardProps {
         tags: string[];
     };
     index?: number;
+    isSelectable?: boolean;
+    isSelected?: boolean;
+    onToggleSelect?: () => void;
 }
 
-export default function AttackCard({ attack, index = 0 }: AttackCardProps) {
+export default function AttackCard({
+    attack,
+    index = 0,
+    isSelectable = false,
+    isSelected = false,
+    onToggleSelect
+}: AttackCardProps) {
     const cardRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -74,9 +83,23 @@ export default function AttackCard({ attack, index = 0 }: AttackCardProps) {
     return (
         <div
             ref={cardRef}
-            className="glass-card rounded-2xl overflow-hidden group"
+            className="glass-card rounded-2xl overflow-hidden group relative"
             style={{ opacity: 0 }}
         >
+            {isSelectable && (
+                <div className="absolute top-4 right-4 z-20">
+                    <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                            e.stopPropagation();
+                            onToggleSelect?.();
+                        }}
+                        className="w-5 h-5 rounded-md border-2 border-white/20 bg-black/40 text-blood focus:ring-blood focus:ring-offset-0 cursor-pointer transition-all checked:bg-blood checked:border-blood"
+                    />
+                </div>
+            )}
+
             {/* Status bar */}
             <div
                 className="h-1"
