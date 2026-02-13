@@ -195,7 +195,88 @@ Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN I
         attack.group
     );
   } catch (error) {
-    console.error("Error fetching attacks from Gemini:", error);
     throw error;
+  }
+}
+
+export interface DuplicateCheckResult {
+  isDuplicate: boolean;
+  duplicateOfId?: string; // ID of the existing report it duplicates
+  betterReport: "candidate" | "existing"; // Which one should be kept
+  reason: string;
+}
+
+/**
+ * Check if a candidate attack reports the same incident as any existing attacks.
+ * Returns decision on which report is better if a duplicate is found.
+ */
+export async function checkDuplicateAttack(
+  candidate: any,
+  existingAttacks: any[]
+): Promise<DuplicateCheckResult> {
+  if (!existingAttacks || existingAttacks.length === 0) {
+    return { isDuplicate: false, betterReport: "candidate", reason: "No existing reports to compare against." };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `You are a security intelligence analyst.
+Compare the following "CANDIDATE" report against the list of "EXISTING" reports.
+Determine if the CANDIDATE refers to the SAME security incident as any of the EXISTING reports.
+
+CANDIDATE REPORT:
+${JSON.stringify({
+  id: String(candidate._id),
+  title: candidate.title,
+  date: candidate.date,
+  location: candidate.location,
+  group: candidate.group,
+  casualties: candidate.casualties,
+  sources: candidate.sources,
+  description: candidate.description
+}, null, 2)}
+
+EXISTING REPORTS:
+${JSON.stringify(existingAttacks.map(a => ({
+  id: String(a._id),
+  title: a.title,
+  date: a.date,
+  location: a.location,
+  group: a.group,
+  casualties: a.casualties,
+  sources: a.sources,
+  description: a.description
+})), null, 2)}
+
+TASK:
+1. Determine if the CANDIDATE implies the exact same event as any EXISTING report (same location + same date + same nature of attack).
+2. If match found, compare reliability/quality.
+   - Prefer reports with confirmed sources (e.g. reliable news outlets > random tweets).
+   - Prefer reports with more specific details (precise location, specific casualty counts).
+   - Prefer reports with HIGHER casualty counts (often initial reports undercount, later reports are more accurate).
+   - If one is clearly better, identify the winner.
+
+RESPONSE FORMAT (JSON ONLY):
+{
+  "isDuplicate": boolean,
+  "duplicateOfId": "string (ID of the matching existing report, or null if no match)",
+  "betterReport": "candidate" | "existing" (only if isDuplicate is true),
+  "reason": "string (explanation)"
+}
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    return JSON.parse(cleanedText);
+  } catch (error) {
+    console.error("Error checking duplicates with Gemini:", error);
+    // Default to assuming unique if AI fails, to be safe
+    return { isDuplicate: false, betterReport: "candidate", reason: "AI check failed" };
   }
 }
