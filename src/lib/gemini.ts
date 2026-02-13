@@ -63,7 +63,7 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
 
   const today = new Date();
   const threeDaysAgo = new Date(today);
-  threeDaysAgo.setDate(today.getDate() - 3);
+  threeDaysAgo.setDate(today.getDate() - 5);
 
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria. 
 Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
