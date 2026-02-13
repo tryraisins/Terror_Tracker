@@ -222,11 +222,23 @@ export async function checkDuplicateAttack(
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // Explicitly disable tools to ensure no external searching occurs
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash",
+    tools: [] 
+  });
+
+  const cleanSources = (sources: any[]) => sources?.map(s => ({ 
+    publisher: s.publisher || "Unknown", 
+    title: s.title || "Unknown" 
+  })) || [];
 
   const prompt = `You are a security intelligence analyst.
 Compare the following "CANDIDATE" report against the list of "EXISTING" reports.
 Determine if the CANDIDATE refers to the SAME security incident as any of the EXISTING reports.
+
+CRITICAL INSTRUCTION: FAIL FAST. Do not search the internet. Use ONLY the provided JSON data below. 
+If the descriptions and locations match closely, it's a duplicate.
 
 CANDIDATE REPORT:
 ${JSON.stringify({
@@ -236,7 +248,7 @@ ${JSON.stringify({
   location: candidate.location,
   group: candidate.group,
   casualties: candidate.casualties,
-  sources: candidate.sources,
+  sources: cleanSources(candidate.sources), // URLs removed to prevent browsing
   description: candidate.description
 }, null, 2)}
 
@@ -248,7 +260,7 @@ ${JSON.stringify(existingAttacks.map(a => ({
   location: a.location,
   group: a.group,
   casualties: a.casualties,
-  sources: a.sources,
+  sources: cleanSources(a.sources), // URLs removed to prevent browsing
   description: a.description
 })), null, 2)}
 
