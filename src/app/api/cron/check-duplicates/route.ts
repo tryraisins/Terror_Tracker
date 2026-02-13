@@ -29,12 +29,12 @@ export async function GET() {
 
         try {
           // Find potential duplicates (same state, close date)
-          // Date range: +/- 2 days to be safe
+          // Date range: +/- 3 days to catch delayed reports or slight date discrepancies
           const attackDate = new Date(candidate.date);
           const startDate = new Date(attackDate);
-          startDate.setDate(startDate.getDate() - 2);
+          startDate.setDate(startDate.getDate() - 3);
           const endDate = new Date(attackDate);
-          endDate.setDate(endDate.getDate() + 2);
+          endDate.setDate(endDate.getDate() + 3);
           
           console.log(`   Searching matches in ${candidate.location?.state} (${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]})...`);
 
