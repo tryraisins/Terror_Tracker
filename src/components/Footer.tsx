@@ -33,9 +33,29 @@ export default function Footer() {
                     </p>
 
                     {/* Year */}
-                    <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-                        &copy; {new Date().getFullYear()} NATracker
-                    </p>
+                    <div className="flex flex-col items-center md:items-end gap-1">
+                        <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                            &copy; {new Date().getFullYear()} NATracker
+                        </p>
+                        <a
+                            href="https://tryraisins.dev"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs hover:text-white transition-colors"
+                            style={{ color: "var(--text-muted)" }}
+                        >
+                            Made by TryRaisins
+                        </a>
+                        <a
+                            href="https://github.com/tryraisins/Terror_Tracker"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs hover:text-white hover:underline transition-colors"
+                            style={{ color: "var(--text-muted)" }}
+                        >
+                            View Code on GitHub
+                        </a>
+                    </div>
                 </div>
             </div>
         </footer>
