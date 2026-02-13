@@ -18,7 +18,7 @@ const features = [
         icon: CpuChipIcon,
         title: "AI-Powered Collection",
         description:
-            "Uses Google Gemini with web search grounding to scan verified news sources, security reports, and field correspondents for the latest incident data.",
+            "Uses AI with web search grounding to scan verified news sources, security reports, and field correspondents for the latest incident data.",
     },
     {
         icon: ClockIcon,
@@ -158,7 +158,7 @@ export default function AboutPage() {
                                 <li className="flex gap-3">
                                     <span className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
                                         style={{ background: "var(--accent)", color: "#fff" }}>2</span>
-                                    <span><strong style={{ color: "var(--text-primary)" }}>AI Search:</strong> Gemini 2.5 Flash uses Google Search grounding to scan the web for recent attack reports from trusted news sources and analyst accounts.</span>
+                                    <span><strong style={{ color: "var(--text-primary)" }}>AI Search:</strong> AI uses Google Search grounding to scan the web for recent attack reports from trusted news sources and analyst accounts.</span>
                                 </li>
                                 <li className="flex gap-3">
                                     <span className="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
