@@ -129,7 +129,10 @@ Return your response as a valid JSON array. Each element must follow this exact 
   "tags": ["string"]
 }
 
-Respond ONLY with the JSON array, no other text. If no incidents are found, respond with [].`;
+RESPOND ONLY WITH THE JSON ARRAY.
+
+Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", or "The Journal" as sources.
+`;
 
   try {
     const result = await model.generateContent(prompt);
@@ -142,7 +145,19 @@ Respond ONLY with the JSON array, no other text. If no incidents are found, resp
       .replace(/```\n?/g, "")
       .trim();
 
-    const attacks: RawAttackData[] = JSON.parse(cleanedText);
+    let attacks: RawAttackData[] = JSON.parse(cleanedText);
+
+    // Filter out banned sources
+    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal"];
+    
+    attacks = attacks.map(attack => ({
+      ...attack,
+      sources: attack.sources.filter(source => 
+        !bannedSources.some(banned => 
+          source.publisher && source.publisher.toLowerCase().includes(banned.toLowerCase())
+        )
+      )
+    })).filter(attack => attack.sources.length > 0);
 
     // Validate each attack has minimum required fields
     return attacks.filter(
