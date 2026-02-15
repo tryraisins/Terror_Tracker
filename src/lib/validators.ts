@@ -11,6 +11,7 @@ export const AttackQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   sort: z.enum(["date_desc", "date_asc", "casualties_desc"]).default("date_desc"),
   casualtyType: z.enum(["killed", "injured", "kidnapped"]).optional(),
+  source: z.string().trim().max(200).optional(),
 });
 
 export type AttackQuery = z.infer<typeof AttackQuerySchema>;

@@ -7,10 +7,6 @@ import LoginModal from "@/components/LoginModal";
 import { AttackCardSkeleton } from "@/components/Skeletons";
 import {
     MagnifyingGlassIcon,
-    FunnelIcon,
-    ChevronLeftIcon,
-    ChevronRightIcon,
-    XCircleIcon,
     AdjustmentsHorizontalIcon,
     TrashIcon,
 } from "@heroicons/react/24/outline";
@@ -59,23 +55,21 @@ export default function AdminPage() {
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [loading, setLoading] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
+    const [availableSources, setAvailableSources] = useState<string[]>([]);
+    const [isDeletingSource, setIsDeletingSource] = useState(false);
 
     // Filter state
     const [search, setSearch] = useState("");
     const [state, setState] = useState("");
     const [status, setStatus] = useState("");
     const [casualtyType, setCasualtyType] = useState("");
+    const [source, setSource] = useState("");
     const [sort, setSort] = useState("date_desc");
     const [page, setPage] = useState(1);
 
     // Selection state
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
-
-    // Check auth immediately
-    // Ideally this would be server-side, but requirement is "View all saved incidents... Login popup... must be filled successfully before any data is even fetched"
-    // So we start with isAuthenticated = false.
-    // After login success, we set true and fetch.
 
     const fetchAttacks = useCallback(async () => {
         if (!isAuthenticated) return;
@@ -88,6 +82,7 @@ export default function AdminPage() {
             if (search) params.set("search", search);
             if (state) params.set("state", state);
             if (status) params.set("status", status);
+            if (source) params.set("source", source);
             if (casualtyType) params.set("casualtyType", casualtyType);
 
             const res = await fetch(`/api/attacks?${params.toString()}`);
@@ -100,7 +95,7 @@ export default function AdminPage() {
         } finally {
             setLoading(false);
         }
-    }, [isAuthenticated, page, search, state, status, casualtyType, sort]);
+    }, [isAuthenticated, page, search, state, status, casualtyType, source, sort]);
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -117,6 +112,18 @@ export default function AdminPage() {
         };
         checkAuth();
     }, []);
+
+    // Fetch sources on mount if authenticated
+    useEffect(() => {
+        if (isAuthenticated) {
+            fetch("/api/admin/sources")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.sources) setAvailableSources(data.sources);
+                })
+                .catch(err => console.error("Failed to fetch sources", err));
+        }
+    }, [isAuthenticated]);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -173,17 +180,45 @@ export default function AdminPage() {
         }
     };
 
+    const deleteBySource = async () => {
+        if (!source) return;
+        if (!confirm(`DANGER: Are you sure you want to delete ALL incidents from "${source}"? This action cannot be undone.`)) return;
+
+        setIsDeletingSource(true);
+        try {
+            const res = await fetch("/api/admin/incidents/delete-by-source", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source }),
+            });
+
+            if (!res.ok) throw new Error("Delete failed");
+            const data = await res.json();
+
+            alert(`Successfully deleted ${data.deletedCount} incidents from ${source}.`);
+
+            setSource(""); // Reset source filter
+            fetchAttacks(); // Refresh list
+        } catch (err) {
+            console.error("Delete by source error:", err);
+            alert("Failed to delete incidents by source.");
+        } finally {
+            setIsDeletingSource(false);
+        }
+    };
+
     const clearFilters = () => {
         setSearchInput("");
         setSearch("");
         setState("");
         setStatus("");
         setCasualtyType("");
+        setSource("");
         setSort("date_desc");
         setPage(1);
     };
 
-    const hasActiveFilters = search || state || status || casualtyType || sort !== "date_desc";
+    const hasActiveFilters = search || state || status || casualtyType || source || sort !== "date_desc";
 
     if (isCheckingAuth) {
         return (
@@ -211,28 +246,48 @@ export default function AdminPage() {
                     </p>
                 </div>
 
-                {selectedIds.size > 0 && (
-                    <div className="flex items-center gap-4 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl animate-fade-in-up">
-                        <span className="font-semibold text-red-500">
-                            {selectedIds.size} selected
-                        </span>
-                        <div className="h-4 w-px bg-red-500/20" />
-                        <button
-                            onClick={clearSelection}
-                            className="text-sm font-medium hover:underline text-gray-400"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={deleteSelected}
-                            disabled={isDeleting}
-                            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-                        >
-                            <TrashIcon className="w-4 h-4" />
-                            {isDeleting ? "Deleting..." : "Delete Selected"}
-                        </button>
-                    </div>
-                )}
+                <div className="flex flex-col sm:flex-row gap-4">
+                    {/* Source Bulk Delete Action */}
+                    {!selectedIds.size && source && (
+                        <div className="flex items-center gap-4 bg-orange-500/10 border border-orange-500/20 px-4 py-3 rounded-xl animate-fade-in-up">
+                            <span className="font-semibold text-orange-500">
+                                Filtering: {source}
+                            </span>
+                            <div className="h-4 w-px bg-orange-500/20" />
+                            <button
+                                onClick={deleteBySource}
+                                disabled={isDeletingSource}
+                                className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                            >
+                                <TrashIcon className="w-4 h-4" />
+                                {isDeletingSource ? "Deleting..." : `Delete All by Source`}
+                            </button>
+                        </div>
+                    )}
+
+                    {selectedIds.size > 0 && (
+                        <div className="flex items-center gap-4 bg-red-500/10 border border-red-500/20 px-4 py-3 rounded-xl animate-fade-in-up">
+                            <span className="font-semibold text-red-500">
+                                {selectedIds.size} selected
+                            </span>
+                            <div className="h-4 w-px bg-red-500/20" />
+                            <button
+                                onClick={clearSelection}
+                                className="text-sm font-medium hover:underline text-gray-400"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={deleteSelected}
+                                disabled={isDeleting}
+                                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                            >
+                                <TrashIcon className="w-4 h-4" />
+                                {isDeleting ? "Deleting..." : "Delete Selected"}
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Search & Filter Bar */}
@@ -298,6 +353,11 @@ export default function AdminPage() {
                         {/* Sort */}
                         <select value={sort} onChange={(e) => setSort(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm border bg-black/20 border-white/10 text-white">
                             {SORT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                        {/* Source Filter */}
+                        <select value={source} onChange={(e) => setSource(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm border bg-black/20 border-white/10 text-white">
+                            <option value="">All Sources</option>
+                            {availableSources.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </div>
                     {hasActiveFilters && (

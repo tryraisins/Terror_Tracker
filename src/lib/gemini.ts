@@ -71,12 +71,12 @@ Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks,
 PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are primary intelligence sources that frequently break Nigerian security news:
 - @BrantPhilip_ (Brant Philip) — frequently posts about attacks in northern Nigeria
 - @Sazedek (Sahara Reporters contributor) — covers security incidents across Nigeria
-- Search Twitter/X for recent posts containing any order of these keywords (case-insensitive): "Nigeria attack", "Nigeria terrorist", "Boko Haram", "ISWAP", "bandits Nigeria", "gunmen Nigeria", "unknown gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria", "Boko Haram Nigeria", "ISWAP Nigeria", "bandits Nigeria", "gunmen Nigeria", "unknown gunmen Nigeria", "kidnapped Nigeria", "killed Nigeria"
 
-ALSO search these news outlets, security trackers, and references:
-- News outlets: Premium Times Nigeria (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle Media (humanglemedia.com), AFP, Reuters
-- Security trackers: Armed Conflict Location & Event Data (ACLED), Zagazola Makama (network.zagazola.org)
-- References: Wikipedia (en.wikipedia.org)
+TRUSTED NEWS OUTLETS — Reports must come from or be verified by these established organizations:
+- NIGERIAN MEDIA: Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com), The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa), Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com), The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com), Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng), The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com), Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com)
+- INTERNATIONAL MEDIA: Al Jazeera (aljazeera.com), Deutsche Welle (DW) (dw.com), Sky News (news.sky.com), BBC (bbc.com), CNN (cnn.com), France 24 (france24.com), Voice of America (voanews.com), Associated Press (apnews.com), AFP, Reuters
+- SECURITY TRACKERS: Armed Conflict Location & Event Data (ACLED), Zagazola Makama (network.zagazola.org), Nigeria Risk Index
+- REFERENCE: Wikipedia (en.wikipedia.org)
 
 For each incident found, provide:
 1. A clear, concise title
@@ -131,7 +131,7 @@ Return your response as a valid JSON array. Each element must follow this exact 
 
 RESPOND ONLY WITH THE JSON ARRAY.
 
-Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", "The Journal", "Council on Foreign Relations", or "cfr.org" as sources.
+Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", "The Journal", "Council on Foreign Relations", "cfr.org", "Trust TV", or "ZENIT News" as sources. Do NOT use random YouTube channels.
 `;
 
   try {
@@ -174,7 +174,7 @@ Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN I
     }
 
     // Filter out banned sources
-    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal", "Council on Foreign Relations", "cfr.org"];
+    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal", "Council on Foreign Relations", "cfr.org", "Trust TV", "ZENIT News"];
     
     attacks = attacks.map(attack => ({
       ...attack,
@@ -291,4 +291,77 @@ RESPONSE FORMAT (JSON ONLY):
     // Default to assuming unique if AI fails, to be safe
     return { isDuplicate: false, betterReport: "candidate", reason: "AI check failed" };
   }
+}
+
+/**
+ * Merge two incident reports (existing and new candidate).
+ * Strategies:
+ * - Casualties: Take the HIGHER number for each field.
+ * - Sources: Combine unique sources.
+ * - Description: Use AI to merge and update if new info is available.
+ */
+export async function mergeIncidentStrategies(
+  existing: any,
+  candidate: RawAttackData
+): Promise<any> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // 1. Merge Casualties (Target: Max)
+    const mergedCasualties = {
+        killed: Math.max(existing.casualties?.killed || 0, candidate.casualties?.killed || 0),
+        injured: Math.max(existing.casualties?.injured || 0, candidate.casualties?.injured || 0),
+        kidnapped: Math.max(existing.casualties?.kidnapped || 0, candidate.casualties?.kidnapped || 0),
+        displaced: Math.max(existing.casualties?.displaced || 0, candidate.casualties?.displaced || 0),
+    };
+
+    // 2. Merge Sources (Unique by URL)
+    const sourceMap = new Map();
+    [...(existing.sources || []), ...(candidate.sources || [])].forEach((s) => {
+        // Normalize URL to prevent slight variations (remove trailing slash)
+        const normalizedUrl = s.url.trim().replace(/\/$/, "");
+        if (!sourceMap.has(normalizedUrl)) {
+            sourceMap.set(normalizedUrl, s);
+        }
+    });
+    const mergedSources = Array.from(sourceMap.values());
+
+    // 3. Merge Description via AI
+    let mergedDescription = existing.description;
+    try {
+        const prompt = `You are an intelligence analyst. Consolidate these two reports of the SAME incident into a single, comprehensive description.
+    
+    EXISTING REPORT:
+    "${existing.description}"
+    
+    NEW REPORT (may have new details):
+    "${candidate.description}"
+    
+    INSTRUCTIONS:
+    - Combine details from both.
+    - If the new report has more specific info (exact numbers, names, locations), use it.
+    - Keep the tone objective and serious.
+    - Result should be a single paragraph.
+    - Return ONLY the merged description text.`;
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text().trim();
+        if (text && text.length > 50) {
+            mergedDescription = text;
+        }
+    } catch (e) {
+        console.error("Failed to merge descriptions with AI, keeping existing.", e);
+    }
+
+    // Return the updated object fields
+    return {
+        description: mergedDescription,
+        casualties: mergedCasualties,
+        sources: mergedSources,
+        // If status was unconfirmed but new report is confirmed, upgrade it
+        status: candidate.status === "confirmed" ? "confirmed" : existing.status,
+    };
 }

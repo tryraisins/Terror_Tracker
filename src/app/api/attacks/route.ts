@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { page, limit, state, group, status, startDate, endDate, search, sort } =
+    const { page, limit, state, group, status, startDate, endDate, search, sort, source } =
       parseResult.data;
 
     await connectDB();
@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
     if (state) filter["location.state"] = { $regex: new RegExp(`^${escapeRegex(state)}$`, "i") };
     if (group) filter.group = { $regex: new RegExp(escapeRegex(group), "i") };
     if (status) filter.status = status;
+    if (source) filter["sources.publisher"] = source;
 
     if (startDate || endDate) {
       filter.date = {};
