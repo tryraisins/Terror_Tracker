@@ -131,7 +131,7 @@ Return your response as a valid JSON array. Each element must follow this exact 
 
 RESPOND ONLY WITH THE JSON ARRAY.
 
-Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", or "The Journal" as sources.
+Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", "The Journal", "Council on Foreign Relations", or "cfr.org" as sources.
 `;
 
   try {
@@ -174,7 +174,7 @@ Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN I
     }
 
     // Filter out banned sources
-    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal"];
+    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal", "Council on Foreign Relations", "cfr.org"];
     
     attacks = attacks.map(attack => ({
       ...attack,
