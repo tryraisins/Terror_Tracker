@@ -221,19 +221,7 @@ export default function DashboardPage() {
       </section>
 
       {/* Groups Chart */}
-      {stats && !loading && stats.byGroup.length > 0 && (
-        <section className="mb-12">
-          <HorizontalBar
-            title="Armed Groups Activity"
-            data={stats.byGroup.map((g) => ({
-              label: g.group,
-              value: g.count,
-              killed: g.killed,
-            }))}
-            color="var(--color-blood)"
-          />
-        </section>
-      )}
+
 
       {/* Recent Attacks */}
       <section className="mb-8">
