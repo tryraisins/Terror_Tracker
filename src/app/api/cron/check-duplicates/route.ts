@@ -5,61 +5,69 @@ import { DuplicateCheckerService } from "@/lib/duplicate-checker";
 export const maxDuration = 300; // 5 minutes
 export const dynamic = 'force-dynamic';
 
-const NIGERIAN_STATES = [
-  "Borno", "Yobe", "Adamawa", "Kaduna", "Katsina", "Zamfara", "Sokoto", "Niger", 
-  "Plateau", "Benue", "Taraba", "Kogi", "Nasarawa", "Kwara", "Jigawa", "Kano", 
-  "Bauchi", "Gombe", "Kebbi", "FCT", "Ebonyi", "Enugu", "Imo", "Abia", "Anambra", 
-  "Delta", "Edo", "Rivers", "Bayelsa", "Akwa Ibom", "Cross River", "Ondo", "Ogun", 
-  "Oyo", "Osun", "Lagos", "Ekiti"
-];
-
-// High risk states where duplicates are most likely due to high volume
-const PRIORITY_STATES = [
-  "Borno", "Kaduna", "Katsina", "Zamfara", "Niger", "Plateau", "Benue"
-];
-
 export async function GET(req: Request) {
   try {
     await connectDB();
     
-    // Check for query param 'state'
     const { searchParams } = new URL(req.url);
     const queryState = searchParams.get("state");
 
-    // Pick a state: either from query, or random priority state (70% chance), or random other state (30%)
-    let targetState = queryState;
-    if (!targetState) {
-        const usePriority = Math.random() < 0.7;
-        const list = usePriority ? PRIORITY_STATES : NIGERIAN_STATES;
-        targetState = list[Math.floor(Math.random() * list.length)];
-    }
+    // ---------- Manual single-state check ----------
+    if (queryState) {
+      console.log(`[Duplicate Check] Manual check for state: ${queryState}`);
 
-    console.log(`[Duplicate Check] Starting analysis for State: ${targetState}`);
+      const candidates = await DuplicateCheckerService.findDuplicatesInState(queryState);
+      console.log(`[Duplicate Check] Found ${candidates.length} potential duplicate pairs in ${queryState}.`);
 
-    // 1. Find candidates using heuristics
-    // This is the "per incident per state" check
-    const candidates = await DuplicateCheckerService.findDuplicatesInState(targetState);
-    
-    console.log(`[Duplicate Check] Found ${candidates.length} potential duplicate pairs in ${targetState}.`);
-
-    if (candidates.length === 0) {
+      if (candidates.length === 0) {
         return NextResponse.json({
-            message: `No duplicates found in ${targetState}`,
-            state: targetState,
-            candidatesFound: 0
+          message: `No duplicates found in ${queryState}`,
+          state: queryState,
+          candidatesFound: 0,
         });
-    }
+      }
 
-    // 2. Process using Gemini (only top matches to save quota/time)
-    // The service handles limiting inside processDuplicates, but we can also slice here if needed
-    const processedResults = await DuplicateCheckerService.processDuplicates(candidates);
+      const processedResults = await DuplicateCheckerService.processDuplicates(candidates);
 
-    return NextResponse.json({
-        message: `Processed duplicates for ${targetState}`,
-        state: targetState,
+      return NextResponse.json({
+        message: `Processed duplicates for ${queryState}`,
+        state: queryState,
         candidatesFound: candidates.length,
         processedCount: processedResults.length,
-        results: processedResults
+        results: processedResults,
+      });
+    }
+
+    // ---------- Default cron path: check ALL new incidents ----------
+    // Look back 2 hours (overlap with 1-hour cron interval to avoid edge-case misses)
+    const sinceDate = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    console.log(`[Duplicate Check] Cron run — checking incidents created since ${sinceDate.toISOString()}`);
+
+    const stateResults = await DuplicateCheckerService.findDuplicatesForRecentIncidents(sinceDate);
+
+    // Flatten all candidates across states for processing
+    const allCandidates = stateResults.flatMap((r) => r.candidates);
+
+    console.log(
+      `[Duplicate Check] Total: ${allCandidates.length} candidate pair(s) across ${stateResults.length} state(s)`
+    );
+
+    if (allCandidates.length === 0) {
+      return NextResponse.json({
+        message: "No duplicates found across new incidents",
+        statesChecked: stateResults.length,
+        candidatesFound: 0,
+      });
+    }
+
+    const processedResults = await DuplicateCheckerService.processDuplicates(allCandidates);
+
+    return NextResponse.json({
+      message: `Processed duplicates across ${stateResults.length} state(s)`,
+      statesChecked: stateResults.length,
+      candidatesFound: allCandidates.length,
+      processedCount: processedResults.length,
+      results: processedResults,
     });
 
   } catch (error) {
@@ -67,3 +75,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Failed", details: String(error) }, { status: 500 });
   }
 }
+

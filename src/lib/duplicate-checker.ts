@@ -55,6 +55,157 @@ interface DuplicateCandidate {
  */
 export class DuplicateCheckerService {
   private static DATE_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
+  private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
+
+  /**
+   * Find duplicates for all incidents created since `sinceDate`.
+   * For each new incident, compare against other incidents in the same state
+   * whose date falls within an 8-day window of the new incident's date.
+   * Returns results grouped by state for logging.
+   */
+  static async findDuplicatesForRecentIncidents(
+    sinceDate: Date
+  ): Promise<{ state: string; candidates: DuplicateCandidate[] }[]> {
+    // 1. Fetch all incidents added since the last run
+    const newIncidents = await Attack.find({
+      createdAt: { $gte: sinceDate },
+    }).sort({ date: 1 });
+
+    console.log(
+      `[Duplicate Check] Found ${newIncidents.length} new incident(s) since ${sinceDate.toISOString()}`
+    );
+
+    if (newIncidents.length === 0) {
+      return [];
+    }
+
+    // 2. Group new incidents by state
+    const byState = new Map<string, IAttack[]>();
+    for (const inc of newIncidents) {
+      const st = (inc.location.state || "").trim();
+      if (!st) continue;
+      if (!byState.has(st)) byState.set(st, []);
+      byState.get(st)!.push(inc);
+    }
+
+    const results: { state: string; candidates: DuplicateCandidate[] }[] = [];
+
+    // 3. For each state with new incidents, fetch the comparison window and run heuristics
+    for (const [state, stateNewIncidents] of byState) {
+      console.log(
+        `[Duplicate Check] Checking ${stateNewIncidents.length} new incident(s) in ${state}`
+      );
+
+      // Determine the broadest date range we need for comparison candidates
+      const earliestDate = new Date(
+        Math.min(...stateNewIncidents.map((i) => i.date.getTime())) -
+          this.COMPARISON_WINDOW_MS
+      );
+      const latestDate = new Date(
+        Math.max(...stateNewIncidents.map((i) => i.date.getTime())) +
+          this.COMPARISON_WINDOW_MS
+      );
+
+      // Fetch all incidents in this state within the broad date range
+      const stateIncidents = await Attack.find({
+        "location.state": { $regex: new RegExp(`^${state}$`, "i") },
+        date: { $gte: earliestDate, $lte: latestDate },
+      }).sort({ date: 1 });
+
+      const candidates: DuplicateCandidate[] = [];
+      const seenPairs = new Set<string>(); // avoid duplicate pairs
+
+      // 4. Compare each new incident against all incidents in the window
+      for (const newInc of stateNewIncidents) {
+        const newId = String(newInc._id);
+
+        for (const existing of stateIncidents) {
+          const existingId = String(existing._id);
+
+          // Skip self-comparison
+          if (newId === existingId) continue;
+
+          // Skip already-seen pair (regardless of order)
+          const pairKey =
+            newId < existingId
+              ? `${newId}:${existingId}`
+              : `${existingId}:${newId}`;
+          if (seenPairs.has(pairKey)) continue;
+          seenPairs.add(pairKey);
+
+          // Time diff check — only compare within 8-day window
+          const timeDiff = Math.abs(
+            existing.date.getTime() - newInc.date.getTime()
+          );
+          if (timeDiff > this.COMPARISON_WINDOW_MS) continue;
+
+          // --- Run the same heuristics as findDuplicatesInState ---
+          const townSim = calculateSimilarity(
+            (newInc.location.town || "").toLowerCase(),
+            (existing.location.town || "").toLowerCase()
+          );
+          const lgaSim = calculateSimilarity(
+            (newInc.location.lga || "").toLowerCase(),
+            (existing.location.lga || "").toLowerCase()
+          );
+          const groupSim = calculateSimilarity(
+            (newInc.group || "").toLowerCase(),
+            (existing.group || "").toLowerCase()
+          );
+          const sameGroup =
+            groupSim > 0.7 ||
+            newInc.group.toLowerCase().includes("unknown") ||
+            existing.group.toLowerCase().includes("unknown") ||
+            newInc.group.toLowerCase().includes("gunmen") ||
+            existing.group.toLowerCase().includes("gunmen");
+
+          let casualtyScore = 1.0;
+          if (
+            newInc.casualties.killed !== null &&
+            existing.casualties.killed !== null
+          ) {
+            const k1 = newInc.casualties.killed || 0;
+            const k2 = existing.casualties.killed || 0;
+            if (k1 === 0 && k2 === 0) casualtyScore = 1.0;
+            else if (k1 === 0 || k2 === 0) casualtyScore = 0.5;
+            else casualtyScore = Math.min(k1, k2) / Math.max(k1, k2);
+          }
+
+          let score = 0;
+          if (townSim > 0.8 || lgaSim > 0.8) {
+            score += 0.4;
+          } else {
+            const titleSim = calculateSimilarity(
+              newInc.title.toLowerCase(),
+              existing.title.toLowerCase()
+            );
+            if (titleSim > 0.6) score += 0.3;
+          }
+          if (sameGroup) score += 0.2;
+          if (casualtyScore > 0.7) score += 0.3;
+          if (timeDiff < 24 * 60 * 60 * 1000) score += 0.1;
+
+          if (score >= 0.6) {
+            candidates.push({
+              reportA: newInc,
+              reportB: existing,
+              heuristicScore: score,
+              reason: `Score: ${score.toFixed(2)} (Town: ${townSim.toFixed(2)}, Group: ${groupSim.toFixed(2)}, Cas: ${casualtyScore.toFixed(2)})`,
+            });
+          }
+        }
+      }
+
+      console.log(
+        `[Duplicate Check] Found ${candidates.length} potential duplicate pair(s) in ${state}`
+      );
+      if (candidates.length > 0) {
+        results.push({ state, candidates });
+      }
+    }
+
+    return results;
+  }
 
   /**
    * Find potential duplicates within a single state.
