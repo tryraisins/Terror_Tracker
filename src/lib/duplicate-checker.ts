@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Attack, { IAttack } from "./models/Attack";
-import { checkDuplicateAttack } from "./gemini";
+import { checkDuplicateAttack, mergeIncidentStrategies } from "./gemini";
 
 // --- Utility: Levenshtein Distance for simple fuzzy matching ---
 function levenshteinDistance(a: string, b: string): number {
@@ -54,7 +54,7 @@ interface DuplicateCandidate {
  * Iterates through attacks in a specific state to find duplicates using a sliding window.
  */
 export class DuplicateCheckerService {
-  private static DATE_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+  private static DATE_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
   /**
    * Find potential duplicates within a single state.
@@ -168,10 +168,18 @@ export class DuplicateCheckerService {
   }
 
   /**
-   * Process a batch of duplicates using Gemini to confirm.
+   * Process a batch of duplicates using Gemini to confirm, then MERGE
+   * instead of deleting. The primary (kept) record absorbs:
+   *   - All unique sources from both reports
+   *   - The higher casualty count for each field
+   *   - An AI-consolidated description
    */
   static async processDuplicates(duplicates: DuplicateCandidate[]): Promise<any[]> {
     const results = [];
+    
+    // Track IDs that have already been merged-away in this run
+    // so we never process a stale pair.
+    const deletedIds = new Set<string>();
     
     // Sort by highest heuristic score first to catch obvious ones
     duplicates.sort((a, b) => b.heuristicScore - a.heuristicScore);
@@ -182,34 +190,56 @@ export class DuplicateCheckerService {
     for (const item of batch) {
         const { reportA, reportB } = item;
         
-        // Skip if either has already been deleted in this run (if we process sequentially)
-        // Check if they still exist? (Mongoose docs might still be valid object refs)
+        // Skip if either report was already consumed by a previous merge
+        const idA = String(reportA._id);
+        const idB = String(reportB._id);
+        if (deletedIds.has(idA) || deletedIds.has(idB)) {
+            continue;
+        }
         
         try {
-            // Call the shared Gemini function
-            // We need to wrap reportB in an array as "existing"
+            // Ask Gemini whether the pair is truly the same incident
             const geminiResult = await checkDuplicateAttack(reportA.toObject(), [reportB.toObject()]);
             
             if (geminiResult.isDuplicate) {
                 console.log(`CONFIRMED DUPLICATE: ${reportA.title} vs ${reportB.title}`);
                 
-                let log = "";
-                if (geminiResult.betterReport === "existing") {
-                     // Keep B (existing generic param), delete A (candidate)
-                     // BUT here A and B are symmetric. 
-                     // The gemini function treats arg1 as candidate, arg2 as existing.
-                     // So if better is 'existing', it means B is better.
-                     await Attack.findByIdAndDelete(reportA._id);
-                     log = `Deleted A (${reportA._id})`;
-                } else {
-                     // Keep A, delete B
-                     await Attack.findByIdAndDelete(reportB._id);
-                     log = `Deleted B (${reportB._id})`;
-                }
+                // Decide which record is the primary (kept) and which is secondary (absorbed).
+                // Gemini treats arg1 as candidate, arg2 as existing.
+                // "existing" means B is better → keep B as primary.
+                const primary   = geminiResult.betterReport === "existing" ? reportB : reportA;
+                const secondary = geminiResult.betterReport === "existing" ? reportA : reportB;
+                
+                // Merge the secondary's data into the primary
+                const mergedFields = await mergeIncidentStrategies(
+                    primary.toObject(),
+                    secondary.toObject()
+                );
+                
+                // Apply merged fields to the primary record
+                await Attack.findByIdAndUpdate(primary._id, {
+                    $set: {
+                        description: mergedFields.description,
+                        casualties: mergedFields.casualties,
+                        sources: mergedFields.sources,
+                        status: mergedFields.status,
+                    },
+                });
+                
+                // Remove the secondary (its data is now preserved in primary)
+                await Attack.findByIdAndDelete(secondary._id);
+                deletedIds.add(String(secondary._id));
+                
+                const log = `Merged ${String(secondary._id)} → ${String(primary._id)} | ` +
+                    `Sources: ${mergedFields.sources.length} | ` +
+                    `Killed: ${mergedFields.casualties.killed}, ` +
+                    `Injured: ${mergedFields.casualties.injured}`;
                 
                 results.push({
                     type: "MERGE",
                     details: log,
+                    primaryId: String(primary._id),
+                    removedId: String(secondary._id),
                     score: item.heuristicScore
                 });
             } else {
