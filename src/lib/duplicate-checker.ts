@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import Attack, { IAttack } from "./models/Attack";
 import { checkDuplicateAttack, mergeIncidentStrategies } from "./gemini";
 
@@ -476,8 +475,10 @@ export class DuplicateCheckerService {
     // Sort by highest heuristic score first to catch obvious ones
     duplicates.sort((a, b) => b.heuristicScore - a.heuristicScore);
 
-    // Limit to top 20 to avoid timeouts/rate limits in one run
-    const batch = duplicates.slice(0, 20);
+    // Limit to top 5 to stay well within the 5-minute serverless timeout.
+    // Each pair needs ~3 Gemini calls (confirm + merge desc + merge fields).
+    // Remaining pairs will be caught on the next cron run.
+    const batch = duplicates.slice(0, 3);
 
     for (const item of batch) {
       const { reportA, reportB } = item;
