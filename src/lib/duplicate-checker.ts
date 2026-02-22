@@ -21,8 +21,8 @@ function levenshteinDistance(a: string, b: string): number {
           matrix[i - 1][j - 1] + 1, // substitution
           Math.min(
             matrix[i][j - 1] + 1, // insertion
-            matrix[i - 1][j] + 1 // deletion
-          )
+            matrix[i - 1][j] + 1, // deletion
+          ),
         );
       }
     }
@@ -38,6 +38,119 @@ function calculateSimilarity(s1: string, s2: string): number {
     return 1.0;
   }
   return (longerLength - levenshteinDistance(longer, shorter)) / longerLength;
+}
+
+// --- Utility: Check if a location value is effectively unknown ---
+function isUnknownLocation(value: string | undefined | null): boolean {
+  if (!value) return true;
+  const v = value.trim().toLowerCase();
+  return v === "" || v === "unknown" || v === "n/a" || v === "unspecified";
+}
+
+// --- Utility: Check if one town name is an alias/contains the other ---
+// Handles cases like "Dutsin Dan Ajiya (Tungan Dutse)" vs "Tungan Dutse"
+function townNamesOverlap(town1: string, town2: string): boolean {
+  const t1 = town1.toLowerCase().trim();
+  const t2 = town2.toLowerCase().trim();
+  if (!t1 || !t2) return false;
+  // One contains the other
+  if (t1.includes(t2) || t2.includes(t1)) return true;
+  // Check if any parenthetical alias matches
+  const extractAliases = (t: string): string[] => {
+    const aliases: string[] = [t.replace(/\s*\(.*\)\s*/g, "").trim()];
+    const parenMatch = t.match(/\(([^)]+)\)/);
+    if (parenMatch) aliases.push(parenMatch[1].trim());
+    return aliases.filter((a) => a.length > 0);
+  };
+  const aliases1 = extractAliases(t1);
+  const aliases2 = extractAliases(t2);
+  for (const a1 of aliases1) {
+    for (const a2 of aliases2) {
+      if (a1 === a2 || a1.includes(a2) || a2.includes(a1)) return true;
+      if (calculateSimilarity(a1, a2) > 0.75) return true;
+    }
+  }
+  return false;
+}
+
+// --- Utility: Extract meaningful keywords from text ---
+const STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "in",
+  "on",
+  "at",
+  "of",
+  "to",
+  "and",
+  "or",
+  "is",
+  "are",
+  "was",
+  "were",
+  "by",
+  "for",
+  "from",
+  "with",
+  "as",
+  "that",
+  "this",
+  "it",
+  "its",
+  "be",
+  "has",
+  "had",
+  "have",
+  "not",
+  "but",
+  "who",
+  "which",
+  "their",
+  "they",
+  "them",
+  "been",
+  "into",
+  "also",
+  "over",
+  "during",
+  "after",
+  "before",
+  "about",
+  "between",
+  "through",
+  "including",
+  "reportedly",
+  "approximately",
+  "several",
+  "area",
+  "local",
+  "government",
+  "state",
+  "nigeria",
+  "nigerian",
+]);
+
+function extractKeywords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+  );
+}
+
+function keywordOverlapScore(text1: string, text2: string): number {
+  const kw1 = extractKeywords(text1);
+  const kw2 = extractKeywords(text2);
+  if (kw1.size === 0 || kw2.size === 0) return 0;
+  let overlap = 0;
+  for (const w of kw1) {
+    if (kw2.has(w)) overlap++;
+  }
+  const minSize = Math.min(kw1.size, kw2.size);
+  return overlap / minSize;
 }
 
 // --- Logic ---
@@ -56,6 +169,138 @@ interface DuplicateCandidate {
 export class DuplicateCheckerService {
   private static DATE_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
   private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
+  private static SCORE_THRESHOLD = 0.5; // lowered from 0.6 — Gemini confirmation still gates merges
+
+  /**
+   * Shared heuristic scoring logic used by both cron and manual paths.
+   * Returns { score, reason } or null if the pair should be skipped.
+   */
+  private static computeHeuristicScore(
+    incA: IAttack,
+    incB: IAttack,
+  ): { score: number; reason: string } | null {
+    const timeDiff = Math.abs(incA.date.getTime() - incB.date.getTime());
+    if (timeDiff > this.COMPARISON_WINDOW_MS) return null;
+
+    const townA = (incA.location.town || "").toLowerCase();
+    const townB = (incB.location.town || "").toLowerCase();
+    const lgaA = (incA.location.lga || "").toLowerCase();
+    const lgaB = (incB.location.lga || "").toLowerCase();
+
+    const townUnknownA = isUnknownLocation(incA.location.town);
+    const townUnknownB = isUnknownLocation(incB.location.town);
+    const lgaUnknownA = isUnknownLocation(incA.location.lga);
+    const lgaUnknownB = isUnknownLocation(incB.location.lga);
+
+    // --- Location scoring ---
+    let locationScore = 0;
+    let locationDetail = "";
+
+    if (!townUnknownA && !townUnknownB) {
+      // Both have real town names
+      const townSim = calculateSimilarity(townA, townB);
+      const aliasMatch = townNamesOverlap(
+        incA.location.town || "",
+        incB.location.town || "",
+      );
+      if (aliasMatch || townSim > 0.75) {
+        locationScore = 0.4;
+        locationDetail = `town-match(${aliasMatch ? "alias" : townSim.toFixed(2)})`;
+      } else if (townSim > 0.5) {
+        locationScore = 0.2;
+        locationDetail = `town-partial(${townSim.toFixed(2)})`;
+      }
+    } else if (townUnknownA || townUnknownB) {
+      // One or both towns are unknown — check LGA instead, don't penalize
+      if (!lgaUnknownA && !lgaUnknownB) {
+        const lgaSim = calculateSimilarity(lgaA, lgaB);
+        if (lgaSim > 0.75) {
+          locationScore = 0.3;
+          locationDetail = `lga-match(${lgaSim.toFixed(2)})`;
+        }
+      }
+      // If both town AND lga are unknown, location is neutral (0)
+      if (locationScore === 0) {
+        locationDetail = "location-unknown";
+      }
+    }
+
+    // LGA bonus (when towns already matched but LGA also matches)
+    if (locationScore > 0 && !lgaUnknownA && !lgaUnknownB) {
+      const lgaSim = calculateSimilarity(lgaA, lgaB);
+      if (lgaSim > 0.75) {
+        locationScore = Math.min(locationScore + 0.1, 0.5);
+      }
+    }
+
+    // --- Group scoring ---
+    const groupSim = calculateSimilarity(
+      (incA.group || "").toLowerCase(),
+      (incB.group || "").toLowerCase(),
+    );
+    const sameGroup =
+      groupSim > 0.6 ||
+      incA.group.toLowerCase().includes("unknown") ||
+      incB.group.toLowerCase().includes("unknown") ||
+      incA.group.toLowerCase().includes("gunmen") ||
+      incB.group.toLowerCase().includes("gunmen") ||
+      incA.group.toLowerCase().includes("armed men") ||
+      incB.group.toLowerCase().includes("armed men") ||
+      // Both contain "bandit" anywhere
+      (incA.group.toLowerCase().includes("bandit") &&
+        incB.group.toLowerCase().includes("bandit"));
+    const groupScore = sameGroup ? 0.15 : 0;
+
+    // --- Casualty scoring --- (relaxed threshold)
+    let casualtyScore = 0;
+    const k1 = incA.casualties.killed ?? 0;
+    const k2 = incB.casualties.killed ?? 0;
+    if (k1 === 0 && k2 === 0) {
+      casualtyScore = 0.1; // both zero, weak signal
+    } else if (k1 === 0 || k2 === 0) {
+      casualtyScore = 0.05; // one zero, one not — uncertain
+    } else {
+      const ratio = Math.min(k1, k2) / Math.max(k1, k2);
+      if (ratio > 0.5)
+        casualtyScore = 0.2; // e.g. 30 vs 50 = 0.6
+      else if (ratio > 0.3) casualtyScore = 0.1;
+    }
+
+    // --- Title keyword overlap ---
+    const titleOverlap = keywordOverlapScore(incA.title, incB.title);
+    const titleScore = titleOverlap > 0.5 ? 0.2 : titleOverlap > 0.3 ? 0.1 : 0;
+
+    // --- Description keyword overlap ---
+    const descOverlap = keywordOverlapScore(
+      incA.description || "",
+      incB.description || "",
+    );
+    const descScore = descOverlap > 0.4 ? 0.15 : descOverlap > 0.25 ? 0.08 : 0;
+
+    // --- Date proximity bonus ---
+    const dayMs = 24 * 60 * 60 * 1000;
+    const dateScore = timeDiff < dayMs ? 0.1 : timeDiff < 2 * dayMs ? 0.05 : 0;
+
+    // --- Aggregate ---
+    const score =
+      locationScore +
+      groupScore +
+      casualtyScore +
+      titleScore +
+      descScore +
+      dateScore;
+
+    const reason =
+      `Score: ${score.toFixed(2)} (` +
+      `Loc: ${locationScore.toFixed(2)} [${locationDetail}], ` +
+      `Grp: ${groupScore.toFixed(2)}, ` +
+      `Cas: ${casualtyScore.toFixed(2)} [${k1}v${k2}], ` +
+      `Title: ${titleScore.toFixed(2)} [${titleOverlap.toFixed(2)}], ` +
+      `Desc: ${descScore.toFixed(2)} [${descOverlap.toFixed(2)}], ` +
+      `Date: ${dateScore.toFixed(2)})`;
+
+    return { score, reason };
+  }
 
   /**
    * Find duplicates for all incidents created since `sinceDate`.
@@ -64,7 +309,7 @@ export class DuplicateCheckerService {
    * Returns results grouped by state for logging.
    */
   static async findDuplicatesForRecentIncidents(
-    sinceDate: Date
+    sinceDate: Date,
   ): Promise<{ state: string; candidates: DuplicateCandidate[] }[]> {
     // 1. Fetch all incidents added since the last run
     const newIncidents = await Attack.find({
@@ -72,7 +317,7 @@ export class DuplicateCheckerService {
     }).sort({ date: 1 });
 
     console.log(
-      `[Duplicate Check] Found ${newIncidents.length} new incident(s) since ${sinceDate.toISOString()}`
+      `[Duplicate Check] Found ${newIncidents.length} new incident(s) since ${sinceDate.toISOString()}`,
     );
 
     if (newIncidents.length === 0) {
@@ -93,17 +338,17 @@ export class DuplicateCheckerService {
     // 3. For each state with new incidents, fetch the comparison window and run heuristics
     for (const [state, stateNewIncidents] of byState) {
       console.log(
-        `[Duplicate Check] Checking ${stateNewIncidents.length} new incident(s) in ${state}`
+        `[Duplicate Check] Checking ${stateNewIncidents.length} new incident(s) in ${state}`,
       );
 
       // Determine the broadest date range we need for comparison candidates
       const earliestDate = new Date(
         Math.min(...stateNewIncidents.map((i) => i.date.getTime())) -
-          this.COMPARISON_WINDOW_MS
+          this.COMPARISON_WINDOW_MS,
       );
       const latestDate = new Date(
         Math.max(...stateNewIncidents.map((i) => i.date.getTime())) +
-          this.COMPARISON_WINDOW_MS
+          this.COMPARISON_WINDOW_MS,
       );
 
       // Fetch all incidents in this state within the broad date range
@@ -133,71 +378,23 @@ export class DuplicateCheckerService {
           if (seenPairs.has(pairKey)) continue;
           seenPairs.add(pairKey);
 
-          // Time diff check — only compare within 8-day window
-          const timeDiff = Math.abs(
-            existing.date.getTime() - newInc.date.getTime()
-          );
-          if (timeDiff > this.COMPARISON_WINDOW_MS) continue;
+          // Use shared heuristic scoring
+          const result = this.computeHeuristicScore(newInc, existing);
+          if (!result) continue;
 
-          // --- Run the same heuristics as findDuplicatesInState ---
-          const townSim = calculateSimilarity(
-            (newInc.location.town || "").toLowerCase(),
-            (existing.location.town || "").toLowerCase()
-          );
-          const lgaSim = calculateSimilarity(
-            (newInc.location.lga || "").toLowerCase(),
-            (existing.location.lga || "").toLowerCase()
-          );
-          const groupSim = calculateSimilarity(
-            (newInc.group || "").toLowerCase(),
-            (existing.group || "").toLowerCase()
-          );
-          const sameGroup =
-            groupSim > 0.7 ||
-            newInc.group.toLowerCase().includes("unknown") ||
-            existing.group.toLowerCase().includes("unknown") ||
-            newInc.group.toLowerCase().includes("gunmen") ||
-            existing.group.toLowerCase().includes("gunmen");
-
-          let casualtyScore = 1.0;
-          if (
-            newInc.casualties.killed !== null &&
-            existing.casualties.killed !== null
-          ) {
-            const k1 = newInc.casualties.killed || 0;
-            const k2 = existing.casualties.killed || 0;
-            if (k1 === 0 && k2 === 0) casualtyScore = 1.0;
-            else if (k1 === 0 || k2 === 0) casualtyScore = 0.5;
-            else casualtyScore = Math.min(k1, k2) / Math.max(k1, k2);
-          }
-
-          let score = 0;
-          if (townSim > 0.8 || lgaSim > 0.8) {
-            score += 0.4;
-          } else {
-            const titleSim = calculateSimilarity(
-              newInc.title.toLowerCase(),
-              existing.title.toLowerCase()
-            );
-            if (titleSim > 0.6) score += 0.3;
-          }
-          if (sameGroup) score += 0.2;
-          if (casualtyScore > 0.7) score += 0.3;
-          if (timeDiff < 24 * 60 * 60 * 1000) score += 0.1;
-
-          if (score >= 0.6) {
+          if (result.score >= this.SCORE_THRESHOLD) {
             candidates.push({
               reportA: newInc,
               reportB: existing,
-              heuristicScore: score,
-              reason: `Score: ${score.toFixed(2)} (Town: ${townSim.toFixed(2)}, Group: ${groupSim.toFixed(2)}, Cas: ${casualtyScore.toFixed(2)})`,
+              heuristicScore: result.score,
+              reason: result.reason,
             });
           }
         }
       }
 
       console.log(
-        `[Duplicate Check] Found ${candidates.length} potential duplicate pair(s) in ${state}`
+        `[Duplicate Check] Found ${candidates.length} potential duplicate pair(s) in ${state}`,
       );
       if (candidates.length > 0) {
         results.push({ state, candidates });
@@ -211,9 +408,11 @@ export class DuplicateCheckerService {
    * Find potential duplicates within a single state.
    * This is much more efficient than random sampling.
    */
-  static async findDuplicatesInState(state: string): Promise<DuplicateCandidate[]> {
+  static async findDuplicatesInState(
+    state: string,
+  ): Promise<DuplicateCandidate[]> {
     console.log(`Starting duplicate scan for state: ${state}`);
-    
+
     // 1. Fetch all attacks in this state, sorted by date
     const attacks = await Attack.find({
       "location.state": { $regex: new RegExp(`^${state}$`, "i") }, // Case-insensitive exact match
@@ -230,91 +429,31 @@ export class DuplicateCheckerService {
     // We only need to compare attack[i] with subsequent attacks that are within the time window.
     for (let i = 0; i < attacks.length; i++) {
       const current = attacks[i];
-      
+
       for (let j = i + 1; j < attacks.length; j++) {
         const next = attacks[j];
-        
-        // Time diff check
+
+        // Time diff check — early exit since attacks are sorted by date
         const timeDiff = Math.abs(next.date.getTime() - current.date.getTime());
         if (timeDiff > this.DATE_WINDOW_MS) {
-          // Since attacks are sorted by date, once we exceed the window, we can stop checking against 'current'
           break;
         }
 
-        // --- Heuristics ---
-        
-        // A. Location Similarity (Town/LGA)
-        const townSim = calculateSimilarity(
-            (current.location.town || "").toLowerCase(), 
-            (next.location.town || "").toLowerCase()
-        );
-        const lgaSim = calculateSimilarity(
-            (current.location.lga || "").toLowerCase(), 
-            (next.location.lga || "").toLowerCase()
-        );
-        
-        // B. Group Similarity
-        const groupSim = calculateSimilarity(
-            (current.group || "").toLowerCase(),
-            (next.group || "").toLowerCase()
-        );
-        const sameGroup = groupSim > 0.7 || 
-                          current.group.toLowerCase().includes("unknown") || 
-                          next.group.toLowerCase().includes("unknown") ||
-                          current.group.toLowerCase().includes("gunmen") ||
-                          next.group.toLowerCase().includes("gunmen");
+        // Use shared heuristic scoring
+        const result = this.computeHeuristicScore(current, next);
+        if (!result) continue;
 
-        // C. Casualty Count Similarity (if both present)
-        let casualtyScore = 1.0;
-        if (current.casualties.killed !== null && next.casualties.killed !== null) {
-            const k1 = current.casualties.killed || 0;
-            const k2 = next.casualties.killed || 0;
-            // If both are 0, match.
-            if (k1 === 0 && k2 === 0) casualtyScore = 1.0;
-            else if (k1 === 0 || k2 === 0) casualtyScore = 0.5; // One says 0, one says >0? Suspicious.
-            else {
-                // Ratio of min/max. 5 vs 6 -> 0.83. 5 vs 50 -> 0.1
-                casualtyScore = Math.min(k1, k2) / Math.max(k1, k2);
-            }
-        }
-
-        // --- Aggregation ---
-        // If critical location mismatch (different towns with low similarity), likely not duplicates unless title implies same event.
-        // But incidents in same state around same time are often confused.
-        
-        let score = 0;
-        
-        // Weigh factors
-        // If towns are very similar, huge boost.
-        if (townSim > 0.8 || lgaSim > 0.8) {
-            score += 0.4;
-        } else {
-            // Towns different? Maybe one is "Unknown" or just nearby. 
-            // Check descriptions (simple length check or keyword match would be better, but expensive).
-            // Title similarity?
-            const titleSim = calculateSimilarity(current.title.toLowerCase(), next.title.toLowerCase());
-            if (titleSim > 0.6) score += 0.3;
-        }
-
-        if (sameGroup) score += 0.2;
-        if (casualtyScore > 0.7) score += 0.3; // Counts match well
-
-        // Date proximity boost
-        // Same day = +0.1
-        if (timeDiff < 24 * 60 * 60 * 1000) score += 0.1;
-
-        // Threshold to consider sending to LLM
-        if (score >= 0.6) {
-             candidates.push({
-                 reportA: current,
-                 reportB: next,
-                 heuristicScore: score,
-                 reason: `Score: ${score.toFixed(2)} (Town: ${townSim.toFixed(2)}, Group: ${groupSim.toFixed(2)}, Cas: ${casualtyScore.toFixed(2)})`
-             });
+        if (result.score >= this.SCORE_THRESHOLD) {
+          candidates.push({
+            reportA: current,
+            reportB: next,
+            heuristicScore: result.score,
+            reason: result.reason,
+          });
         }
       }
     }
-    
+
     return candidates;
   }
 
@@ -325,84 +464,93 @@ export class DuplicateCheckerService {
    *   - The higher casualty count for each field
    *   - An AI-consolidated description
    */
-  static async processDuplicates(duplicates: DuplicateCandidate[]): Promise<any[]> {
+  static async processDuplicates(
+    duplicates: DuplicateCandidate[],
+  ): Promise<any[]> {
     const results = [];
-    
+
     // Track IDs that have already been merged-away in this run
     // so we never process a stale pair.
     const deletedIds = new Set<string>();
-    
+
     // Sort by highest heuristic score first to catch obvious ones
     duplicates.sort((a, b) => b.heuristicScore - a.heuristicScore);
-    
+
     // Limit to top 20 to avoid timeouts/rate limits in one run
-    const batch = duplicates.slice(0, 20); 
+    const batch = duplicates.slice(0, 20);
 
     for (const item of batch) {
-        const { reportA, reportB } = item;
-        
-        // Skip if either report was already consumed by a previous merge
-        const idA = String(reportA._id);
-        const idB = String(reportB._id);
-        if (deletedIds.has(idA) || deletedIds.has(idB)) {
-            continue;
+      const { reportA, reportB } = item;
+
+      // Skip if either report was already consumed by a previous merge
+      const idA = String(reportA._id);
+      const idB = String(reportB._id);
+      if (deletedIds.has(idA) || deletedIds.has(idB)) {
+        continue;
+      }
+
+      try {
+        // Ask Gemini whether the pair is truly the same incident
+        const geminiResult = await checkDuplicateAttack(reportA.toObject(), [
+          reportB.toObject(),
+        ]);
+
+        if (geminiResult.isDuplicate) {
+          console.log(
+            `CONFIRMED DUPLICATE: ${reportA.title} vs ${reportB.title}`,
+          );
+
+          // Decide which record is the primary (kept) and which is secondary (absorbed).
+          // Gemini treats arg1 as candidate, arg2 as existing.
+          // "existing" means B is better → keep B as primary.
+          const primary =
+            geminiResult.betterReport === "existing" ? reportB : reportA;
+          const secondary =
+            geminiResult.betterReport === "existing" ? reportA : reportB;
+
+          // Merge the secondary's data into the primary
+          const mergedFields = await mergeIncidentStrategies(
+            primary.toObject(),
+            secondary.toObject(),
+          );
+
+          // Apply merged fields to the primary record
+          await Attack.findByIdAndUpdate(primary._id, {
+            $set: {
+              description: mergedFields.description,
+              casualties: mergedFields.casualties,
+              sources: mergedFields.sources,
+              status: mergedFields.status,
+            },
+          });
+
+          // Remove the secondary (its data is now preserved in primary)
+          await Attack.findByIdAndDelete(secondary._id);
+          deletedIds.add(String(secondary._id));
+
+          const log =
+            `Merged ${String(secondary._id)} → ${String(primary._id)} | ` +
+            `Sources: ${mergedFields.sources.length} | ` +
+            `Killed: ${mergedFields.casualties.killed}, ` +
+            `Injured: ${mergedFields.casualties.injured}`;
+
+          results.push({
+            type: "MERGE",
+            details: log,
+            primaryId: String(primary._id),
+            removedId: String(secondary._id),
+            score: item.heuristicScore,
+          });
+        } else {
+          results.push({
+            type: "NO_DUPLICATE",
+            details: `Gemini said different: ${geminiResult.reason}`,
+            score: item.heuristicScore,
+          });
         }
-        
-        try {
-            // Ask Gemini whether the pair is truly the same incident
-            const geminiResult = await checkDuplicateAttack(reportA.toObject(), [reportB.toObject()]);
-            
-            if (geminiResult.isDuplicate) {
-                console.log(`CONFIRMED DUPLICATE: ${reportA.title} vs ${reportB.title}`);
-                
-                // Decide which record is the primary (kept) and which is secondary (absorbed).
-                // Gemini treats arg1 as candidate, arg2 as existing.
-                // "existing" means B is better → keep B as primary.
-                const primary   = geminiResult.betterReport === "existing" ? reportB : reportA;
-                const secondary = geminiResult.betterReport === "existing" ? reportA : reportB;
-                
-                // Merge the secondary's data into the primary
-                const mergedFields = await mergeIncidentStrategies(
-                    primary.toObject(),
-                    secondary.toObject()
-                );
-                
-                // Apply merged fields to the primary record
-                await Attack.findByIdAndUpdate(primary._id, {
-                    $set: {
-                        description: mergedFields.description,
-                        casualties: mergedFields.casualties,
-                        sources: mergedFields.sources,
-                        status: mergedFields.status,
-                    },
-                });
-                
-                // Remove the secondary (its data is now preserved in primary)
-                await Attack.findByIdAndDelete(secondary._id);
-                deletedIds.add(String(secondary._id));
-                
-                const log = `Merged ${String(secondary._id)} → ${String(primary._id)} | ` +
-                    `Sources: ${mergedFields.sources.length} | ` +
-                    `Killed: ${mergedFields.casualties.killed}, ` +
-                    `Injured: ${mergedFields.casualties.injured}`;
-                
-                results.push({
-                    type: "MERGE",
-                    details: log,
-                    primaryId: String(primary._id),
-                    removedId: String(secondary._id),
-                    score: item.heuristicScore
-                });
-            } else {
-                results.push({
-                    type: "NO_DUPLICATE",
-                    details: `Gemini said different: ${geminiResult.reason}`,
-                    score: item.heuristicScore
-                });
-            }
-        } catch (err) {
-            console.error("Gemini check failed for pair", err);
-        }
+      } catch (err) {
+        console.error("Gemini check failed for pair", err);
+      }
     }
     return results;
   }

@@ -1,0 +1,386 @@
+[{
+  "_id": {
+    "$oid": "699aa9a0d4ef716c790a2b3d"
+  },
+  "title": "Bandits Kill 50, Abduct Several in Zamfara Village Attack",
+  "description": "Armed bandits, referred to as terrorists, attacked Dutsin Dan Ajiya (also known as Tungan Dutse) village in Anka Local Government Area of Zamfara State. The assault began late Thursday, February 19, 2026, and continued into Friday morning. Attackers on motorcycles set fire to buildings and shot residents who attempted to flee. At least 50 civilians were killed, and an unspecified number of women and children were abducted.",
+  "date": {
+    "$date": "2026-02-19T00:00:00.000Z"
+  },
+  "location": {
+    "state": "Zamfara",
+    "lga": "Anka",
+    "town": "Dutsin Dan Ajiya (Tungan Dutse)"
+  },
+  "group": "Bandits (Terrorists)",
+  "casualties": {
+    "killed": 50,
+    "injured": null,
+    "kidnapped": null,
+    "displaced": null
+  },
+  "sources": [
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEWMsHePxnrtPS6_obpYFdP934Fw22fWW5T_TsNTKSKcGj-eXNMvmC1v-5QO0Q_gqAZ58eLA7yV4L7o14v-KuM8uon-tG9DhMLuK9nSZwghGaVQhDqB5Out5kShTzHs76-5yUlKhQL85IWGVroU42wLRmtzqbekSmSjSQyAqADYjQjRLXpmqymyQz_6dcpX3xs3_4oeDkNWC2To",
+      "title": "Gunmen kill over 30, abduct several villagers in Zamfara - The Guardian Nigeria",
+      "publisher": "The Guardian Nigeria",
+      "_id": {
+        "$oid": "699aa9a0d4ef716c790a2b3e"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEtbFtxfAY08zfwm354Xs3mK2T2BkURjN3vPhfneqw90FLssrm0DxwbsTB5Wf0JzLVMitn9Y1SJVVXb5YDkOsFVOIJ-SVhTMmS4BBVhtaZdeTeD1ryymZv5I7ViFDE4pKR5A71mad5qncwGCsevExTVNwhQudgMkaSOR47E2DX1rN7iVw-XpbdNar3G3UKgdbHcw4K0xnRd3RYrhxiRC5r7_7qk",
+      "title": "Terrorists kill 50, abduct women, children in northwestern Nigeria - Anadolu",
+      "publisher": "Anadolu",
+      "_id": {
+        "$oid": "699aa9a0d4ef716c790a2b3f"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF7kXQ6tDSw9v6gpUnHKCzUM10yFXFfkemt13h3KkAhgq9Hv9nHQg0EaoyH_a2mGuh1RAu3Myl6yswUw35KzONTt_yX_Rj4aNQqvYYpipYUhHNOakd56m3Qgc_YFmW_gkYT6ZwwzBmOm7TQaUUSsmn4wae7rGoulnUUVEzmViAc9r5qqB0O01xOUzIwjAipieJ82mCM3JU1uB-Y0l_K4EbnSBmcgO-_cPvXSlOVeUe6e43rUQ==",
+      "title": "At least 38 killed in armed attack in north-west Nigeria - Region - World - Ahram Online",
+      "publisher": "Ahram Online",
+      "_id": {
+        "$oid": "699aa9a0d4ef716c790a2b40"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEU9Ki1GY8OElp4a70BXE1p2vyuHfGhUReJfXyUcuQ3Cb0V7X1m4FsnwfF3XmtANVpuUQlRXRxHfgjOO4mwjabNCgWrGmYOScE944hvuXp2eaXjpIzYYbGMpxfdAc4cHEDVNcxmun0VeE10rdLDA3pnT6ysxk7H2QL5Ay2t1z1c5siiQmEtaUE5tAwhPFnEqOp49Q==",
+      "title": "Terrorists kill 50, abduct women, children in Nigeria - Mehr News Agency",
+      "publisher": "Mehr News Agency",
+      "_id": {
+        "$oid": "699aa9a0d4ef716c790a2b41"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE7aycGMWxXHsOVLFx1GaJ4Tm_e-ZXpH_jXQqDGw1MYGiqb70CGOWa2lGi-BxKb1Pcy-bwonuDES6CoNjzq9hattHg-UBHrivmvQEzF5urZqE8TTUf9a7vwofNwAodV_w0YJd-kWoBHSBur1iComaJTp5WdnZUy2CgIM2LpQYhszL5dE3uexzHcK-8yDknhmMAn1hwjRmOOYKpmeAsBsa3F6oT9SkGW2mf3xQ==",
+      "title": "38 killed as 'bandits' storm Nigeria's Zamfara village in brutal attack - Odisha TV",
+      "publisher": "Odisha TV",
+      "_id": {
+        "$oid": "699aa9a0d4ef716c790a2b42"
+      }
+    }
+  ],
+  "status": "confirmed",
+  "tags": [
+    "banditry",
+    "northwest",
+    "zamfara",
+    "kidnapping",
+    "mass-killing"
+  ],
+  "hash": "f0c1eaf16db68aac93364f4c7083cc4d07b39cd55a513835720e2960953cb53f",
+  "createdAt": {
+    "$date": "2026-02-22T07:00:48.513Z"
+  },
+  "updatedAt": {
+    "$date": "2026-02-22T07:00:48.513Z"
+  },
+  "__v": 0
+},
+
+{
+  "_id": {
+    "$oid": "699a00db6ad61da37f8c5d12"
+  },
+  "title": "Gunmen Kill Over 30, Abduct Villagers in Dutsin Dan Ajiya, Anka LGA, Zamfara State",
+  "description": "On the night of Thursday, February 19, 2026, extending into Friday morning, February 20, the Dutsin Dan Ajiya community (also known as Tungan Dutse or Tungan Duche) in the Anka Local Government Area of Zamfara State, northwestern Nigeria, was subjected to a terror attack by bandits on motorcycles. The assault resulted in the deaths of at least 30 to 50 villagers and the abduction of several women and children. During the attack, the perpetrators shot residents indiscriminately, set fire to buildings, and blocked roads; no security operatives were reportedly present.",
+  "date": {
+    "$date": "2026-02-19T23:59:59.000Z"
+  },
+  "location": {
+    "state": "Zamfara",
+    "lga": "Anka",
+    "town": "Dutsin Dan Ajiya"
+  },
+  "group": "Bandits",
+  "casualties": {
+    "killed": 30,
+    "injured": 0,
+    "kidnapped": 0,
+    "displaced": 0
+  },
+  "sources": [
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEaljS9w1X2dU1zQMj647amzYwzFCXflcjf5MevdEbhcaNe9L_-bcreyziLY-DFhF9G4JooLttsVI9WKhglLqQRoV9grR0A3ydWkNFo15hEn-1HCE9ccrmJ7WV3Uu-LM-OA5dMPp_vn9L1YG192pO0Il-lx-tTa61g7Ntk0hILRBfr0jfce7YxOdmfpfrWxRnAPvOgM-BZ17Kw=",
+      "title": "Gunmen kill over 30, abduct several villagers in Zamfara",
+      "publisher": "The Guardian Nigeria",
+      "_id": {
+        "$oid": "699a00db6ad61da37f8c5d13"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20Kills%20Dozens%2C%20Abducts%20Villagers%20in%20Zamfara%20The%20Guardian%20Nigeria",
+      "title": "Gunmen kill over 30, abduct several villagers in Zamfara - The Guardian Nigeria",
+      "publisher": "The Guardian Nigeria",
+      "_id": {
+        "$oid": "699b525531a8cefaa23d7f89"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20Kills%20Dozens%2C%20Abducts%20Villagers%20in%20Zamfara%20Anadolu%20Ajans%C4%B1",
+      "title": "Terrorists kill 50, abduct women, children in northwestern Nigeria - Anadolu Ajansı",
+      "publisher": "Anadolu Ajansı",
+      "_id": {
+        "$oid": "699b525531a8cefaa23d7f8a"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20Kills%20Dozens%2C%20Abducts%20Villagers%20in%20Zamfara%20ProtoThema%20English",
+      "title": "Nigeria: Gunmen killed at least 50 people, kidnapped women and children",
+      "publisher": "ProtoThema English",
+      "_id": {
+        "$oid": "699b525531a8cefaa23d7f8b"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20Kills%20Dozens%2C%20Abducts%20Villagers%20in%20Zamfara%20OdishaTv",
+      "title": "38 killed as 'bandits' storm Nigeria's Zamfara village in brutal attack - OdishaTv",
+      "publisher": "OdishaTv",
+      "_id": {
+        "$oid": "699b525531a8cefaa23d7f8c"
+      }
+    }
+  ],
+  "status": "confirmed",
+  "tags": [
+    "banditry",
+    "kidnapping",
+    "northwest"
+  ],
+  "hash": "382559c90ec420a1a4961717afdf630a7637d83ad5ac26db71db5cd1b4e6097d",
+  "createdAt": {
+    "$date": "2026-02-21T19:00:43.249Z"
+  },
+  "updatedAt": {
+    "$date": "2026-02-22T19:00:37.888Z"
+  },
+  "__v": 0
+},
+
+{
+  "_id": {
+    "$oid": "6999904785b7bcbc55dd08f9"
+  },
+  "title": "Bandits Kill 50 and Abduct Women and Children in Zamfara Village",
+  "description": "Armed bandits launched an attack on Tungan Dutse village in the Bukkuyum Local Government Area of Zamfara State, Nigeria. The assault commenced around 5:00 PM on Thursday, February 20, 2026, and continued until approximately 3:30 AM on Friday, February 21, 2026. The attackers, arriving on over 150 motorcycles, shot indiscriminately at residents attempting to flee, resulting in the deaths of at least 50 people. A significant number of residents, including women and children, were abducted, and buildings were burned down or razed. This incident is part of the ongoing Nigerian bandit conflict.",
+  "date": {
+    "$date": "2026-02-20T00:00:00.000Z"
+  },
+  "location": {
+    "state": "Zamfara",
+    "lga": "Unknown",
+    "town": "Unknown"
+  },
+  "group": "Bandits",
+  "casualties": {
+    "killed": 50,
+    "injured": 0,
+    "kidnapped": 0,
+    "displaced": 0
+  },
+  "sources": [
+    {
+      "url": "https://en.wikipedia.org/wiki/Portal:Current_events",
+      "title": "Nigerian bandit conflict: At least 50 people are killed and women and children are abducted in overnight attacks by gunmen on a village in Zamfara State, Nigeria.",
+      "publisher": "Wikipedia",
+      "_id": {
+        "$oid": "6999904785b7bcbc55dd08fa"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHBEuW6sMRd9_GRHaE3WdRXABxFzG8gqj7joub7v9onddjz3RHUGLYLl4Zyxuguv8A-OALCJKkpdqPQCsTggMwm2DrCCEW0n8OP7CCs69nf6-z9T-UjGRKmduHmQTNzKCL8sZncgoDR2D1xI-Rc8PajBcT7dZ0g82zauIM_cj_nObUim9g8g2h0sD9KJFq8JTemJ0x2CyEigmTgqCUV2KnmEeCwZEQ=",
+      "title": "Attackers kill 50, abduct women and children in Nigeria's Zamfara state",
+      "publisher": "Aaj English TV (citing Reuters)",
+      "_id": {
+        "$oid": "699a00db6ad61da37f8c5d0d"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandits%20Kill%2050%2C%20Abduct%20Many%20in%20Zamfara%20State%20Village%20Attack%20Daily%20Sabah",
+      "title": "Gunmen kill at least 38 in attack in northwest Nigeria - Daily Sabah",
+      "publisher": "Daily Sabah",
+      "_id": {
+        "$oid": "699a7163cea3e57ed519a943"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandits%20Kill%2050%2C%20Abduct%20Many%20in%20Zamfara%20State%20Village%20Attack%20Xinhua",
+      "title": "At least 50 killed, many abducted in armed attack in NW Nigeria: lawmaker - Xinhua",
+      "publisher": "Xinhua",
+      "_id": {
+        "$oid": "699a7163cea3e57ed519a944"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandits%20Kill%2050%2C%20Abduct%20Many%20in%20Zamfara%20State%20Village%20Attack%20Anadolu",
+      "title": "Terrorists kill 50, abduct women, children in northwestern Nigeria - Anadolu",
+      "publisher": "Anadolu",
+      "_id": {
+        "$oid": "699a7163cea3e57ed519a945"
+      }
+    }
+  ],
+  "status": "confirmed",
+  "tags": [
+    "banditry",
+    "kidnapping",
+    "zamfara",
+    "northwest"
+  ],
+  "hash": "ac6880a8b6843663e2dcb2a96c964e6a83faec848a85e9cbb65fc9ad52f60f45",
+  "createdAt": {
+    "$date": "2026-02-21T11:00:23.794Z"
+  },
+  "updatedAt": {
+    "$date": "2026-02-22T03:00:51.855Z"
+  },
+  "__v": 0
+},
+
+
+{
+  "_id": {
+    "$oid": "6998f5a41b0b9122cfe1f69e"
+  },
+  "title": "Armed Men Kill At Least 50 and Abduct Several Women and Children in Zamfara Village",
+  "description": "Heavily armed bandits riding on motorcycles attacked Tungan Dutse village in Zamfara State, operating from approximately 5 p.m. on Thursday until 3:30 a.m. on Friday. The attackers shot residents, including those attempting to flee, and burned down buildings, resulting in at least 50 civilian deaths and the abduction of several women and children. Residents had reportedly warned security forces a day prior of over 150 motorcycles carrying armed men, but the warning was ignored.",
+  "date": {
+    "$date": "2026-02-19T17:00:00.000Z"
+  },
+  "location": {
+    "state": "Zamfara",
+    "lga": "Bukkuyum",
+    "town": "Tungan Dutse"
+  },
+  "group": "Armed Men (Bandits)",
+  "casualties": {
+    "killed": 50,
+    "injured": 0,
+    "kidnapped": 0,
+    "displaced": 0
+  },
+  "sources": [
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEQMy7xXSpVxBKpX52NN5y29JJcGBaeb76eM3bNyvu1uvUDWnO7DkiXvlxQj2rAAKdy4VMxobHS3OoHCVZYfZfSBe7ozluRYV5i82Xef3oR1uMKXHHkMwWPDhfGHGybWI0AOeMDkdDn35W1JlQ_Z0KJ44XJvVn2IjO1TMdQq5RhlvGyAsevg0A5n9UC03thAWEj_ICzt150DBMaMUPw=",
+      "title": "Attackers kill at least 50, abduct women and children in Nigeria's Zamfara state - The Straits Times",
+      "publisher": "Reuters / The Straits Times",
+      "_id": {
+        "$oid": "6998f5a41b0b9122cfe1f69f"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20and%20Abduction%20in%20Zamfara%20State%20RNZ%20News",
+      "title": "Attackers kill at least 50, abduct women and children in Nigeria's Zamfara state | RNZ News",
+      "publisher": "RNZ News",
+      "_id": {
+        "$oid": "699903cc3d03ed8d454e293d"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20and%20Abduction%20in%20Zamfara%20State%20Vanguard%20News",
+      "title": "Bandits kill 30 in fresh Zamfara attack, abduct several residents - Vanguard News",
+      "publisher": "Vanguard News",
+      "_id": {
+        "$oid": "699903cc3d03ed8d454e293e"
+      }
+    }
+  ],
+  "status": "confirmed",
+  "tags": [
+    "banditry",
+    "northwest",
+    "kidnapping",
+    "killing"
+  ],
+  "hash": "7284afd8771912c037cc8b95ecd9714344c171793e6025470a66735c6c125700",
+  "createdAt": {
+    "$date": "2026-02-21T00:00:36.343Z"
+  },
+  "updatedAt": {
+    "$date": "2026-02-21T01:01:00.874Z"
+  },
+  "__v": 0
+},
+
+
+{
+  "_id": {
+    "$oid": "6995f037f17aa455b5c39b10"
+  },
+  "title": "Bandits Kill One, Injure One, and Abduct Three in Zamfara State",
+  "description": "In the early hours of February 17, 2026, armed bandits conducted two separate attacks in Zamfara State. During an invasion of Magazu Village, one civilian, Aliyu Musa, was shot and injured, and his neighbor, Ibrahim Haruna, was shot dead while attempting to assist Musa. Subsequently, in a separate raid within the Fadama area, the gunmen abducted three individuals, including 46-year-old Abdulhakim Salmanu and two others whose identities were not immediately confirmed. Troops were mobilized in response to the incidents, but the attackers had fled before their arrival.",
+  "date": {
+    "$date": "2026-02-17T00:00:00.000Z"
+  },
+  "location": {
+    "state": "Zamfara",
+    "lga": "Unknown",
+    "town": "Magazu Village and Fadama area"
+  },
+  "group": "Bandits",
+  "casualties": {
+    "killed": 1,
+    "injured": 1,
+    "kidnapped": 3,
+    "displaced": 0
+  },
+  "sources": [
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGuBkAqIDj20F_GJ6XEzUrGLa0vadE1sxp24YVKNfb85xP7BvpBIOwHPbyqKBgLx_Eu6Fw2Pzw7ulIH2eG4Jdk7cYK3vL3V4ldWgntQ82aoay51r5KjzLQQnGV0uJ5rpCrjb1zFe8s1BvH3rbFxY3T4M9XLIQs5TNM9bTBeULlD90-uej78wMzU2DmxgixuUoy4qhTrUS6E",
+      "title": "Bandit attack in Zamfara leaves one dead, three abducted",
+      "publisher": "THE AUTHORITY NEWS (citing Zagazola Makama)",
+      "_id": {
+        "$oid": "6995f037f17aa455b5c39b11"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHt5GdC8YrvrndvkUh23DsqcfKhRgtuZEEB5e8i6QRMOVdua3PsN9xJiiaoX4kgFHwQKQ93LNET4bkSBl_a_c2aAYqquJW4rtEGYIT1RqRwT15XA3LuEPAWJtxGrWH3TsvGda0AX_N22iM_g49O1VBcqxQaK2C5BCEF1T5US7bhoGjODwbu-aPamBNKrsDivcCpZNO_AMTK",
+      "title": "Bandit attack in Zamfara leaves one dead, three abducted - THE AUTHORITY NEWS",
+      "publisher": "THE AUTHORITY NEWS (Zagazola Makama)",
+      "_id": {
+        "$oid": "6996d1401920a83c2ef952f6"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandit%20Attack%20in%20Zamfara%20Leaves%20One%20Dead%2C%20Three%20Abducted%20Zagazola%20Makama",
+      "title": "Bandit attack in Zamfara leaves one dead, three abducted - Zagazola Makama",
+      "publisher": "Zagazola Makama",
+      "_id": {
+        "$oid": "699741b961a25931ee99ef9f"
+      }
+    },
+    {
+      "url": "https://www.google.com/search?q=Bandits%20Kill%20One%2C%20Injure%20One%2C%20and%20Kidnap%20Three%20in%20Zamfara%20State%20Zagazola%20Makama",
+      "title": "Bandit attack in Zamfara leaves one dead, three abducted - Zagazola Makama",
+      "publisher": "Zagazola Makama",
+      "_id": {
+        "$oid": "699779fdf2c22912f1f1fc21"
+      }
+    },
+    {
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEsVn3JtTzmGSYYuCEOuOTzClfd22qX5XSdz1q8knE_gEqbRq0WhJRCdZVEgITezmQj9EobN1PhWeIkT0Q1bQha_8X28rMEifdt9MOAFKRQXfX5uwz2toPzC8s3jUgINt5rO2c1ny48eu0_D5oq79kpORNfqX5uaoClZnf1zYdip4QDx3CXlQkusU8Id-arRYueg7jQu_s=",
+      "title": "Bandit attack in Zamfara leaves one dead, three abducted - THE AUTHORITY NEWS",
+      "publisher": "THE AUTHORITY NEWS / Zagazola Makama",
+      "_id": {
+        "$oid": "6998f5a31b0b9122cfe1f68d"
+      }
+    }
+  ],
+  "status": "confirmed",
+  "tags": [
+    "banditry",
+    "zamfara",
+    "killing",
+    "kidnapping"
+  ],
+  "hash": "80aac1e19e2379d1a9515c7cdd7edb9bc8b6511be57cf0de027a29a23415f4f4",
+  "createdAt": {
+    "$date": "2026-02-18T17:00:39.120Z"
+  },
+  "updatedAt": {
+    "$date": "2026-02-21T00:00:35.863Z"
+  },
+  "__v": 0
+}
+]

@@ -3,12 +3,12 @@ import connectDB from "@/lib/db";
 import { DuplicateCheckerService } from "@/lib/duplicate-checker";
 
 export const maxDuration = 300; // 5 minutes
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     await connectDB();
-    
+
     const { searchParams } = new URL(req.url);
     const queryState = searchParams.get("state");
 
@@ -16,8 +16,11 @@ export async function GET(req: Request) {
     if (queryState) {
       console.log(`[Duplicate Check] Manual check for state: ${queryState}`);
 
-      const candidates = await DuplicateCheckerService.findDuplicatesInState(queryState);
-      console.log(`[Duplicate Check] Found ${candidates.length} potential duplicate pairs in ${queryState}.`);
+      const candidates =
+        await DuplicateCheckerService.findDuplicatesInState(queryState);
+      console.log(
+        `[Duplicate Check] Found ${candidates.length} potential duplicate pairs in ${queryState}.`,
+      );
 
       if (candidates.length === 0) {
         return NextResponse.json({
@@ -27,7 +30,8 @@ export async function GET(req: Request) {
         });
       }
 
-      const processedResults = await DuplicateCheckerService.processDuplicates(candidates);
+      const processedResults =
+        await DuplicateCheckerService.processDuplicates(candidates);
 
       return NextResponse.json({
         message: `Processed duplicates for ${queryState}`,
@@ -39,17 +43,21 @@ export async function GET(req: Request) {
     }
 
     // ---------- Default cron path: check ALL new incidents ----------
-    // Look back 2 hours (overlap with 1-hour cron interval to avoid edge-case misses)
-    const sinceDate = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    console.log(`[Duplicate Check] Cron run — checking incidents created since ${sinceDate.toISOString()}`);
+    // Look back 5 days — scan all entries created within this window
+    // and compare them against other incidents in the same state.
+    const sinceDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    console.log(
+      `[Duplicate Check] Cron run — checking incidents created since ${sinceDate.toISOString()}`,
+    );
 
-    const stateResults = await DuplicateCheckerService.findDuplicatesForRecentIncidents(sinceDate);
+    const stateResults =
+      await DuplicateCheckerService.findDuplicatesForRecentIncidents(sinceDate);
 
     // Flatten all candidates across states for processing
     const allCandidates = stateResults.flatMap((r) => r.candidates);
 
     console.log(
-      `[Duplicate Check] Total: ${allCandidates.length} candidate pair(s) across ${stateResults.length} state(s)`
+      `[Duplicate Check] Total: ${allCandidates.length} candidate pair(s) across ${stateResults.length} state(s)`,
     );
 
     if (allCandidates.length === 0) {
@@ -60,7 +68,8 @@ export async function GET(req: Request) {
       });
     }
 
-    const processedResults = await DuplicateCheckerService.processDuplicates(allCandidates);
+    const processedResults =
+      await DuplicateCheckerService.processDuplicates(allCandidates);
 
     return NextResponse.json({
       message: `Processed duplicates across ${stateResults.length} state(s)`,
@@ -69,10 +78,11 @@ export async function GET(req: Request) {
       processedCount: processedResults.length,
       results: processedResults,
     });
-
   } catch (error) {
     console.error("Duplicate check failed:", error);
-    return NextResponse.json({ error: "Failed", details: String(error) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed", details: String(error) },
+      { status: 500 },
+    );
   }
 }
-
