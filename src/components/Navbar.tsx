@@ -13,6 +13,7 @@ import {
     NewspaperIcon,
     ChartBarIcon,
     ShieldExclamationIcon,
+    ArrowDownTrayIcon,
 } from "@heroicons/react/24/outline";
 import Logo from "./Logo";
 const navLinks = [
@@ -27,12 +28,47 @@ export default function Navbar() {
     const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
+    const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+    const [isStandalone, setIsStandalone] = useState(false);
 
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 20);
         window.addEventListener("scroll", handleScroll, { passive: true });
-        return () => window.removeEventListener("scroll", handleScroll);
+
+        // PWA display mode check - deferred to prevent synchronous setState cascading renders
+        Promise.resolve().then(() => {
+            const isAppMode = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+            setIsStandalone(!!isAppMode);
+        });
+
+        const handleBeforeInstallPrompt = (e: any) => {
+            e.preventDefault();
+            setDeferredPrompt(e);
+        };
+        window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+        return () => {
+            window.removeEventListener("scroll", handleScroll);
+            window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+        };
     }, []);
+
+    const handleInstallClick = async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === "accepted") {
+                setDeferredPrompt(null);
+            }
+        } else {
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+            if (isIOS) {
+                alert("To install NATracker on iOS:\n1. Tap the Share button at the bottom\n2. Tap 'Add to Home Screen'");
+            } else {
+                alert("To install NATracker, look for 'Add to Home Screen' or 'Install' in your browser's menu.");
+            }
+        }
+    };
 
     const [prevPathname, setPrevPathname] = useState(pathname);
 
@@ -108,6 +144,23 @@ export default function Navbar() {
 
                 {/* Right side controls */}
                 <div className="flex items-center gap-2">
+                    {/* Install App Button (Desktop) */}
+                    {!isStandalone && (
+                        <button
+                            onClick={handleInstallClick}
+                            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-300 hover:scale-105"
+                            style={{
+                                background: "rgba(139,26,26,0.15)",
+                                color: "var(--color-blood, #dc2626)",
+                                border: "1px solid rgba(139,26,26,0.3)",
+                            }}
+                            title="Install NATracker App"
+                        >
+                            <ArrowDownTrayIcon className="w-4 h-4" />
+                            Install App
+                        </button>
+                    )}
+
                     {/* Theme Toggle */}
                     <button
                         onClick={toggleTheme}
@@ -180,6 +233,23 @@ export default function Navbar() {
                             </Link>
                         );
                     })}
+
+                    {!isStandalone && (
+                        <button
+                            onClick={() => {
+                                handleInstallClick();
+                                setIsOpen(false);
+                            }}
+                            className="w-full mt-3 flex items-center justify-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-[1.02]"
+                            style={{
+                                color: "#fff",
+                                background: "linear-gradient(135deg, var(--color-blood), var(--color-ember))",
+                            }}
+                        >
+                            <ArrowDownTrayIcon className="w-5 h-5" />
+                            Install NATracker App
+                        </button>
+                    )}
                 </div>
             </div>
         </nav>
