@@ -14,7 +14,7 @@ import {
     ChartBarIcon,
     ShieldExclamationIcon,
 } from "@heroicons/react/24/outline";
-
+import Logo from "@/public/icons/icon.svg";
 const navLinks = [
     { href: "/", label: "Dashboard", icon: ChartBarIcon },
     { href: "/incidents", label: "Incidents", icon: NewspaperIcon },
@@ -34,9 +34,12 @@ export default function Navbar() {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
-    useEffect(() => {
+    const [prevPathname, setPrevPathname] = useState(pathname);
+
+    if (pathname !== prevPathname) {
+        setPrevPathname(pathname);
         setIsOpen(false);
-    }, [pathname]);
+    }
 
     return (
         <nav
@@ -58,7 +61,7 @@ export default function Navbar() {
               bg-gradient-to-br from-blood to-ember transition-transform 
               duration-300 group-hover:scale-110 group-hover:rotate-3"
                     >
-                        <ShieldExclamationIcon className="w-5 h-5 text-white" />
+                        <Logo className="w-5 h-5 text-white" />
                     </div>
                     <div className="hidden sm:block">
                         <h1
