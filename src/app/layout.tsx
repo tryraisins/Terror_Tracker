@@ -8,6 +8,7 @@ import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
+  manifest: "/manifest.json",
   title: {
     default: "NATracker — Nigeria Attack Tracker",
     template: "%s | NATracker",
