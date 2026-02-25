@@ -14,7 +14,7 @@ import {
     ChartBarIcon,
     ShieldExclamationIcon,
 } from "@heroicons/react/24/outline";
-import Logo from "@/public/icons/icon.svg";
+import Logo from "./Logo";
 const navLinks = [
     { href: "/", label: "Dashboard", icon: ChartBarIcon },
     { href: "/incidents", label: "Incidents", icon: NewspaperIcon },
