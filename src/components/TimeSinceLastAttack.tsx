@@ -69,7 +69,7 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
     return (
         <div ref={containerRef} className="mb-10" style={{ opacity: 0 }}>
             <div
-                className="glass-card rounded-2xl p-6 md:p-8 relative overflow-hidden"
+                className="glass-card rounded-2xl p-4 sm:p-6 md:p-8 relative overflow-hidden"
                 style={{
                     border: "1px solid rgba(139,26,26,0.2)",
                 }}
@@ -86,10 +86,10 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
 
                 <div className="relative z-10">
                     {/* Header */}
-                    <div className="flex items-center gap-2 mb-5">
+                    <div className="flex items-center justify-center md:justify-start gap-2 mb-5">
                         <ClockIcon className="w-4 h-4" style={{ color: "var(--color-blood-light)" }} />
                         <span
-                            className="text-xs font-bold uppercase tracking-[0.2em]"
+                            className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.15em] sm:tracking-[0.2em]"
                             style={{ color: "var(--color-blood-light)" }}
                         >
                             Time Since Last Recorded Attack
@@ -97,12 +97,12 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                     </div>
 
                     {/* Timer digits */}
-                    <div className="flex items-center justify-center gap-3 md:gap-5">
+                    <div className="flex items-center justify-center gap-1 sm:gap-3 md:gap-5">
                         {units.map((unit, i) => (
-                            <div key={unit.label} className="flex items-center gap-3 md:gap-5">
-                                <div className="text-center" style={{ minWidth: "5.5rem" }}>
+                            <div key={unit.label} className="flex items-center gap-1 sm:gap-3 md:gap-5">
+                                <div className="text-center min-w-[3.25rem] sm:min-w-[4.5rem] md:min-w-[5.5rem]">
                                     <div
-                                        className="text-4xl sm:text-5xl md:text-6xl font-bold tabular-nums leading-none mb-1.5"
+                                        className="text-3xl sm:text-5xl md:text-6xl font-bold tabular-nums leading-none mb-1 sm:mb-1.5"
                                         style={{
                                             fontFamily: "var(--font-mono)",
                                             color: "var(--text-primary)",
@@ -111,7 +111,7 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                                         {String(unit.value).padStart(2, "0")}
                                     </div>
                                     <div
-                                        className="text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.25em]"
+                                        className="text-[8px] sm:text-[10px] font-bold uppercase tracking-[0.1em] sm:tracking-[0.25em]"
                                         style={{ color: "var(--text-muted)" }}
                                     >
                                         {unit.label}
@@ -121,7 +121,7 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                                 {/* Separator colon */}
                                 {i < units.length - 1 && (
                                     <span
-                                        className="text-3xl sm:text-4xl md:text-5xl font-light -mt-4 opacity-30"
+                                        className="text-2xl sm:text-4xl md:text-5xl font-light -mt-2 sm:-mt-4 opacity-30"
                                         style={{ color: "var(--text-muted)" }}
                                     >
                                         :
