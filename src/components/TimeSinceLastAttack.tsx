@@ -100,11 +100,11 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                     <div className="flex items-center justify-center gap-3 md:gap-5">
                         {units.map((unit, i) => (
                             <div key={unit.label} className="flex items-center gap-3 md:gap-5">
-                                <div className="text-center">
+                                <div className="text-center" style={{ minWidth: "5.5rem" }}>
                                     <div
                                         className="text-4xl sm:text-5xl md:text-6xl font-bold tabular-nums leading-none mb-1.5"
                                         style={{
-                                            fontFamily: "var(--font-heading)",
+                                            fontFamily: "var(--font-mono)",
                                             color: "var(--text-primary)",
                                         }}
                                     >

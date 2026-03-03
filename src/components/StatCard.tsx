@@ -111,7 +111,7 @@ export default function StatCard({ label, value, icon, trend, color = "var(--acc
                         ref={valueRef}
                         className="text-4xl md:text-5xl font-bold tracking-tight leading-none tabular-nums"
                         style={{
-                            fontFamily: "var(--font-heading)",
+                            fontFamily: "var(--font-mono)",
                             color: "var(--text-primary)"
                         }}
                     >

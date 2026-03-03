@@ -161,7 +161,7 @@ export default function AttackCard({
                                 }}
                             >
                                 <ExclamationTriangleIcon className="w-3 h-3" />
-                                <span className="tabular-nums">{attack.casualties.killed}</span> killed
+                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.killed}</span> killed
                             </span>
                         )}
                         {attack.casualties.injured !== null && attack.casualties.injured > 0 && (
@@ -171,7 +171,7 @@ export default function AttackCard({
                                     color: "var(--color-caution)",
                                 }}
                             >
-                                <span className="tabular-nums">{attack.casualties.injured}</span> injured
+                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.injured}</span> injured
                             </span>
                         )}
                         {attack.casualties.kidnapped !== null && attack.casualties.kidnapped > 0 && (
@@ -181,7 +181,7 @@ export default function AttackCard({
                                     color: "var(--color-verified)",
                                 }}
                             >
-                                <span className="tabular-nums">{attack.casualties.kidnapped}</span> kidnapped
+                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.kidnapped}</span> kidnapped
                             </span>
                         )}
                     </div>

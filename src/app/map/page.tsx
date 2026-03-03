@@ -327,13 +327,13 @@ export default function ThreatMapPage() {
                             <div className="grid grid-cols-2 gap-3 mb-4">
                                 <div className="p-3 rounded-xl" style={{ background: "var(--bg-secondary)" }}>
                                     <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Attacks</div>
-                                    <div className="text-xl font-bold" style={{ color: "var(--color-blood-light)" }}>
+                                    <div className="text-xl font-bold tabular-nums" style={{ fontFamily: "var(--font-mono)", color: "var(--color-blood-light)" }}>
                                         {selected.count}
                                     </div>
                                 </div>
                                 <div className="p-3 rounded-xl" style={{ background: "var(--bg-secondary)" }}>
                                     <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>Killed</div>
-                                    <div className="text-xl font-bold" style={{ color: "var(--color-urgent)" }}>
+                                    <div className="text-xl font-bold tabular-nums" style={{ fontFamily: "var(--font-mono)", color: "var(--color-urgent)" }}>
                                         {selected.killed}
                                     </div>
                                 </div>
@@ -446,8 +446,9 @@ export default function ThreatMapPage() {
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <span
-                                                    className="text-xs font-bold"
+                                                    className="text-xs font-bold tabular-nums"
                                                     style={{
+                                                        fontFamily: "var(--font-mono)",
                                                         color: state.count > 0 ? getDotColor(state.count) : "var(--text-muted)",
                                                     }}
                                                 >
