@@ -109,7 +109,7 @@ export default function StatCard({ label, value, icon, trend, color = "var(--acc
                 <div className="flex items-end gap-3 translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
                     <div
                         ref={valueRef}
-                        className="text-4xl md:text-5xl font-bold tracking-tight leading-none"
+                        className="text-4xl md:text-5xl font-bold tracking-tight leading-none tabular-nums"
                         style={{
                             fontFamily: "var(--font-heading)",
                             color: "var(--text-primary)"

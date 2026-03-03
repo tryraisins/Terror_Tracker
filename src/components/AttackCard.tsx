@@ -154,7 +154,7 @@ export default function AttackCard({
                 {totalCasualties > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
                         {attack.casualties.killed !== null && attack.casualties.killed > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
                                 style={{
                                     background: "rgba(255,65,54,0.1)",
                                     color: "var(--color-urgent)",
@@ -165,7 +165,7 @@ export default function AttackCard({
                             </span>
                         )}
                         {attack.casualties.injured !== null && attack.casualties.injured > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
                                 style={{
                                     background: "rgba(255,133,27,0.1)",
                                     color: "var(--color-caution)",
@@ -175,7 +175,7 @@ export default function AttackCard({
                             </span>
                         )}
                         {attack.casualties.kidnapped !== null && attack.casualties.kidnapped > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
                                 style={{
                                     background: "rgba(0,116,217,0.1)",
                                     color: "var(--color-verified)",

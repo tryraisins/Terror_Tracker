@@ -133,9 +133,9 @@ export default function BarChart({ data, title, color = "#8B1A1A", maxBars = 12 
                                     ? displayData[hoveredIndex].label
                                     : MONTH_NAMES[Number(displayData[hoveredIndex].label) - 1] || displayData[hoveredIndex].label}
                             </div>
-                            <div>Attacks: {displayData[hoveredIndex].value}</div>
+                            <div className="tabular-nums">Attacks: {displayData[hoveredIndex].value}</div>
                             {displayData[hoveredIndex].killed !== undefined && displayData[hoveredIndex].killed! > 0 && (
-                                <div className="text-red-300">Deaths: {displayData[hoveredIndex].killed}</div>
+                                <div className="text-red-300 tabular-nums">Deaths: {displayData[hoveredIndex].killed}</div>
                             )}
                         </div>
                     )}

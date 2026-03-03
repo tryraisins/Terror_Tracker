@@ -43,11 +43,11 @@ export default function HorizontalBar({ data, title, color = "var(--color-ember)
                                 {item.label}
                             </span>
                             <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                                <span className="text-sm font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
                                     {item.value}
                                 </span>
                                 {item.killed !== undefined && item.killed > 0 && (
-                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded tabular-nums"
                                         style={{ background: "rgba(255,65,54,0.1)", color: "var(--color-urgent)" }}
                                     >
                                         {item.killed} killed
