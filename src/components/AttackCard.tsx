@@ -154,34 +154,34 @@ export default function AttackCard({
                 {totalCasualties > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
                         {attack.casualties.killed !== null && attack.casualties.killed > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
                                 style={{
                                     background: "rgba(255,65,54,0.1)",
                                     color: "var(--color-urgent)",
                                 }}
                             >
                                 <ExclamationTriangleIcon className="w-3 h-3" />
-                                {attack.casualties.killed} killed
+                                <span className="tabular-nums">{attack.casualties.killed}</span> killed
                             </span>
                         )}
                         {attack.casualties.injured !== null && attack.casualties.injured > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
                                 style={{
                                     background: "rgba(255,133,27,0.1)",
                                     color: "var(--color-caution)",
                                 }}
                             >
-                                {attack.casualties.injured} injured
+                                <span className="tabular-nums">{attack.casualties.injured}</span> injured
                             </span>
                         )}
                         {attack.casualties.kidnapped !== null && attack.casualties.kidnapped > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg tabular-nums"
+                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
                                 style={{
                                     background: "rgba(0,116,217,0.1)",
                                     color: "var(--color-verified)",
                                 }}
                             >
-                                {attack.casualties.kidnapped} kidnapped
+                                <span className="tabular-nums">{attack.casualties.kidnapped}</span> kidnapped
                             </span>
                         )}
                     </div>
