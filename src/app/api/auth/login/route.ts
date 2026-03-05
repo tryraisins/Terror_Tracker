@@ -4,8 +4,8 @@ import User from "@/lib/models/User";
 import { hashPassword, verifyPassword, createSession } from "@/lib/auth";
 
 const DEFAULT_USER = {
-  username: "TryRaisins",
-  password: "K!ac?##16@",
+  username: process.env.ADMIN_USERNAME || "TryRaisins",
+  password: process.env.ADMIN_PASSWORD,
 };
 
 export async function POST(req: NextRequest) {
@@ -15,6 +15,9 @@ export async function POST(req: NextRequest) {
     // Check if any user exists, if not create default
     const count = await User.countDocuments();
     if (count === 0) {
+      if (!DEFAULT_USER.password) {
+        throw new Error("ADMIN_PASSWORD is not set in environment variables");
+      }
       const hashedPassword = await hashPassword(DEFAULT_USER.password);
       await User.create({
         username: DEFAULT_USER.username,
@@ -29,7 +32,7 @@ export async function POST(req: NextRequest) {
     if (!username || !password) {
       return NextResponse.json(
         { error: "Username and password are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -37,10 +40,13 @@ export async function POST(req: NextRequest) {
 
     if (!user) {
       // Simulate verification time to prevent timing attacks
-      await verifyPassword("dummy", "$2b$12$DummyHashStringToSimulateWorkFactor12345");
+      await verifyPassword(
+        "dummy",
+        "$2b$12$DummyHashStringToSimulateWorkFactor12345",
+      );
       return NextResponse.json(
         { error: "Invalid credentials" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -49,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (!isValid) {
       return NextResponse.json(
         { error: "Invalid credentials" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -60,7 +66,7 @@ export async function POST(req: NextRequest) {
     console.error("Login error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
