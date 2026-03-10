@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import crypto from "crypto";
 
+
 export interface RawAttackData {
   title: string;
   description: string;
