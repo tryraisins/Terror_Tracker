@@ -38,7 +38,18 @@ export async function GET(req: NextRequest) {
     // Build MongoDB filter
     const filter: Record<string, unknown> = {};
 
-    if (state) filter["location.state"] = { $regex: new RegExp(`^${escapeRegex(state)}$`, "i") };
+    if (state) {
+      const normalizedState = normalizeStateQuery(state);
+      if (isFctState(normalizedState)) {
+        filter["location.state"] = {
+          $regex: /^(Federal Capital Territory|FCT|Abuja)$/i,
+        };
+      } else {
+        filter["location.state"] = {
+          $regex: new RegExp(`^${escapeRegex(normalizedState)}$`, "i"),
+        };
+      }
+    }
     if (group) filter.group = { $regex: new RegExp(escapeRegex(group), "i") };
     if (status) filter.status = status;
     if (source) filter["sources.publisher"] = source;
@@ -105,4 +116,13 @@ export async function OPTIONS() {
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeStateQuery(state: string): string {
+  return state.replace(/\s+state$/i, "").trim();
+}
+
+function isFctState(state: string): boolean {
+  const s = state.toLowerCase();
+  return s === "fct" || s.includes("abuja") || s.includes("capital");
 }

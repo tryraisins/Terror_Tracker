@@ -68,29 +68,54 @@ export async function POST(req: NextRequest) {
           let existing = await Attack.findOne({ hash });
 
           if (!existing) {
-             // Additional dedup: check for similar attacks on the same day in the same location
+             // Additional dedup: check for similar attacks within ±2 days in the same location
              const attackDate = new Date(rawAttack.date);
-             const dayStart = new Date(attackDate);
-             dayStart.setHours(0, 0, 0, 0);
-             const dayEnd = new Date(attackDate);
-             dayEnd.setHours(23, 59, 59, 999);
+             const windowStart = new Date(attackDate);
+             windowStart.setDate(windowStart.getDate() - 2);
+             windowStart.setHours(0, 0, 0, 0);
+             const windowEnd = new Date(attackDate);
+             windowEnd.setDate(windowEnd.getDate() + 2);
+             windowEnd.setHours(23, 59, 59, 999);
+
+             // Build search title keywords for fuzzy title matching
+             const titleWords = rawAttack.title.toLowerCase()
+               .replace(/[^a-z0-9\s]/g, " ")
+               .split(/\s+/)
+               .filter((w: string) => w.length > 3)
+               .slice(0, 5);
 
              existing = await Attack.findOne({
-               date: { $gte: dayStart, $lte: dayEnd },
+               date: { $gte: windowStart, $lte: windowEnd },
                "location.state": {
                  $regex: new RegExp(`^${escapeRegex(rawAttack.location.state)}$`, "i"),
                },
                $or: [
+                 // Same town
                  {
                    "location.town": {
                      $regex: new RegExp(`^${escapeRegex(rawAttack.location.town)}$`, "i"),
                    },
                  },
+                 // Same group in same LGA
                  {
+                   "location.lga": {
+                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
+                   },
                    group: {
                      $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),
                    },
                  },
+                 // Title keyword overlap (at least 2 significant words match)
+                 ...(titleWords.length >= 2
+                   ? [{
+                       title: {
+                         $regex: new RegExp(titleWords.slice(0, 3).join("|"), "i"),
+                       },
+                       group: {
+                         $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),
+                       },
+                     }]
+                   : []),
                ],
              });
           }

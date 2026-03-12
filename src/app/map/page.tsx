@@ -26,10 +26,14 @@ export default function ThreatMapPage() {
     const svgRef = useRef<SVGSVGElement>(null);
 
     useEffect(() => {
-        // Initialize state data from the imported map data
-        const initialData: Record<string, StateData> = {};
+        setStateData(buildEmptyStateData());
+        fetchMapData();
+    }, []);
+
+    function buildEmptyStateData(): Record<string, StateData> {
+        const emptyData: Record<string, StateData> = {};
         Object.values(NIGERIA_MAP_DATA).forEach((s) => {
-            initialData[s.name] = {
+            emptyData[s.name] = {
                 ...s,
                 count: 0,
                 killed: 0,
@@ -38,10 +42,8 @@ export default function ThreatMapPage() {
                 recentAttacks: [],
             };
         });
-        setStateData(initialData);
-
-        fetchMapData();
-    }, []);
+        return emptyData;
+    }
 
     useEffect(() => {
         if (!loading && svgRef.current) {
@@ -65,40 +67,37 @@ export default function ThreatMapPage() {
             if (!res.ok) throw new Error("Failed to fetch");
             const data = await res.json();
 
-            setStateData((prev) => {
-                const next = { ...prev };
+            const next = buildEmptyStateData();
 
-                for (const attack of data.attacks || []) {
-                    // Normalize state name
-                    let stateName = attack.location?.state || "Unknown";
-                    stateName = stateName.replace(/\s+state$/i, "").trim();
+            for (const attack of data.attacks || []) {
+                // Normalize state name
+                let stateName = attack.location?.state || "Unknown";
+                stateName = stateName.replace(/\s+state$/i, "").trim();
 
-                    // Handle FCT variations
-                    if (
-                        stateName.toLowerCase().includes("abuja") ||
-                        stateName.toLowerCase().includes("capital") ||
-                        stateName.toLowerCase() === "fct"
-                    ) {
-                        stateName = "Federal Capital Territory";
-                    }
-
-                    // Case-insensitive match
-                    const matchedKey = Object.keys(next).find(
-                        (k) => k.toLowerCase() === stateName.toLowerCase()
-                    );
-
-                    if (matchedKey) {
-                        next[matchedKey].count++;
-                        next[matchedKey].killed += attack.casualties?.killed || 0;
-                        next[matchedKey].injured += attack.casualties?.injured || 0;
-                        next[matchedKey].kidnapped += attack.casualties?.kidnapped || 0;
-                        if (next[matchedKey].recentAttacks.length < 5) {
-                            next[matchedKey].recentAttacks.push(attack);
-                        }
-                    }
+                // Handle FCT variations
+                if (
+                    stateName.toLowerCase().includes("abuja") ||
+                    stateName.toLowerCase().includes("capital") ||
+                    stateName.toLowerCase() === "fct"
+                ) {
+                    stateName = "Federal Capital Territory";
                 }
-                return next;
-            });
+
+                // Case-insensitive match
+                const matchedKey = Object.keys(next).find(
+                    (k) => k.toLowerCase() === stateName.toLowerCase()
+                );
+
+                if (matchedKey) {
+                    next[matchedKey].count++;
+                    next[matchedKey].killed += attack.casualties?.killed || 0;
+                    next[matchedKey].injured += attack.casualties?.injured || 0;
+                    next[matchedKey].kidnapped += attack.casualties?.kidnapped || 0;
+                    next[matchedKey].recentAttacks.push(attack);
+                }
+            }
+
+            setStateData(next);
         } catch (err) {
             console.error("Error fetching map data:", err);
         } finally {
@@ -341,12 +340,17 @@ export default function ThreatMapPage() {
 
                             {selected.recentAttacks.length > 0 ? (
                                 <div className="space-y-3 overflow-y-auto pr-1 custom-scrollbar flex-1 min-h-0">
-                                    <h4
-                                        className="text-xs font-bold uppercase tracking-wider mb-2"
-                                        style={{ color: "var(--text-muted)" }}
-                                    >
-                                        Recent Incidents
-                                    </h4>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4
+                                            className="text-xs font-bold uppercase tracking-wider"
+                                            style={{ color: "var(--text-muted)" }}
+                                        >
+                                            Recent Incidents
+                                        </h4>
+                                        <span className="text-[10px] font-semibold" style={{ color: "var(--text-muted)" }}>
+                                            Showing {selected.recentAttacks.length} of {selected.count}
+                                        </span>
+                                    </div>
                                     {selected.recentAttacks.map((attack: any, idx) => (
                                         <div
                                             key={idx}
@@ -382,6 +386,15 @@ export default function ThreatMapPage() {
                                             </div>
                                         </div>
                                     ))}
+                                    {selected.count > selected.recentAttacks.length && (
+                                        <a
+                                            href={`/incidents?state=${encodeURIComponent(selected.name)}`}
+                                            className="text-[11px] font-semibold hover:underline"
+                                            style={{ color: "var(--color-accent)" }}
+                                        >
+                                            View all incidents
+                                        </a>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="text-xs text-center py-2 text-muted">No recent incidents recorded.</div>

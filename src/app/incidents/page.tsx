@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import AttackCard from "@/components/AttackCard";
 import { AttackCardSkeleton } from "@/components/Skeletons";
 import {
@@ -49,14 +50,17 @@ interface Pagination {
 }
 
 export default function IncidentsPage() {
+    const searchParams = useSearchParams();
+    const initialStateParam = searchParams.get("state") || "";
+
     const [attacks, setAttacks] = useState<AttackData[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
     const [loading, setLoading] = useState(true);
-    const [showFilters, setShowFilters] = useState(false);
+    const [showFilters, setShowFilters] = useState(Boolean(initialStateParam));
 
     // Filter state
     const [search, setSearch] = useState("");
-    const [state, setState] = useState("");
+    const [state, setState] = useState(initialStateParam);
     const [status, setStatus] = useState("");
     const [casualtyType, setCasualtyType] = useState("");
     const [sort, setSort] = useState("date_desc");

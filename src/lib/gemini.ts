@@ -69,37 +69,67 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria. 
 Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
 
-PRIORITY SOURCES — You MUST search these Twitter/X accounts FIRST as they are primary intelligence sources that frequently break Nigerian security news:
-- @BrantPhilip_ (Brant Philip) — frequently posts about attacks in northern Nigeria
-- @Sazedek (Sahara Reporters contributor) — covers security incidents across Nigeria
+═══════════════════════════════════════════
+SOURCE CREDIBILITY TIERS — STRICT RULES
+═══════════════════════════════════════════
 
-TRUSTED NEWS OUTLETS — Reports must come from or be verified by these established organizations:
-- NIGERIAN MEDIA: Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com), The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa), Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com), The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com), Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng), The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com), Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com)
-- INTERNATIONAL MEDIA: Al Jazeera (aljazeera.com), Deutsche Welle (DW) (dw.com), Sky News (news.sky.com), BBC (bbc.com), CNN (cnn.com), France 24 (france24.com), Voice of America (voanews.com), Associated Press (apnews.com), AFP, Reuters
-- SECURITY TRACKERS: Armed Conflict Location & Event Data (ACLED), Zagazola Makama (network.zagazola.org), Nigeria Risk Index
-- REFERENCE: Wikipedia (en.wikipedia.org)
+TIER 1 — PRIMARY INTELLIGENCE (search these FIRST):
+- Twitter/X: @BrantPhilip_ (Brant Philip), @Sazedek (Sahara Reporters contributor)
+- These accounts frequently break Nigerian security news before mainstream media
 
+TIER 2 — TRUSTED & VERIFIED NEWS OUTLETS (reports MUST come from these):
+Nigerian Media:
+  Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com), The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa), Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com), The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com), Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng), The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com), Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com), Parallel Facts News (parallelfactsnews.com)
+
+International Media:
+  Al Jazeera (aljazeera.com), Deutsche Welle/DW (dw.com), Sky News (news.sky.com), BBC (bbc.com), CNN (cnn.com), France 24 (france24.com), Voice of America (voanews.com), Associated Press (apnews.com), AFP (france24.com/afp), Reuters (reuters.com)
+
+Security Trackers:
+  ACLED (acleddata.com), Zagazola Makama (network.zagazola.org), Nigeria Risk Index
+
+Reference:
+  Wikipedia (en.wikipedia.org)
+
+TIER 3 — BANNED SOURCES (NEVER USE — reject any incident sourced ONLY from these):
+  "Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal", "Council on Foreign Relations", "cfr.org", "Trust TV", "ZENIT News", random YouTube channels, unknown blogs, unrecognizable news sites, aggregator sites that just copy-paste other articles, any source you are not confident is a real, established news organization.
+
+⚠️ STRICT SOURCE ENFORCEMENT:
+- Every incident MUST have at least one source from TIER 1 or TIER 2.
+- If an incident is ONLY reported by a source NOT in Tier 1 or Tier 2, DO NOT include it.
+- For the "publisher" field, use the EXACT name of the outlet (e.g., "Premium Times", "Channels TV", "BBC"). Do NOT invent or guess publisher names.
+- If you cannot identify the publisher of a source URL, DO NOT include that source.
+
+═══════════════════════════════════════════
+DEDUPLICATION — CRITICAL
+═══════════════════════════════════════════
+- If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
+- Do NOT create separate entries for the same attack just because different outlets covered it.
+- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
+- When consolidating, use the HIGHEST reported casualty numbers and combine all source URLs.
+
+═══════════════════════════════════════════
+DATA REQUIREMENTS
+═══════════════════════════════════════════
 For each incident found, provide:
-1. A clear, concise title
+1. A clear, concise title (format: "[Attack type] in [Town], [State]")
 2. Detailed description of what happened
-3. Exact date and time (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
-4. Location: Nigerian state, Local Government Area (LGA), and specific town/village
-5. The armed group responsible (e.g., "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", etc.). If unknown, use "Unidentified Armed Group"
-6. Casualties: number of CIVILIANS and SECURITY FORCES killed, injured, kidnapped, displaced. Do NOT include terrorists, attackers, insurgents, bandits, or militants in the killed or injured counts. Only count victims (civilians, soldiers, police, vigilantes). Use null if not reported.
-7. Source URLs — IMPORTANT: Include direct links to the news articles AND/OR the Twitter/X post URLs (e.g., https://x.com/BrantPhilip_/status/...). When an incident is first reported via Twitter/X, always include the tweet URL as a source.
-8. Status: "confirmed" if from multiple reliable sources, "unconfirmed" if single source, "developing" if ongoing
+3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
+4. Location: Nigerian state name (without "State" suffix), Local Government Area (LGA), and specific town/village
+5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Unidentified Armed Group"
+6. Casualties: count ONLY civilians and security forces (soldiers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits. Use null if not reported.
+7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
+8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
 
-CRITICAL RULES:
-- Only include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
-- If you cannot find any recent attacks, return an empty array.
-- Cross-reference incidents across multiple sources when possible.
-- Provide actual working URLs to news articles and tweets.
-- Be specific about locations — include the state and town name.
-- Distinguish between different armed groups carefully.
-- ALWAYS include Twitter/X post URLs when incidents are sourced from tweets.
-- CASUALTY COUNTING: The killed and injured counts must ONLY include civilians and security forces (soldiers, police). NEVER count dead or injured terrorists, attackers, insurgents, bandits, or militants. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed by military") with zero civilian or security force casualties, DO NOT include that incident at all.
-- Set "civilianCasualties" to true if any civilians or security forces were killed, injured, kidnapped, or displaced. Set to false if ONLY attackers were killed/injured.
+═══════════════════════════════════════════
+CRITICAL RULES
+═══════════════════════════════════════════
+- ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
+- If you cannot find any recent attacks, return an empty array [].
+- CASUALTY COUNTING: ONLY count dead/injured civilians and security forces. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed"), DO NOT include it.
+- Set "civilianCasualties" to true only if civilians or security forces were killed/injured/kidnapped/displaced.
+- Be specific about locations — always include state AND town/village name.
+- Distinguish carefully between different armed groups.
 
 Return your response as a valid JSON array. Each element must follow this exact schema:
 {
@@ -107,14 +137,14 @@ Return your response as a valid JSON array. Each element must follow this exact 
   "description": "string",
   "date": "ISO 8601 datetime string",
   "location": {
-    "state": "string (Nigerian state name)",
+    "state": "string (Nigerian state name, without 'State' suffix)",
     "lga": "string or 'Unknown'",
     "town": "string or 'Unknown'"
   },
-  "group": "string",
+  "group": "string (standardized group name)",
   "casualties": {
-    "killed": number or null (civilians and security forces ONLY),
-    "injured": number or null (civilians and security forces ONLY),
+    "killed": number or null,
+    "injured": number or null,
     "kidnapped": number or null,
     "displaced": number or null
   },
@@ -123,16 +153,14 @@ Return your response as a valid JSON array. Each element must follow this exact 
     {
       "url": "string (direct URL to article or tweet)",
       "title": "string (article title or tweet excerpt)",
-      "publisher": "string (publisher name, e.g. 'Twitter/@BrantPhilip_', 'Premium Times', etc.)"
+      "publisher": "string (EXACT outlet name from Tier 1 or Tier 2 list)"
     }
   ],
   "status": "confirmed" | "unconfirmed" | "developing",
   "tags": ["string"]
 }
 
-RESPOND ONLY WITH THE JSON ARRAY.
-
-Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN International)", "The Journal", "Council on Foreign Relations", "cfr.org", "Trust TV", or "ZENIT News" as sources. Do NOT use random YouTube channels.
+RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.
 `;
 
   try {
@@ -174,16 +202,91 @@ Excluding sources: Do NOT use "Truth Nigeria", "Aid to the Church in Need (ACN I
       });
     }
 
-    // Filter out banned sources
-    const bannedSources = ["Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal", "Council on Foreign Relations", "cfr.org", "Trust TV", "ZENIT News"];
-    
+    // ──────────────────────────────────────────────
+    // Source credibility validation (whitelist-based)
+    // ──────────────────────────────────────────────
+
+    // Trusted domains — extracted from the Tier 1 & Tier 2 list
+    const TRUSTED_DOMAINS = new Set([
+      // Nigerian Media
+      "premiumtimesng.com", "thecable.ng", "gazettengr.com", "channelstv.com",
+      "saharareporters.com", "punchng.com", "vanguardngr.com", "dailytrust.com",
+      "humanglemedia.com", "guardian.ng", "dailypost.ng", "newscentral.africa",
+      "arise.tv", "tvcnews.tv", "thisdaylive.com", "thenationonlineng.net",
+      "leadership.ng", "sunnewsonline.com", "tribuneonlineng.com", "blueprint.ng",
+      "businessday.ng", "thewhistler.ng", "icirnigeria.org", "ripplesnigeria.com",
+      "dailynigerian.com", "prnigeria.com", "parallelfactsnews.com",
+      // International Media
+      "aljazeera.com", "dw.com", "news.sky.com", "bbc.com", "bbc.co.uk",
+      "cnn.com", "france24.com", "voanews.com", "apnews.com", "reuters.com",
+      // Security Trackers
+      "acleddata.com", "network.zagazola.org",
+      // Reference
+      "en.wikipedia.org",
+      // Social — Tier 1 intelligence
+      "x.com", "twitter.com",
+    ]);
+
+    // Trusted publisher names (case-insensitive partial match)
+    const TRUSTED_PUBLISHERS = [
+      "Premium Times", "The Cable", "Peoples Gazette", "Channels TV", "Sahara Reporters",
+      "Punch", "Vanguard", "Daily Trust", "HumAngle", "Guardian Nigeria", "The Guardian Nigeria",
+      "Daily Post", "News Central", "Arise News", "TVC News", "ThisDay", "The Nation",
+      "Leadership", "Sun News", "Tribune", "Blueprint", "Business Day", "The Whistler",
+      "ICIR", "Ripples Nigeria", "Daily Nigerian", "PRNigeria", "Parallel Facts", "Parallel Facts News",
+      "Al Jazeera", "Deutsche Welle", "DW", "Sky News", "BBC", "CNN", "France 24",
+      "Voice of America", "VOA", "Associated Press", "AP", "AFP", "Reuters",
+      "ACLED", "Zagazola", "Wikipedia",
+      "Twitter", "X.com", "@BrantPhilip_", "BrantPhilip", "@Sazedek", "Sazedek",
+    ];
+
+    // Explicitly banned sources & patterns
+    const BANNED_SOURCES = [
+      "truth nigeria", "aid to the church in need", "acn international",
+      "the journal", "council on foreign relations", "cfr.org", "trust tv",
+      "zenit news", "youtube", "blogspot", "wordpress.com", "medium.com",
+    ];
+
+    // Extract domain from URL
+    function extractDomain(url: string): string {
+      try {
+        const hostname = new URL(url).hostname.replace(/^www\./, "");
+        return hostname;
+      } catch {
+        return "";
+      }
+    }
+
+    // Check if a single source is trusted
+    function isSourceTrusted(source: { url: string; publisher: string }): boolean {
+      // Check if publisher is in banned list
+      const pubLower = (source.publisher || "").toLowerCase();
+      if (BANNED_SOURCES.some(banned => pubLower.includes(banned))) return false;
+      if (source.url && BANNED_SOURCES.some(banned => source.url.toLowerCase().includes(banned))) return false;
+
+      // Check domain against whitelist
+      const domain = extractDomain(source.url);
+      if (domain && TRUSTED_DOMAINS.has(domain)) return true;
+      // Check subdomain (e.g., "www.bbc.com" -> check "bbc.com")
+      const parts = domain.split(".");
+      if (parts.length > 2) {
+        const rootDomain = parts.slice(-2).join(".");
+        if (TRUSTED_DOMAINS.has(rootDomain)) return true;
+      }
+
+      // Check publisher name against trusted list
+      if (pubLower && TRUSTED_PUBLISHERS.some(tp => pubLower.includes(tp.toLowerCase()))) return true;
+
+      // Reject unknown/empty publishers
+      if (!source.publisher || pubLower === "unknown" || pubLower.length < 3) return false;
+
+      return false; // Default: untrusted
+    }
+
+    // Filter sources per attack, then remove attacks with zero trusted sources
     attacks = attacks.map(attack => ({
       ...attack,
-      sources: attack.sources.filter(source => 
-        !bannedSources.some(banned => 
-          source.publisher && source.publisher.toLowerCase().includes(banned.toLowerCase())
-        )
-      )
+      sources: attack.sources.filter(source => isSourceTrusted(source)),
     })).filter(attack => attack.sources.length > 0);
 
     // Validate each attack has minimum required fields
@@ -234,12 +337,10 @@ export async function checkDuplicateAttack(
     title: s.title || "Unknown" 
   })) || [];
 
-  const prompt = `You are a security intelligence analyst.
-Compare the following "CANDIDATE" report against the list of "EXISTING" reports.
-Determine if the CANDIDATE refers to the SAME security incident as any of the EXISTING reports.
+  const prompt = `You are a security intelligence analyst specializing in deduplicating incident reports.
+Compare the CANDIDATE report against ALL EXISTING reports below. Determine if the CANDIDATE describes the SAME real-world security incident as any existing report.
 
-CRITICAL INSTRUCTION: FAIL FAST. Do not search the internet. Use ONLY the provided JSON data below. 
-If the descriptions and locations match closely, it's a duplicate.
+CRITICAL: Do NOT search the internet. Use ONLY the data provided below.
 
 CANDIDATE REPORT:
 ${JSON.stringify({
@@ -249,7 +350,7 @@ ${JSON.stringify({
   location: candidate.location,
   group: candidate.group,
   casualties: candidate.casualties,
-  sources: cleanSources(candidate.sources), // URLs removed to prevent browsing
+  sources: cleanSources(candidate.sources),
   description: candidate.description
 }, null, 2)}
 
@@ -261,24 +362,42 @@ ${JSON.stringify(existingAttacks.map(a => ({
   location: a.location,
   group: a.group,
   casualties: a.casualties,
-  sources: cleanSources(a.sources), // URLs removed to prevent browsing
+  sources: cleanSources(a.sources),
   description: a.description
 })), null, 2)}
 
-TASK:
-1. Determine if the CANDIDATE implies the exact same event as any EXISTING report (same location + same date + same nature of attack).
-2. If match found, compare reliability/quality.
-   - Prefer reports with confirmed sources (e.g. reliable news outlets > random tweets).
-   - Prefer reports with more specific details (precise location, specific casualty counts).
-   - Prefer reports with HIGHER casualty counts (often initial reports undercount, later reports are more accurate).
-   - If one is clearly better, identify the winner.
+═══════════ MATCHING RULES ═══════════
 
-RESPONSE FORMAT (JSON ONLY):
+Two reports describe the SAME INCIDENT if ALL of these are true:
+1. LOCATION MATCH: Same state, AND same or similar town/LGA (ignore spelling variations like "Maiduguri" vs "Maiduguri City", "Kafanchan" vs "Kafachan")
+2. DATE MATCH: Same date OR within 1 day of each other (reports of the same event often differ by a day)
+3. NATURE MATCH: Same basic type of attack (e.g., both are kidnappings, both are bombings, both involve gunmen attacking a village)
+
+Two reports are NOT the same incident if:
+- They occurred in different states
+- They occurred more than 2 days apart
+- They describe fundamentally different types of events (e.g., kidnapping vs bombing)
+- They are in the same state but clearly different towns/villages with no name overlap
+
+⚠️ IMPORTANT: When evidence is AMBIGUOUS, ERR ON THE SIDE OF MARKING AS DUPLICATE. It is much worse to have duplicate entries in the database than to miss a genuinely unique incident.
+
+Examples:
+- "Bandits kill 15 in Zamfara attack" AND "Gunmen attack Zamfara village, 12 dead" on the same date → SAME INCIDENT (different names for attackers, slight casualty variation)
+- "Boko Haram attacks Maiduguri" AND "ISWAP militants hit Maiduguri" on the same date → SAME INCIDENT (group attribution often varies between sources)
+- "Attack in Kaduna" AND "Attack in Zamfara" on the same date → DIFFERENT INCIDENTS (different states)
+
+IF DUPLICATE FOUND, compare quality:
+- Prefer reports from reliable outlets over tweets
+- Prefer reports with MORE SPECIFIC details
+- Prefer HIGHER casualty counts (later reports are usually more accurate)
+- If quality is roughly equal, prefer the existing report
+
+RESPOND WITH JSON ONLY:
 {
   "isDuplicate": boolean,
-  "duplicateOfId": "string (ID of the matching existing report, or null if no match)",
-  "betterReport": "candidate" | "existing" (only if isDuplicate is true),
-  "reason": "string (explanation)"
+  "duplicateOfId": "string (ID of matching existing report, or null)",
+  "betterReport": "candidate" | "existing",
+  "reason": "string (brief explanation)"
 }
 `;
 

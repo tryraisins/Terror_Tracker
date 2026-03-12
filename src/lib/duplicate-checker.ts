@@ -168,7 +168,7 @@ interface DuplicateCandidate {
 export class DuplicateCheckerService {
   private static DATE_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
   private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
-  private static SCORE_THRESHOLD = 0.5; // lowered from 0.6 — Gemini confirmation still gates merges
+  private static SCORE_THRESHOLD = 0.4; // lowered from 0.5 — Gemini confirmation still gates merges
 
   /**
    * Shared heuristic scoring logic used by both cron and manual paths.
@@ -269,12 +269,31 @@ export class DuplicateCheckerService {
     const titleOverlap = keywordOverlapScore(incA.title, incB.title);
     const titleScore = titleOverlap > 0.5 ? 0.2 : titleOverlap > 0.3 ? 0.1 : 0;
 
+    // --- Title string similarity (catches near-identical titles) ---
+    const titleStringSim = calculateSimilarity(
+      incA.title.toLowerCase(),
+      incB.title.toLowerCase(),
+    );
+    const titleSimBonus = titleStringSim > 0.85 ? 0.25 : titleStringSim > 0.7 ? 0.15 : 0;
+
     // --- Description keyword overlap ---
     const descOverlap = keywordOverlapScore(
       incA.description || "",
       incB.description || "",
     );
     const descScore = descOverlap > 0.4 ? 0.15 : descOverlap > 0.25 ? 0.08 : 0;
+
+    // --- Source URL overlap (shared sources = strong duplicate signal) ---
+    let sourceOverlapScore = 0;
+    const urlsA = new Set((incA.sources || []).map(s => s.url?.trim().replace(/\/$/, "").toLowerCase()).filter(Boolean));
+    const urlsB = new Set((incB.sources || []).map(s => s.url?.trim().replace(/\/$/, "").toLowerCase()).filter(Boolean));
+    if (urlsA.size > 0 && urlsB.size > 0) {
+      let sharedUrls = 0;
+      for (const url of urlsA) {
+        if (urlsB.has(url)) sharedUrls++;
+      }
+      if (sharedUrls > 0) sourceOverlapScore = 0.3; // Shared source URL is very strong signal
+    }
 
     // --- Date proximity bonus ---
     const dayMs = 24 * 60 * 60 * 1000;
@@ -286,7 +305,9 @@ export class DuplicateCheckerService {
       groupScore +
       casualtyScore +
       titleScore +
+      titleSimBonus +
       descScore +
+      sourceOverlapScore +
       dateScore;
 
     const reason =
@@ -294,8 +315,9 @@ export class DuplicateCheckerService {
       `Loc: ${locationScore.toFixed(2)} [${locationDetail}], ` +
       `Grp: ${groupScore.toFixed(2)}, ` +
       `Cas: ${casualtyScore.toFixed(2)} [${k1}v${k2}], ` +
-      `Title: ${titleScore.toFixed(2)} [${titleOverlap.toFixed(2)}], ` +
+      `Title: ${titleScore.toFixed(2)} [kw:${titleOverlap.toFixed(2)}, sim:${titleStringSim.toFixed(2)}+${titleSimBonus.toFixed(2)}], ` +
       `Desc: ${descScore.toFixed(2)} [${descOverlap.toFixed(2)}], ` +
+      `Src: ${sourceOverlapScore.toFixed(2)}, ` +
       `Date: ${dateScore.toFixed(2)})`;
 
     return { score, reason };
