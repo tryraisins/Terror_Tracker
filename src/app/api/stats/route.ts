@@ -4,7 +4,7 @@ import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 export async function GET(req: NextRequest) {
-  const securityError = applySecurityChecks(req, {
+  const securityError = await applySecurityChecks(req, {
     rateLimit: 60,
     rateLimitWindow: 60_000,
   });

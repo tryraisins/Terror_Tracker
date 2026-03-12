@@ -6,7 +6,7 @@ import { AttackQuerySchema } from "@/lib/validators";
 
 export async function GET(req: NextRequest) {
   // Security checks: rate limit 100 req/min for reads
-  const securityError = applySecurityChecks(req, {
+  const securityError = await applySecurityChecks(req, {
     rateLimit: 100,
     rateLimitWindow: 60_000,
   });

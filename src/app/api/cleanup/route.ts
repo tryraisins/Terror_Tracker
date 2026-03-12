@@ -13,7 +13,7 @@ import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
  *   Body (optional): { "dryRun": true } to preview without deleting
  */
 export async function POST(req: NextRequest) {
-  const securityError = applySecurityChecks(req, {
+  const securityError = await applySecurityChecks(req, {
     rateLimit: 5,
     rateLimitWindow: 3600_000,
     requireCronSecret: true,

@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   // Strict security: require cron secret, very low rate limit
-  const securityError = applySecurityChecks(req, {
+  const securityError = await applySecurityChecks(req, {
     rateLimit: 5,
     rateLimitWindow: 3600_000,
     requireCronSecret: true,

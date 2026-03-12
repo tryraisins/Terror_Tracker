@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 
-// ─── In-memory rate limiter (per-instance; for production consider Redis) ───
+// ─── In-memory rate limiter (fallback when Redis is not configured) ───
 interface RateLimitEntry {
   count: number;
   resetTime: number;
 }
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
+
+const redis =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? Redis.fromEnv()
+    : null;
+
+const upstashLimiters = new Map<string, Ratelimit>();
 
 // Clean up stale entries every 5 minutes
 setInterval(() => {
@@ -28,16 +37,44 @@ export function getClientIP(req: NextRequest): string {
   return "unknown";
 }
 
-export function rateLimit(
-  ip: string,
+function getUpstashLimiter(limit: number, windowMs: number): Ratelimit {
+  const key = `${limit}:${windowMs}`;
+  const cached = upstashLimiters.get(key);
+  if (cached) return cached;
+
+  const windowSeconds = Math.ceil(windowMs / 1000);
+  const limiter = new Ratelimit({
+    redis: redis!,
+    limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
+  });
+  upstashLimiters.set(key, limiter);
+  return limiter;
+}
+
+export async function rateLimit(
+  key: string,
   limit: number = 60,
   windowMs: number = 60_000
-): { allowed: boolean; remaining: number; resetIn: number } {
+): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
+  if (redis) {
+    const limiter = getUpstashLimiter(limit, windowMs);
+    try {
+      const result = await limiter.limit(key);
+      return {
+        allowed: result.success,
+        remaining: result.remaining,
+        resetIn: Math.max(0, result.reset - Date.now()),
+      };
+    } catch (error) {
+      console.warn("Upstash rate limit failed, falling back to in-memory.", error);
+    }
+  }
+
   const now = Date.now();
-  const entry = rateLimitMap.get(ip);
+  const entry = rateLimitMap.get(key);
 
   if (!entry || now > entry.resetTime) {
-    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
     return { allowed: true, remaining: limit - 1, resetIn: windowMs };
   }
 
@@ -100,7 +137,7 @@ export function verifyAPIKey(req: NextRequest): boolean {
 }
 
 // ─── Combined middleware runner ───
-export function applySecurityChecks(
+export async function applySecurityChecks(
   req: NextRequest,
   options: {
     rateLimit?: number;
@@ -108,7 +145,7 @@ export function applySecurityChecks(
     requireApiKey?: boolean;
     requireCronSecret?: boolean;
   } = {}
-): NextResponse | null {
+): Promise<NextResponse | null> {
   const ip = getClientIP(req);
 
   // Check IP blocklist
@@ -122,7 +159,7 @@ export function applySecurityChecks(
   // Rate limiting
   const limit = options.rateLimit ?? 60;
   const window = options.rateLimitWindow ?? 60_000;
-  const rl = rateLimit(ip, limit, window);
+  const rl = await rateLimit(ip, limit, window);
 
   if (!rl.allowed) {
     const res = NextResponse.json(
@@ -149,4 +186,18 @@ export function applySecurityChecks(
   }
 
   return null; // All checks passed
+}
+
+// --- CSRF protection for cookie-based auth ---
+export function verifyCsrf(req: NextRequest): boolean {
+  const origin = req.headers.get("origin");
+  const referer = req.headers.get("referer");
+  const allowedOrigins = [
+    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  ];
+
+  if (origin && allowedOrigins.includes(origin)) return true;
+  if (referer && allowedOrigins.some((o) => referer.startsWith(o))) return true;
+
+  return false;
 }

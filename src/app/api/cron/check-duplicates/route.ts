@@ -1,12 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import { DuplicateCheckerService } from "@/lib/duplicate-checker";
+import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 export const maxDuration = 300; // 5 minutes
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
+    const securityError = await applySecurityChecks(req, {
+      rateLimit: 5,
+      rateLimitWindow: 3600_000,
+      requireCronSecret: true,
+    });
+    if (securityError) return securityError;
+
     await connectDB();
 
     const { searchParams } = new URL(req.url);
@@ -23,23 +31,27 @@ export async function GET(req: Request) {
       );
 
       if (candidates.length === 0) {
-        return NextResponse.json({
-          message: `No duplicates found in ${queryState}`,
-          state: queryState,
-          candidatesFound: 0,
-        });
+      return setCORSHeaders(
+        NextResponse.json({
+        message: `No duplicates found in ${queryState}`,
+        state: queryState,
+        candidatesFound: 0,
+        })
+      );
       }
 
       const processedResults =
         await DuplicateCheckerService.processDuplicates(candidates);
 
-      return NextResponse.json({
+      return setCORSHeaders(
+        NextResponse.json({
         message: `Processed duplicates for ${queryState}`,
         state: queryState,
         candidatesFound: candidates.length,
         processedCount: processedResults.length,
         results: processedResults,
-      });
+        })
+      );
     }
 
     // ---------- Default cron path: check ALL new incidents ----------
@@ -61,28 +73,39 @@ export async function GET(req: Request) {
     );
 
     if (allCandidates.length === 0) {
-      return NextResponse.json({
+      return setCORSHeaders(
+        NextResponse.json({
         message: "No duplicates found across new incidents",
         statesChecked: stateResults.length,
         candidatesFound: 0,
-      });
+        })
+      );
     }
 
     const processedResults =
       await DuplicateCheckerService.processDuplicates(allCandidates);
 
-    return NextResponse.json({
+    return setCORSHeaders(
+      NextResponse.json({
       message: `Processed duplicates across ${stateResults.length} state(s)`,
       statesChecked: stateResults.length,
       candidatesFound: allCandidates.length,
       processedCount: processedResults.length,
       results: processedResults,
-    });
+      })
+    );
   } catch (error) {
     console.error("Duplicate check failed:", error);
-    return NextResponse.json(
-      { error: "Failed", details: String(error) },
-      { status: 500 },
+    return setCORSHeaders(
+      NextResponse.json(
+        { error: "Failed", details: String(error) },
+        { status: 500 },
+      )
     );
   }
+}
+
+export async function OPTIONS() {
+  const response = new NextResponse(null, { status: 204 });
+  return setCORSHeaders(response);
 }
