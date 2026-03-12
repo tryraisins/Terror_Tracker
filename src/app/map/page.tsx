@@ -180,8 +180,8 @@ export default function ThreatMapPage() {
                 {/* Map Area */}
                 <div className="lg:col-span-2">
                     <div
-                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20"
-                        style={{ minHeight: "600px" }}
+                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20 h-full"
+                        style={{ minHeight: "660px" }}
                     >
                         {loading ? (
                             <div className="flex items-center justify-center h-full w-full absolute inset-0 z-10 bg-black/10 backdrop-blur-sm">
@@ -316,9 +316,9 @@ export default function ThreatMapPage() {
                 </div>
 
                 {/* Sidebar */}
-                <div className="lg:col-span-1 h-[600px] flex flex-col">
+                <div className="lg:col-span-1">
                     {/* Ranked States List */}
-                    <div className="glass-card rounded-2xl p-5 flex-1 overflow-hidden flex flex-col" style={{ minHeight: "200px" }}>
+                    <div className="glass-card rounded-2xl p-5 h-full overflow-hidden flex flex-col" style={{ minHeight: "660px" }}>
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{
