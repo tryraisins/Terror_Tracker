@@ -2,10 +2,10 @@ import { sign, verify } from "jsonwebtoken";
 import { compare, hash } from "bcryptjs";
 import { cookies } from "next/headers";
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET as string;
 const JWT_SECRET_VERSION = process.env.JWT_SECRET_VERSION || "1";
 
-if (!JWT_SECRET) {
+if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
 }
 const COOKIE_NAME = "admin_token";

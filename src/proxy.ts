@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Global middleware for security headers on all routes
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const response = NextResponse.next();
 
   // Security headers (Helmet equivalent)
