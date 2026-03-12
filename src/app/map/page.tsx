@@ -392,10 +392,10 @@ export default function ThreatMapPage() {
                 </div>
             </div>
 
-            {/* Incident List Window (Modal) */}
+            {/* Incident List Window */}
             {selected && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm animate-fade-in-up">
-                    <div className="glass-card w-full max-w-5xl rounded-2xl flex flex-col overflow-hidden max-h-[90vh]">
+                <div className="mt-8 animate-fade-in-up">
+                    <div className="glass-card w-full rounded-2xl flex flex-col overflow-hidden border border-white/10">
                         <div className="p-6 border-b border-white/10 flex items-center justify-between">
                             <div>
                                 <h2 className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)" }}>
@@ -412,7 +412,7 @@ export default function ThreatMapPage() {
                                 <XMarkIcon className="w-6 h-6" />
                             </button>
                         </div>
-                        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4">
+                        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4 max-h-[600px]">
                             {paginatedAttacks.length > 0 ? (
                                 paginatedAttacks.map((attack: any, idx) => (
                                     <div key={idx} className="p-5 rounded-xl transition-colors hover:bg-[var(--border-subtle)]" style={{ background: "var(--bg-secondary)" }}>
