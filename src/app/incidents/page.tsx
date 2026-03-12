@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import AttackCard from "@/components/AttackCard";
 import { AttackCardSkeleton } from "@/components/Skeletons";
@@ -49,7 +49,7 @@ interface Pagination {
     hasPrev: boolean;
 }
 
-export default function IncidentsPage() {
+function IncidentsList() {
     const searchParams = useSearchParams();
     const initialStateParam = searchParams.get("state") || "";
 
@@ -389,5 +389,23 @@ export default function IncidentsPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function IncidentsPage() {
+    return (
+        <Suspense fallback={
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+                <div className="mb-8">
+                    <div className="h-10 w-64 bg-gray-200 dark:bg-gray-800 rounded animate-pulse mb-2"></div>
+                    <div className="h-5 w-96 bg-gray-200 dark:bg-gray-800 rounded animate-pulse"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {Array.from({ length: 6 }).map((_, i) => <AttackCardSkeleton key={i} />)}
+                </div>
+            </div>
+        }>
+            <IncidentsList />
+        </Suspense>
     );
 }
