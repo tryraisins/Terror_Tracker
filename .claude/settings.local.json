@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find '/c/Users/nubiaville/Desktop/Projects 2026/NigeriaAttackTracker' -name *.env* -o -name config.*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

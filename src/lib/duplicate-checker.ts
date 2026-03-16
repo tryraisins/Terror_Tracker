@@ -48,13 +48,32 @@ function isUnknownLocation(value: string | undefined | null): boolean {
 
 // --- Utility: Check if one town name is an alias/contains the other ---
 // Handles cases like "Dutsin Dan Ajiya (Tungan Dutse)" vs "Tungan Dutse"
+// and comma-separated multi-town fields like "Wanka, Kyaram, Gyambau"
+// and parenthetical proximity like "Garga (near Wanka)" vs "Wanka"
 function townNamesOverlap(town1: string, town2: string): boolean {
   const t1 = town1.toLowerCase().trim();
   const t2 = town2.toLowerCase().trim();
   if (!t1 || !t2) return false;
-  // One contains the other
+  // One fully contains the other
   if (t1.includes(t2) || t2.includes(t1)) return true;
-  // Check if any parenthetical alias matches
+
+  // Word-level token overlap: split on commas, spaces, and parens, then check
+  // if any significant place-name word (>2 chars) appears in both strings.
+  // This catches "Garga (near Wanka)" vs "Wanka, Kyaram, Gyambau" via shared "wanka".
+  const FILLER = new Set(["near", "and", "the", "from", "area", "along", "road"]);
+  const tokenize = (s: string): Set<string> =>
+    new Set(
+      s.replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !FILLER.has(w)),
+    );
+  const tokens1 = tokenize(t1);
+  const tokens2 = tokenize(t2);
+  for (const token of tokens1) {
+    if (tokens2.has(token)) return true;
+  }
+
+  // Check if any parenthetical alias matches via fuzzy similarity
   const extractAliases = (t: string): string[] => {
     const aliases: string[] = [t.replace(/\s*\(.*\)\s*/g, "").trim()];
     const parenMatch = t.match(/\(([^)]+)\)/);
@@ -232,22 +251,35 @@ export class DuplicateCheckerService {
       }
     }
 
+    // LGA fallback: if both towns are known but didn't match, a matching LGA
+    // still means they're in the same area (e.g., different villages in Kanam LGA)
+    if (locationScore === 0 && !lgaUnknownA && !lgaUnknownB) {
+      const lgaSim = calculateSimilarity(lgaA, lgaB);
+      if (lgaSim > 0.85) {
+        locationScore = 0.25;
+        locationDetail = `lga-fallback(${lgaSim.toFixed(2)})`;
+      }
+    }
+
     // --- Group scoring ---
     const groupSim = calculateSimilarity(
       (incA.group || "").toLowerCase(),
       (incB.group || "").toLowerCase(),
     );
+    const gA = incA.group.toLowerCase();
+    const gB = incB.group.toLowerCase();
     const sameGroup =
       groupSim > 0.6 ||
-      incA.group.toLowerCase().includes("unknown") ||
-      incB.group.toLowerCase().includes("unknown") ||
-      incA.group.toLowerCase().includes("gunmen") ||
-      incB.group.toLowerCase().includes("gunmen") ||
-      incA.group.toLowerCase().includes("armed men") ||
-      incB.group.toLowerCase().includes("armed men") ||
+      gA.includes("unknown") || gB.includes("unknown") ||
+      gA.includes("unidentified") || gB.includes("unidentified") ||
+      gA.includes("gunmen") || gB.includes("gunmen") ||
+      gA.includes("armed men") || gB.includes("armed men") ||
+      gA.includes("armed group") || gB.includes("armed group") ||
+      gA.includes("suspected") || gB.includes("suspected") ||
       // Both contain "bandit" anywhere
-      (incA.group.toLowerCase().includes("bandit") &&
-        incB.group.toLowerCase().includes("bandit"));
+      (gA.includes("bandit") && gB.includes("bandit")) ||
+      // Both contain "militant" anywhere
+      (gA.includes("militant") && gB.includes("militant"));
     const groupScore = sameGroup ? 0.15 : 0;
 
     // --- Casualty scoring --- (relaxed threshold)
@@ -498,9 +530,9 @@ export class DuplicateCheckerService {
     duplicates.sort((a, b) => b.heuristicScore - a.heuristicScore);
 
     // Limit to top 5 to stay well within the 5-minute serverless timeout.
-    // Each pair needs ~3 Gemini calls (confirm + merge desc + merge fields).
+    // Each pair needs ~2 Gemini calls (confirm + merge desc).
     // Remaining pairs will be caught on the next cron run.
-    const batch = duplicates.slice(0, 3);
+    const batch = duplicates.slice(0, 5);
 
     for (const item of batch) {
       const { reportA, reportB } = item;

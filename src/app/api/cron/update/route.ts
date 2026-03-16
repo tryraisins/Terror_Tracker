@@ -84,19 +84,36 @@ export async function POST(req: NextRequest) {
                .filter((w: string) => w.length > 3)
                .slice(0, 5);
 
+             // Extract individual town words for partial matching
+             const townWords = (rawAttack.location.town || "")
+               .toLowerCase()
+               .replace(/[^a-z0-9\s]/g, " ")
+               .split(/\s+/)
+               .filter((w: string) => w.length > 2 && !["near", "and", "the", "from", "area"].includes(w));
+             const townRegex = townWords.length > 0
+               ? new RegExp(townWords.map(escapeRegex).join("|"), "i")
+               : null;
+
              existing = await Attack.findOne({
                date: { $gte: windowStart, $lte: windowEnd },
                "location.state": {
                  $regex: new RegExp(`^${escapeRegex(rawAttack.location.state)}$`, "i"),
                },
                $or: [
-                 // Same town
+                 // Same town (exact)
                  {
                    "location.town": {
                      $regex: new RegExp(`^${escapeRegex(rawAttack.location.town)}$`, "i"),
                    },
                  },
-                 // Same group in same LGA
+                 // Town word overlap (catches "Garga (near Wanka)" matching "Wanka, Kyaram")
+                 ...(townRegex ? [{
+                   "location.town": { $regex: townRegex },
+                   "location.lga": {
+                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
+                   },
+                 }] : []),
+                 // Same LGA + same group
                  {
                    "location.lga": {
                      $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
@@ -105,6 +122,16 @@ export async function POST(req: NextRequest) {
                      $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),
                    },
                  },
+                 // Same LGA + similar casualty count (catches different group names for same event)
+                 ...(rawAttack.casualties?.killed && rawAttack.casualties.killed > 0 ? [{
+                   "location.lga": {
+                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
+                   },
+                   "casualties.killed": {
+                     $gte: Math.floor(rawAttack.casualties.killed * 0.5),
+                     $lte: Math.ceil(rawAttack.casualties.killed * 1.5),
+                   },
+                 }] : []),
                  // Title keyword overlap (at least 2 significant words match)
                  ...(titleWords.length >= 2
                    ? [{

@@ -63,11 +63,23 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   });
 
   const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
   const threeDaysAgo = new Date(today);
   threeDaysAgo.setDate(today.getDate() - 3);
+  const fourDaysAgo = new Date(today);
+  fourDaysAgo.setDate(today.getDate() - 4);
 
-  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria. 
-Search for the MOST RECENT terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen that have occurred in Nigeria within the last 72 hours (from ${threeDaysAgo.toISOString().split("T")[0]} to ${today.toISOString().split("T")[0]}).
+  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
+The current date and time is ${today.toISOString()}.
+
+YOUR PRIMARY MISSION: Search for ALL terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen in Nigeria.
+
+SEARCH STRATEGY — FOLLOW THIS ORDER:
+1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search each Tier 2 news site individually for today's articles. Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, and AP/Reuters for today.
+2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}).
+3. THIRD: Search for any remaining attacks from the past 4 days (${fourDaysAgo.toISOString().split("T")[0]} to ${todayStr}) that you haven't already found.
+
+Do NOT stop after finding just 1 or 2 incidents. Be thorough — Nigeria typically has multiple security incidents per day across different states. Search multiple news sources independently to ensure comprehensive coverage.
 
 ═══════════════════════════════════════════
 SOURCE CREDIBILITY TIERS — STRICT RULES
