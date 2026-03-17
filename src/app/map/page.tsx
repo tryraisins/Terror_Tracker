@@ -325,7 +325,7 @@ export default function ThreatMapPage() {
                 {/* Sidebar */}
                 <div className="lg:col-span-1">
                     {/* Ranked States List */}
-                    <div className="glass-card rounded-2xl p-5 overflow-hidden flex flex-col">
+                    <div className="glass-card rounded-2xl p-5 h-full overflow-hidden flex flex-col">
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{
@@ -336,7 +336,7 @@ export default function ThreatMapPage() {
                             Affected Areas
                         </h3>
 
-                        <div className="overflow-y-auto pr-2 space-y-1.5 custom-scrollbar max-h-[240px] lg:max-h-[384px]">
+                        <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 min-h-0 custom-scrollbar">
                             {rankedStates.map((state, i) => {
                                 const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
                                 const isActive = selectedState === state.name;
@@ -462,9 +462,14 @@ export default function ThreatMapPage() {
                                 <button
                                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                     disabled={currentPage === 1}
-                                    className="px-5 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--border-subtle)]"
+                                    className="px-5 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110"
+                                    style={{
+                                        background: currentPage === 1 ? "var(--border-subtle)" : "rgba(139,26,26,0.15)",
+                                        color: currentPage === 1 ? "var(--text-muted)" : "var(--color-blood-light)",
+                                        border: `1px solid ${currentPage === 1 ? "transparent" : "rgba(139,26,26,0.3)"}`,
+                                    }}
                                 >
-                                    Previous
+                                    &larr; Previous
                                 </button>
                                 <span className="text-sm font-semibold" style={{ color: "var(--text-muted)" }}>
                                     Page {currentPage} of {totalPages}
@@ -472,9 +477,14 @@ export default function ThreatMapPage() {
                                 <button
                                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                     disabled={currentPage === totalPages}
-                                    className="px-5 py-2 rounded-lg text-sm font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--border-subtle)]"
+                                    className="px-5 py-2.5 rounded-lg text-sm font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110"
+                                    style={{
+                                        background: currentPage === totalPages ? "var(--border-subtle)" : "rgba(139,26,26,0.15)",
+                                        color: currentPage === totalPages ? "var(--text-muted)" : "var(--color-blood-light)",
+                                        border: `1px solid ${currentPage === totalPages ? "transparent" : "rgba(139,26,26,0.3)"}`,
+                                    }}
                                 >
-                                    Next
+                                    Next &rarr;
                                 </button>
                             </div>
                         )}
