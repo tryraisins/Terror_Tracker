@@ -325,7 +325,7 @@ export default function ThreatMapPage() {
                 {/* Sidebar */}
                 <div className="lg:col-span-1">
                     {/* Ranked States List */}
-                    <div className="glass-card rounded-2xl p-5 h-full overflow-hidden flex flex-col">
+                    <div className="glass-card rounded-2xl p-5 overflow-hidden flex flex-col" style={{ minHeight: "660px", maxHeight: "660px" }}>
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{
