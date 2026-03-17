@@ -325,7 +325,7 @@ export default function ThreatMapPage() {
                 {/* Sidebar */}
                 <div className="lg:col-span-1">
                     {/* Ranked States List */}
-                    <div className="glass-card rounded-2xl p-5 h-full overflow-hidden flex flex-col" style={{ minHeight: "660px" }}>
+                    <div className="glass-card rounded-2xl p-5 overflow-hidden flex flex-col">
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{
@@ -336,7 +336,7 @@ export default function ThreatMapPage() {
                             Affected Areas
                         </h3>
 
-                        <div className="overflow-y-auto pr-2 space-y-1.5 flex-1 custom-scrollbar">
+                        <div className="overflow-y-auto pr-2 space-y-1.5 custom-scrollbar max-h-[240px] lg:max-h-[384px]">
                             {rankedStates.map((state, i) => {
                                 const barWidth = maxCount > 0 ? (state.count / maxCount) * 100 : 0;
                                 const isActive = selectedState === state.name;
