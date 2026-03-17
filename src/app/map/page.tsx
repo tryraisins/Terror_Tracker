@@ -25,15 +25,22 @@ export default function ThreatMapPage() {
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
     const svgRef = useRef<SVGSVGElement>(null);
+    const incidentListRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         setStateData(buildEmptyStateData());
         fetchMapData();
     }, []);
 
-    // Reset pagination when state changes
+    // Reset pagination and auto-scroll to incidents when state changes
     useEffect(() => {
         setCurrentPage(1);
+        if (selectedState) {
+            // Wait for the incident list to render before scrolling
+            requestAnimationFrame(() => {
+                incidentListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+        }
     }, [selectedState]);
 
     function buildEmptyStateData(): Record<string, StateData> {
@@ -394,7 +401,7 @@ export default function ThreatMapPage() {
 
             {/* Incident List Window */}
             {selected && (
-                <div className="mt-8 animate-fade-in-up">
+                <div ref={incidentListRef} className="mt-8 animate-fade-in-up">
                     <div className="glass-card w-full rounded-2xl flex flex-col overflow-hidden border border-white/10">
                         <div className="p-6 border-b border-white/10 flex items-center justify-between">
                             <div>
