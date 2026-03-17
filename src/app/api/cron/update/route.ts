@@ -4,6 +4,7 @@ import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { fetchRecentAttacks, generateAttackHash, mergeIncidentStrategies } from "@/lib/gemini";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
+import { normalizeStateName } from "@/lib/normalize-state";
 
 export const maxDuration = 60;
 
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest) {
             description: sanitizeString(rawAttack.description),
             date: new Date(rawAttack.date),
             location: {
-              state: sanitizeString(rawAttack.location.state),
+              state: normalizeStateName(sanitizeString(rawAttack.location.state)),
               lga: sanitizeString(rawAttack.location.lga || "Unknown"),
               town: sanitizeString(rawAttack.location.town || "Unknown"),
             },

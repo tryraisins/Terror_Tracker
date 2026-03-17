@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Aggregate unique publishers from the sources array
-    const publishers = await Attack.distinct("sources.publisher");
+    // Aggregate unique publishers from the sources array (exclude soft-deleted)
+    const publishers = await Attack.distinct("sources.publisher", { _deleted: { $ne: true } });
 
     return NextResponse.json({
       sources: publishers.filter((p) => p).sort(),

@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    // Fetch ALL attacks so we can do thorough text analysis
-    const allAttacks = await Attack.find({})
+    // Fetch active attacks (exclude already soft-deleted) for text analysis
+    const allAttacks = await Attack.find({ _deleted: { $ne: true } })
       .select("title description casualties date location group")
       .lean();
 

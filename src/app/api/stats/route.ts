@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
     const sevenDaysAgo = new Date(now);
     sevenDaysAgo.setDate(now.getDate() - 7);
 
+    // Exclude soft-deleted records from all queries
+    const active = { _deleted: { $ne: true } };
+
     const [
       totalAttacks,
       totalKilled,
@@ -33,35 +36,35 @@ export async function GET(req: NextRequest) {
       recentAttacks,
     ] = await Promise.all([
       // Total attacks this year
-      Attack.countDocuments({ date: { $gte: startOfYear } }),
+      Attack.countDocuments({ ...active, date: { $gte: startOfYear } }),
 
       // Total killed
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: null, total: { $sum: "$casualties.killed" } } },
       ]),
 
       // Total injured
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: null, total: { $sum: "$casualties.injured" } } },
       ]),
 
       // Total kidnapped
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: null, total: { $sum: "$casualties.kidnapped" } } },
       ]),
 
       // Attacks in last 30 days
-      Attack.countDocuments({ date: { $gte: thirtyDaysAgo } }),
+      Attack.countDocuments({ ...active, date: { $gte: thirtyDaysAgo } }),
 
       // Attacks in last 7 days
-      Attack.countDocuments({ date: { $gte: sevenDaysAgo } }),
+      Attack.countDocuments({ ...active, date: { $gte: sevenDaysAgo } }),
 
       // Attacks by state (top 10)
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: "$location.state", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
@@ -69,7 +72,7 @@ export async function GET(req: NextRequest) {
 
       // Attacks by group
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: "$group", count: { $sum: 1 }, killed: { $sum: "$casualties.killed" } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
@@ -77,7 +80,7 @@ export async function GET(req: NextRequest) {
 
       // Attacks by month
       Attack.aggregate([
-        { $match: { date: { $gte: startOfYear } } },
+        { $match: { ...active, date: { $gte: startOfYear } } },
         {
           $group: {
             _id: { $month: "$date" },
@@ -89,7 +92,7 @@ export async function GET(req: NextRequest) {
       ]),
 
       // 5 most recent attacks
-      Attack.find({})
+      Attack.find(active)
         .sort({ date: -1 })
         .limit(5)
         .select("title date location group casualties status sources")

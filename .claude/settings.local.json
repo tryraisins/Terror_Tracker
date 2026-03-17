@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(find '/c/Users/nubiaville/Desktop/Projects 2026/NigeriaAttackTracker' -name *.env* -o -name config.*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node -e \":*)",
+      "Bash(node scripts/analyze-duplicates.js)",
+      "Bash(node scripts/flag-duplicates.js)",
+      "Bash(node scripts/flag-duplicates.js --execute)",
+      "Bash(npx next:*)"
     ]
   }
 }

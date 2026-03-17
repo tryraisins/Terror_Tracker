@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
 
     await connectDB();
 
-    // Build MongoDB filter
-    const filter: Record<string, unknown> = {};
+    // Build MongoDB filter — exclude soft-deleted records
+    const filter: Record<string, unknown> = { _deleted: { $ne: true } };
 
     if (state) {
       const normalizedState = normalizeStateQuery(state);

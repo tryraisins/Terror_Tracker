@@ -1,5 +1,6 @@
 import Attack, { IAttack } from "./models/Attack";
 import { checkDuplicateAttack, mergeIncidentStrategies } from "./gemini";
+import { normalizeStateName, statesMatch } from "./normalize-state";
 
 // --- Utility: Levenshtein Distance for simple fuzzy matching ---
 function levenshteinDistance(a: string, b: string): number {
@@ -200,6 +201,9 @@ export class DuplicateCheckerService {
     const timeDiff = Math.abs(incA.date.getTime() - incB.date.getTime());
     if (timeDiff > this.COMPARISON_WINDOW_MS) return null;
 
+    // State check using normalized comparison (handles "Borno State" vs "Borno", etc.)
+    if (!statesMatch(incA.location.state, incB.location.state)) return null;
+
     const townA = (incA.location.town || "").toLowerCase();
     const townB = (incB.location.town || "").toLowerCase();
     const lgaA = (incA.location.lga || "").toLowerCase();
@@ -377,11 +381,11 @@ export class DuplicateCheckerService {
       return [];
     }
 
-    // 2. Group new incidents by state
+    // 2. Group new incidents by normalized state
     const byState = new Map<string, IAttack[]>();
     for (const inc of newIncidents) {
-      const st = (inc.location.state || "").trim();
-      if (!st) continue;
+      const st = normalizeStateName(inc.location.state || "");
+      if (!st || st === "Unknown") continue;
       if (!byState.has(st)) byState.set(st, []);
       byState.get(st)!.push(inc);
     }
@@ -405,8 +409,10 @@ export class DuplicateCheckerService {
       );
 
       // Fetch all incidents in this state within the broad date range
+      // Match both the canonical name and common variants (e.g., "Borno" also matches "Borno State")
+      const stateRegex = new RegExp(`^${state}(\\s+State)?$`, "i");
       const stateIncidents = await Attack.find({
-        "location.state": { $regex: new RegExp(`^${state}$`, "i") },
+        "location.state": { $regex: stateRegex },
         date: { $gte: earliestDate, $lte: latestDate },
       }).sort({ date: 1 });
 
@@ -464,11 +470,13 @@ export class DuplicateCheckerService {
   static async findDuplicatesInState(
     state: string,
   ): Promise<DuplicateCandidate[]> {
-    console.log(`Starting duplicate scan for state: ${state}`);
+    const normalized = normalizeStateName(state);
+    console.log(`Starting duplicate scan for state: ${normalized}`);
 
-    // 1. Fetch all attacks in this state, sorted by date
+    // 1. Fetch all attacks in this state (including variants like "Borno State"), sorted by date
+    const stateRegex = new RegExp(`^${normalized}(\\s+State)?$`, "i");
     const attacks = await Attack.find({
-      "location.state": { $regex: new RegExp(`^${state}$`, "i") }, // Case-insensitive exact match
+      "location.state": { $regex: stateRegex },
     }).sort({ date: 1 });
 
     if (attacks.length < 2) {

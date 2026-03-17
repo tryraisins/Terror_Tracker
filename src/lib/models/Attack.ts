@@ -28,6 +28,8 @@ export interface IAttack extends Document {
   status: "confirmed" | "unconfirmed" | "developing";
   tags: string[];
   hash: string; // SHA-256 hash for deduplication
+  _deleted: boolean;
+  _deletedReason?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -106,6 +108,17 @@ const AttackSchema = new Schema<IAttack>(
       unique: true,
       index: true,
     },
+    _deleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    _deletedReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 500,
+    },
   },
   {
     timestamps: true,
@@ -115,6 +128,7 @@ const AttackSchema = new Schema<IAttack>(
 // Compound indexes for query performance
 AttackSchema.index({ date: -1, "location.state": 1 });
 AttackSchema.index({ createdAt: -1 });
+AttackSchema.index({ _deleted: 1, date: -1 });
 
 const Attack: Model<IAttack> =
   mongoose.models.Attack || mongoose.model<IAttack>("Attack", AttackSchema);

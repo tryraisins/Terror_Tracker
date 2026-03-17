@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import crypto from "crypto";
+import { normalizeStateName } from "./normalize-state";
 
 
 export interface RawAttackData {
@@ -36,7 +37,7 @@ export interface RawAttackData {
  */
 export function generateAttackHash(attack: RawAttackData): string {
   const dateStr = new Date(attack.date).toISOString().split("T")[0]; // Day-level
-  const normalizedState = attack.location.state.toLowerCase().trim();
+  const normalizedState = normalizeStateName(attack.location.state).toLowerCase();
   const normalizedTown = attack.location.town.toLowerCase().trim();
   const normalizedGroup = attack.group.toLowerCase().trim();
 
@@ -126,7 +127,15 @@ For each incident found, provide:
 1. A clear, concise title (format: "[Attack type] in [Town], [State]")
 2. Detailed description of what happened
 3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
-4. Location: Nigerian state name (without "State" suffix), Local Government Area (LGA), and specific town/village
+4. Location: Nigerian state name — use EXACTLY one of these canonical names:
+   Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
+   Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
+   Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
+   Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
+   NEVER append "State" to the name (use "Borno" not "Borno State").
+   Use "FCT" for Abuja/Federal Capital Territory.
+   If an incident spans multiple states, use the state where the PRIMARY attack occurred.
+   Also provide the Local Government Area (LGA) and specific town/village.
 5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Unidentified Armed Group"
 6. Casualties: count ONLY civilians and security forces (soldiers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits. Use null if not reported.
 7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
@@ -149,7 +158,7 @@ Return your response as a valid JSON array. Each element must follow this exact 
   "description": "string",
   "date": "ISO 8601 datetime string",
   "location": {
-    "state": "string (Nigerian state name, without 'State' suffix)",
+    "state": "string (EXACT canonical state name from the list above, e.g. 'Borno' not 'Borno State', 'FCT' not 'Federal Capital Territory')",
     "lga": "string or 'Unknown'",
     "town": "string or 'Unknown'"
   },
@@ -300,6 +309,15 @@ RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.
       ...attack,
       sources: attack.sources.filter(source => isSourceTrusted(source)),
     })).filter(attack => attack.sources.length > 0);
+
+    // Normalize state names to canonical form before returning
+    attacks = attacks.map(attack => ({
+      ...attack,
+      location: {
+        ...attack.location,
+        state: normalizeStateName(attack.location.state),
+      },
+    }));
 
     // Validate each attack has minimum required fields
     return attacks.filter(
