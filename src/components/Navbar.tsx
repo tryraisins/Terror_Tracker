@@ -3,10 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "@/components/ThemeProvider";
 import {
-    SunIcon,
-    MoonIcon,
     Bars3Icon,
     XMarkIcon,
     MapIcon,
@@ -24,7 +21,6 @@ const navLinks = [
 ];
 
 export default function Navbar() {
-    const { theme, toggleTheme } = useTheme();
     const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
@@ -160,22 +156,6 @@ export default function Navbar() {
                             Install App
                         </button>
                     )}
-
-                    {/* Theme Toggle */}
-                    <button
-                        onClick={toggleTheme}
-                        className="relative w-10 h-10 rounded-xl flex items-center justify-center
-              transition-all duration-300 hover:bg-[var(--border-subtle)]"
-                        style={{ color: "var(--text-secondary)" }}
-                        aria-label="Toggle theme"
-                        id="theme-toggle"
-                    >
-                        {theme === "dark" ? (
-                            <SunIcon className="w-5 h-5 transition-transform duration-500 hover:rotate-180" />
-                        ) : (
-                            <MoonIcon className="w-5 h-5 transition-transform duration-500 hover:-rotate-12" />
-                        )}
-                    </button>
 
                     {/* Live indicator */}
                     <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"

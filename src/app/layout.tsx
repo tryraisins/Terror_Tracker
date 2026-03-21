@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import Navbar from "@/components/Navbar";
 import BreakingTicker from "@/components/BreakingTicker";
 import Footer from "@/components/Footer";
@@ -82,7 +81,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme="dark">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -101,14 +100,12 @@ export default function RootLayout({
             `,
           }}
         />
-        <ThemeProvider>
           <Navbar />
           <BreakingTicker />
           <main className="pt-32 min-h-screen">
             {children}
           </main>
           <Footer />
-        </ThemeProvider>
       </body>
     </html>
   );
