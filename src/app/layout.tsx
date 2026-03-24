@@ -4,6 +4,7 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import BreakingTicker from "@/components/BreakingTicker";
 import Footer from "@/components/Footer";
+import UpdateNotifier from "@/components/UpdateNotifier";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
@@ -106,6 +107,7 @@ export default function RootLayout({
             {children}
           </main>
           <Footer />
+          <UpdateNotifier />
       </body>
     </html>
   );
