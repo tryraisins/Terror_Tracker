@@ -230,8 +230,8 @@ export default function ThreatMapPage() {
                                             style={{
                                                 fill: isSelected ? "var(--accent)" : "transparent",
                                                 fillOpacity: isSelected ? 0.2 : 0.05,
-                                                stroke: isSelected ? "var(--text-primary)" : "var(--border-subtle)",
-                                                strokeWidth: isSelected ? 3 : 1.2
+                                                stroke: isSelected ? "var(--text-primary)" : "rgba(255,255,255,0.25)",
+                                                strokeWidth: isSelected ? 3.5 : 2
                                             }}
                                         />
 
