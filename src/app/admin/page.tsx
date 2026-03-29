@@ -329,7 +329,7 @@ export default function AdminPage() {
                 </div>
 
                 {/* Expanded Filters Reuse */}
-                <div className={`overflow-hidden transition-all duration-400 ease-out ${showFilters ? "max-h-60 opacity-100 mt-4" : "max-h-0 opacity-0"}`}>
+                <div className={`transition-all duration-400 ease-out ${showFilters ? "mt-4 max-h-[44rem] overflow-visible opacity-100 sm:max-h-96" : "max-h-0 overflow-hidden opacity-0"}`}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
                         {/* State */}
                         <select value={state} onChange={(e) => setState(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm border bg-black/20 border-white/10 text-white">

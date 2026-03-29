@@ -193,8 +193,8 @@ function IncidentsList() {
 
                 {/* Expanded Filters */}
                 <div
-                    className={`overflow-hidden transition-all duration-400 ease-out
-            ${showFilters ? "max-h-60 opacity-100 mt-4" : "max-h-0 opacity-0"}
+                    className={`transition-all duration-400 ease-out
+            ${showFilters ? "mt-4 max-h-[40rem] overflow-visible opacity-100 sm:max-h-80" : "max-h-0 overflow-hidden opacity-0"}
           `}
                 >
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
