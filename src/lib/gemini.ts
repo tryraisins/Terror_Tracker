@@ -58,7 +58,7 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
     // Enable Google Search as a tool
     tools: [{ googleSearch: {} } as any],
   });
@@ -357,9 +357,9 @@ export async function checkDuplicateAttack(
 
   const genAI = new GoogleGenerativeAI(apiKey);
   // Explicitly disable tools to ensure no external searching occurs
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-2.5-flash",
-    tools: [] 
+  const model = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    tools: []
   });
 
   const cleanSources = (sources: any[]) => sources?.map(s => ({ 
@@ -458,7 +458,7 @@ export async function mergeIncidentStrategies(
     if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash" });
 
     // 1. Merge Casualties (Target: Max)
     const mergedCasualties = {
