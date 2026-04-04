@@ -6,6 +6,7 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(node -e \":*)",
       "Bash(node scripts/analyze-duplicates.js)",
+      "Bash(node scripts/analyze-duplicates.js --execute)",
       "Bash(node scripts/flag-duplicates.js)",
       "Bash(node scripts/flag-duplicates.js --execute)",
       "Bash(npx next:*)"
