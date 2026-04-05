@@ -8,5 +8,11 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions."scheduled-update-background"]
+  schedule = "0 * * * *"
+
+[functions."scheduled-check-duplicates-background"]
+  schedule = "*/27 * * * *"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
