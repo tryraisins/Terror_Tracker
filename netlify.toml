@@ -5,5 +5,8 @@
 [build.environment]
   SECRETS_SCAN_OMIT_KEYS = "NEXT_PUBLIC_APP_URL,DEFAULT_ADMIN_USERNAME,SEARCH_PROVIDER,BRAVE_SEARCH_RETRY_MS,BRAVE_SEARCH_MIN_DELAY_MS,GEMINI_TIMEOUT_MS,GEMINI_MODEL,CRON_BUDGET_MS,GEMINI_CHUNK_TIMEOUT_MS"
 
+[functions]
+  node_bundler = "esbuild"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
