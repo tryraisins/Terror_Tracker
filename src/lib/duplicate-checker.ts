@@ -186,7 +186,7 @@ interface DuplicateCandidate {
  * Iterates through attacks in a specific state to find duplicates using a sliding window.
  */
 export class DuplicateCheckerService {
-  private static DATE_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
+  private static DATE_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days (aligned with COMPARISON_WINDOW_MS)
   private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
   private static SCORE_THRESHOLD = 0.4; // lowered from 0.5 — Gemini confirmation still gates merges
 

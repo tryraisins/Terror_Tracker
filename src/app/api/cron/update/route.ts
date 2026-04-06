@@ -78,11 +78,17 @@ export async function POST(req: NextRequest) {
              windowEnd.setDate(windowEnd.getDate() + 2);
              windowEnd.setHours(23, 59, 59, 999);
 
-             // Build search title keywords for fuzzy title matching
+             // Build search title keywords — exclude common attack words so the match is specific
+             const TITLE_STOPWORDS = new Set([
+               "attack", "attacks", "kill", "kills", "killed", "gunmen", "armed",
+               "village", "bandits", "dead", "soldiers", "police", "troops",
+               "people", "residents", "suspected", "abducted", "kidnapped",
+               "shooting", "open", "fire", "shot", "farmers", "worshippers",
+             ]);
              const titleWords = rawAttack.title.toLowerCase()
                .replace(/[^a-z0-9\s]/g, " ")
                .split(/\s+/)
-               .filter((w: string) => w.length > 3)
+               .filter((w: string) => w.length > 3 && !TITLE_STOPWORDS.has(w))
                .slice(0, 5);
 
              // Extract individual town words for partial matching
@@ -133,11 +139,14 @@ export async function POST(req: NextRequest) {
                      $lte: Math.ceil(rawAttack.casualties.killed * 1.5),
                    },
                  }] : []),
-                 // Title keyword overlap (at least 2 significant words match)
+                 // Title keyword overlap — require ALL significant words (AND via lookaheads, not OR)
                  ...(titleWords.length >= 2
                    ? [{
                        title: {
-                         $regex: new RegExp(titleWords.slice(0, 3).join("|"), "i"),
+                         $regex: new RegExp(
+                           titleWords.slice(0, 3).map((w: string) => `(?=.*${escapeRegex(w)})`).join(""),
+                           "i",
+                         ),
                        },
                        group: {
                          $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),

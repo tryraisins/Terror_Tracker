@@ -14,5 +14,8 @@
 [functions."scheduled-check-duplicates-background"]
   schedule = "*/27 * * * *"
 
+[functions."scheduled-state-scan-background"]
+  schedule = "*/13 * * * *"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

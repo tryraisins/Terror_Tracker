@@ -45,44 +45,110 @@ export function generateAttackHash(attack: RawAttackData): string {
   return crypto.createHash("sha256").update(hashInput).digest("hex");
 }
 
-/**
- * Use Gemini 2.5 Flash with Google Search grounding to find recent
- * terrorist attacks in Nigeria.
- */
-export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured");
+// ──────────────────────────────────────────────
+// Shared source credibility validation
+// ──────────────────────────────────────────────
+
+const TRUSTED_DOMAINS = new Set([
+  // Nigerian Media
+  "premiumtimesng.com", "thecable.ng", "gazettengr.com", "channelstv.com",
+  "saharareporters.com", "punchng.com", "vanguardngr.com", "dailytrust.com",
+  "humanglemedia.com", "guardian.ng", "dailypost.ng", "newscentral.africa",
+  "arise.tv", "tvcnews.tv", "thisdaylive.com", "thenationonlineng.net",
+  "leadership.ng", "sunnewsonline.com", "tribuneonlineng.com", "blueprint.ng",
+  "businessday.ng", "thewhistler.ng", "icirnigeria.org", "ripplesnigeria.com",
+  "dailynigerian.com", "prnigeria.com", "parallelfactsnews.com",
+  // International Media
+  "aljazeera.com", "dw.com", "news.sky.com", "bbc.com", "bbc.co.uk",
+  "cnn.com", "france24.com", "voanews.com", "apnews.com", "reuters.com",
+  // Security Trackers
+  "acleddata.com", "network.zagazola.org",
+  // Reference
+  "en.wikipedia.org",
+  // Social — Tier 1 intelligence
+  "x.com", "twitter.com",
+]);
+
+const TRUSTED_PUBLISHERS = [
+  "Premium Times", "The Cable", "Peoples Gazette", "Channels TV", "Sahara Reporters",
+  "Punch", "Vanguard", "Daily Trust", "HumAngle", "Guardian Nigeria", "The Guardian Nigeria",
+  "Daily Post", "News Central", "Arise News", "TVC News", "ThisDay", "The Nation",
+  "Leadership", "Sun News", "Tribune", "Blueprint", "Business Day", "The Whistler",
+  "ICIR", "Ripples Nigeria", "Daily Nigerian", "PRNigeria", "Parallel Facts", "Parallel Facts News",
+  "Al Jazeera", "Deutsche Welle", "DW", "Sky News", "BBC", "CNN", "France 24",
+  "Voice of America", "VOA", "Associated Press", "AP", "AFP", "Reuters",
+  "ACLED", "Zagazola", "Wikipedia",
+  "Twitter", "X.com", "@BrantPhilip_", "BrantPhilip", "@Sazedek", "Sazedek",
+];
+
+const BANNED_SOURCES = [
+  "truth nigeria", "aid to the church in need", "acn international",
+  "the journal", "council on foreign relations", "cfr.org", "trust tv",
+  "zenit news", "youtube", "blogspot", "wordpress.com", "medium.com",
+];
+
+function extractDomain(url: string): string {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return hostname;
+  } catch {
+    return "";
+  }
+}
+
+function isSourceTrusted(source: { url: string; publisher: string }): boolean {
+  const pubLower = (source.publisher || "").toLowerCase();
+  if (BANNED_SOURCES.some(banned => pubLower.includes(banned))) return false;
+  if (source.url && BANNED_SOURCES.some(banned => source.url.toLowerCase().includes(banned))) return false;
+
+  const domain = extractDomain(source.url);
+  if (domain && TRUSTED_DOMAINS.has(domain)) return true;
+  const parts = domain.split(".");
+  if (parts.length > 2) {
+    const rootDomain = parts.slice(-2).join(".");
+    if (TRUSTED_DOMAINS.has(rootDomain)) return true;
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
+  if (pubLower && TRUSTED_PUBLISHERS.some(tp => pubLower.includes(tp.toLowerCase()))) return true;
+  if (!source.publisher || pubLower === "unknown" || pubLower.length < 3) return false;
 
-  const model = genAI.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    // Enable Google Search as a tool
-    tools: [{ googleSearch: {} } as any],
-  });
+  return false;
+}
 
-  const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
-  const threeDaysAgo = new Date(today);
-  threeDaysAgo.setDate(today.getDate() - 3);
-  const fourDaysAgo = new Date(today);
-  fourDaysAgo.setDate(today.getDate() - 4);
+/** Resolve grounding redirect URLs using Gemini's groundingMetadata chunks */
+function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]): RawAttackData[] {
+  if (groundingChunks.length === 0) return attacks;
+  return attacks.map(attack => ({
+    ...attack,
+    sources: attack.sources.map(source => {
+      if (!source.url.includes("grounding-api-redirect") && source.url.startsWith("http")) return source;
+      const match = groundingChunks.find((chunk: any) =>
+        chunk.web?.title && source.title &&
+        (chunk.web.title.toLowerCase().includes(source.title.toLowerCase()) ||
+         source.title.toLowerCase().includes(chunk.web.title.toLowerCase()))
+      );
+      return {
+        ...source,
+        url: match?.web?.uri || `https://www.google.com/search?q=${encodeURIComponent(attack.title + " " + source.publisher)}`,
+      };
+    }),
+  }));
+}
 
-  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
-The current date and time is ${today.toISOString()}.
+/** Filter attacks to only those with at least one trusted source, and normalize state names */
+function validateAndNormalize(attacks: RawAttackData[]): RawAttackData[] {
+  return attacks
+    .map(attack => ({
+      ...attack,
+      sources: attack.sources.filter(isSourceTrusted),
+      location: { ...attack.location, state: normalizeStateName(attack.location.state) },
+    }))
+    .filter(attack => attack.sources.length > 0)
+    .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group);
+}
 
-YOUR PRIMARY MISSION: Search for ALL terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen in Nigeria.
-
-SEARCH STRATEGY — FOLLOW THIS ORDER:
-1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search each Tier 2 news site individually for today's articles. Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, and AP/Reuters for today.
-2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}).
-3. THIRD: Search for any remaining attacks from the past 4 days (${fourDaysAgo.toISOString().split("T")[0]} to ${todayStr}) that you haven't already found.
-
-Do NOT stop after finding just 1 or 2 incidents. Be thorough — Nigeria typically has multiple security incidents per day across different states. Search multiple news sources independently to ensure comprehensive coverage.
-
-═══════════════════════════════════════════
+// Reusable source tier description for prompts
+const SOURCE_TIERS_PROMPT = `═══════════════════════════════════════════
 SOURCE CREDIBILITY TIERS — STRICT RULES
 ═══════════════════════════════════════════
 
@@ -110,49 +176,9 @@ TIER 3 — BANNED SOURCES (NEVER USE — reject any incident sourced ONLY from t
 - Every incident MUST have at least one source from TIER 1 or TIER 2.
 - If an incident is ONLY reported by a source NOT in Tier 1 or Tier 2, DO NOT include it.
 - For the "publisher" field, use the EXACT name of the outlet (e.g., "Premium Times", "Channels TV", "BBC"). Do NOT invent or guess publisher names.
-- If you cannot identify the publisher of a source URL, DO NOT include that source.
+- If you cannot identify the publisher of a source URL, DO NOT include that source.`;
 
-═══════════════════════════════════════════
-DEDUPLICATION — CRITICAL
-═══════════════════════════════════════════
-- If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
-- Do NOT create separate entries for the same attack just because different outlets covered it.
-- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
-- When consolidating, use the HIGHEST reported casualty numbers and combine all source URLs.
-
-═══════════════════════════════════════════
-DATA REQUIREMENTS
-═══════════════════════════════════════════
-For each incident found, provide:
-1. A clear, concise title (format: "[Attack type] in [Town], [State]")
-2. Detailed description of what happened
-3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
-4. Location: Nigerian state name — use EXACTLY one of these canonical names:
-   Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
-   Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
-   Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
-   Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
-   NEVER append "State" to the name (use "Borno" not "Borno State").
-   Use "FCT" for Abuja/Federal Capital Territory.
-   If an incident spans multiple states, use the state where the PRIMARY attack occurred.
-   Also provide the Local Government Area (LGA) and specific town/village.
-5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Unidentified Armed Group"
-6. Casualties: count ONLY civilians and security forces (soldiers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits. Use null if not reported.
-7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
-8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
-9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
-
-═══════════════════════════════════════════
-CRITICAL RULES
-═══════════════════════════════════════════
-- ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
-- If you cannot find any recent attacks, return an empty array [].
-- CASUALTY COUNTING: ONLY count dead/injured civilians and security forces. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed"), DO NOT include it.
-- Set "civilianCasualties" to true only if civilians or security forces were killed/injured/kidnapped/displaced.
-- Be specific about locations — always include state AND town/village name.
-- Distinguish carefully between different armed groups.
-
-Return your response as a valid JSON array. Each element must follow this exact schema:
+const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each element must follow this exact schema:
 {
   "title": "string",
   "description": "string",
@@ -181,7 +207,85 @@ Return your response as a valid JSON array. Each element must follow this exact 
   "tags": ["string"]
 }
 
-RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.
+RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.`;
+
+/**
+ * Use Gemini 2.5 Flash with Google Search grounding to find recent
+ * terrorist attacks in Nigeria (general scan, past 4 days).
+ */
+export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+
+  const model = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    tools: [{ googleSearch: {} } as any],
+  });
+
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+  const fourDaysAgo = new Date(today);
+  fourDaysAgo.setDate(today.getDate() - 4);
+
+  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
+The current date and time is ${today.toISOString()}.
+
+YOUR PRIMARY MISSION: Search for ALL terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen in Nigeria.
+
+SEARCH STRATEGY — FOLLOW THIS ORDER:
+1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search each Tier 2 news site individually for today's articles. Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, and AP/Reuters for today.
+2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}).
+3. THIRD: Search for any remaining attacks from the past 4 days (${fourDaysAgo.toISOString().split("T")[0]} to ${todayStr}) that you haven't already found.
+
+Do NOT stop after finding just 1 or 2 incidents. Be thorough — Nigeria typically has multiple security incidents per day across different states. Search multiple news sources independently to ensure comprehensive coverage.
+
+${SOURCE_TIERS_PROMPT}
+
+═══════════════════════════════════════════
+DEDUPLICATION — CRITICAL
+═══════════════════════════════════════════
+- If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
+- Do NOT create separate entries for the same attack just because different outlets covered it.
+- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
+- When consolidating, use the HIGHEST reported casualty numbers and combine all source URLs.
+
+═══════════════════════════════════════════
+DATA REQUIREMENTS
+═══════════════════════════════════════════
+For each incident found, provide:
+1. A clear, concise title (format: "[Attack type] in [Town], [State]")
+2. Detailed description of what happened
+3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
+4. Location: Nigerian state name — use EXACTLY one of these canonical names:
+   Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
+   Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
+   Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
+   Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
+   NEVER append "State" to the name (use "Borno" not "Borno State").
+   Use "FCT" for Abuja/Federal Capital Territory.
+   If an incident spans multiple states, use the state where the PRIMARY attack occurred.
+   Also provide the Local Government Area (LGA) and specific town/village.
+5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
+6. Casualties: count ONLY civilians and security forces (soldiers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits. Use null if not reported.
+7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
+8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
+9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
+
+═══════════════════════════════════════════
+CRITICAL RULES
+═══════════════════════════════════════════
+- ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
+- If you cannot find any recent attacks, return an empty array [].
+- CASUALTY COUNTING: ONLY count dead/injured civilians and security forces. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed"), DO NOT include it.
+- Set "civilianCasualties" to true only if civilians or security forces were killed/injured/kidnapped/displaced.
+- Be specific about locations — always include state AND town/village name.
+- Distinguish carefully between different armed groups.
+
+${OUTPUT_SCHEMA_PROMPT}
 `;
 
   try {
@@ -189,145 +293,111 @@ RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.
     const response = result.response;
     const text = response.text();
 
-    // Parse the JSON response
-    const cleanedText = text
-      .replace(/```json\n?/g, "")
-      .replace(/```\n?/g, "")
-      .trim();
-
+    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     let attacks: RawAttackData[] = JSON.parse(cleanedText);
 
-    // Fix grounding redirect URLs using actual metadata
-    const groundingMetadata = response.candidates?.[0]?.groundingMetadata as any;
-    const groundingChunks = groundingMetadata?.groundingChunks || [];
-    
-    if (groundingChunks.length > 0) {
-      attacks.forEach(attack => {
-        attack.sources.forEach(source => {
-          if (source.url.includes("grounding-api-redirect") || !source.url.startsWith("http")) {
-            // Try to find matching chunk by title
-            const match = groundingChunks.find((chunk: any) => 
-               chunk.web?.title && source.title && 
-               (chunk.web.title.toLowerCase().includes(source.title.toLowerCase()) || 
-                source.title.toLowerCase().includes(chunk.web.title.toLowerCase()))
-            );
-            
-            if (match?.web?.uri) {
-              source.url = match.web.uri;
-            } else {
-              // Fallback to Google Search if source is not found
-              source.url = `https://www.google.com/search?q=${encodeURIComponent(attack.title + " " + source.publisher)}`;
-            }
-          }
-        });
-      });
-    }
+    const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
+    attacks = resolveGroundingUrls(attacks, groundingChunks);
 
-    // ──────────────────────────────────────────────
-    // Source credibility validation (whitelist-based)
-    // ──────────────────────────────────────────────
+    return validateAndNormalize(attacks);
+  } catch (error) {
+    throw error;
+  }
+}
 
-    // Trusted domains — extracted from the Tier 1 & Tier 2 list
-    const TRUSTED_DOMAINS = new Set([
-      // Nigerian Media
-      "premiumtimesng.com", "thecable.ng", "gazettengr.com", "channelstv.com",
-      "saharareporters.com", "punchng.com", "vanguardngr.com", "dailytrust.com",
-      "humanglemedia.com", "guardian.ng", "dailypost.ng", "newscentral.africa",
-      "arise.tv", "tvcnews.tv", "thisdaylive.com", "thenationonlineng.net",
-      "leadership.ng", "sunnewsonline.com", "tribuneonlineng.com", "blueprint.ng",
-      "businessday.ng", "thewhistler.ng", "icirnigeria.org", "ripplesnigeria.com",
-      "dailynigerian.com", "prnigeria.com", "parallelfactsnews.com",
-      // International Media
-      "aljazeera.com", "dw.com", "news.sky.com", "bbc.com", "bbc.co.uk",
-      "cnn.com", "france24.com", "voanews.com", "apnews.com", "reuters.com",
-      // Security Trackers
-      "acleddata.com", "network.zagazola.org",
-      // Reference
-      "en.wikipedia.org",
-      // Social — Tier 1 intelligence
-      "x.com", "twitter.com",
-    ]);
+/**
+ * Use Gemini 2.5 Flash with Google Search grounding to find security incidents
+ * specifically in the given Nigerian states over the past `lookbackDays` days.
+ * Designed for the per-state cron scan to catch incidents the general scan misses.
+ */
+export async function fetchAttacksForStates(
+  states: string[],
+  lookbackDays = 7,
+): Promise<RawAttackData[]> {
+  if (states.length === 0) return [];
 
-    // Trusted publisher names (case-insensitive partial match)
-    const TRUSTED_PUBLISHERS = [
-      "Premium Times", "The Cable", "Peoples Gazette", "Channels TV", "Sahara Reporters",
-      "Punch", "Vanguard", "Daily Trust", "HumAngle", "Guardian Nigeria", "The Guardian Nigeria",
-      "Daily Post", "News Central", "Arise News", "TVC News", "ThisDay", "The Nation",
-      "Leadership", "Sun News", "Tribune", "Blueprint", "Business Day", "The Whistler",
-      "ICIR", "Ripples Nigeria", "Daily Nigerian", "PRNigeria", "Parallel Facts", "Parallel Facts News",
-      "Al Jazeera", "Deutsche Welle", "DW", "Sky News", "BBC", "CNN", "France 24",
-      "Voice of America", "VOA", "Associated Press", "AP", "AFP", "Reuters",
-      "ACLED", "Zagazola", "Wikipedia",
-      "Twitter", "X.com", "@BrantPhilip_", "BrantPhilip", "@Sazedek", "Sazedek",
-    ];
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
 
-    // Explicitly banned sources & patterns
-    const BANNED_SOURCES = [
-      "truth nigeria", "aid to the church in need", "acn international",
-      "the journal", "council on foreign relations", "cfr.org", "trust tv",
-      "zenit news", "youtube", "blogspot", "wordpress.com", "medium.com",
-    ];
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    tools: [{ googleSearch: {} } as any],
+  });
 
-    // Extract domain from URL
-    function extractDomain(url: string): string {
-      try {
-        const hostname = new URL(url).hostname.replace(/^www\./, "");
-        return hostname;
-      } catch {
-        return "";
-      }
-    }
+  const today = new Date();
+  const lookbackDate = new Date(today);
+  lookbackDate.setDate(today.getDate() - lookbackDays);
+  const todayStr = today.toISOString().split("T")[0];
+  const lookbackStr = lookbackDate.toISOString().split("T")[0];
+  const year = today.getFullYear();
 
-    // Check if a single source is trusted
-    function isSourceTrusted(source: { url: string; publisher: string }): boolean {
-      // Check if publisher is in banned list
-      const pubLower = (source.publisher || "").toLowerCase();
-      if (BANNED_SOURCES.some(banned => pubLower.includes(banned))) return false;
-      if (source.url && BANNED_SOURCES.some(banned => source.url.toLowerCase().includes(banned))) return false;
+  const stateList = states.join(", ");
+  const stateSearchLines = states
+    .map(s => `  - "${s} attack ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} security incident ${year}"`)
+    .join("\n");
 
-      // Check domain against whitelist
-      const domain = extractDomain(source.url);
-      if (domain && TRUSTED_DOMAINS.has(domain)) return true;
-      // Check subdomain (e.g., "www.bbc.com" -> check "bbc.com")
-      const parts = domain.split(".");
-      if (parts.length > 2) {
-        const rootDomain = parts.slice(-2).join(".");
-        if (TRUSTED_DOMAINS.has(rootDomain)) return true;
-      }
+  const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
+Current date: ${today.toISOString()}
+Search window: ${lookbackStr} to ${todayStr}
 
-      // Check publisher name against trusted list
-      if (pubLower && TRUSTED_PUBLISHERS.some(tp => pubLower.includes(tp.toLowerCase()))) return true;
+TARGET STATES: ${stateList}
 
-      // Reject unknown/empty publishers
-      if (!source.publisher || pubLower === "unknown" || pubLower.length < 3) return false;
+YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks, kidnappings, communal clashes, militant activity, cult violence, IED explosions, or attacks by unknown gunmen — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}.
 
-      return false; // Default: untrusted
-    }
+MANDATORY SEARCH — execute a search for EACH state:
+${stateSearchLines}
 
-    // Filter sources per attack, then remove attacks with zero trusted sources
-    attacks = attacks.map(attack => ({
-      ...attack,
-      sources: attack.sources.filter(source => isSourceTrusted(source)),
-    })).filter(attack => attack.sources.length > 0);
+IMPORTANT: Search each state individually and explicitly. Do NOT rely only on general Nigeria-wide searches — those miss incidents in lower-profile states. Even if a state appears quiet, verify by searching.
 
-    // Normalize state names to canonical form before returning
-    attacks = attacks.map(attack => ({
-      ...attack,
-      location: {
-        ...attack.location,
-        state: normalizeStateName(attack.location.state),
-      },
-    }));
+${SOURCE_TIERS_PROMPT}
 
-    // Validate each attack has minimum required fields
-    return attacks.filter(
-      (attack) =>
-        attack.title &&
-        attack.description &&
-        attack.date &&
-        attack.location?.state &&
-        attack.group
-    );
+═══════════════════════════════════════════
+DEDUPLICATION
+═══════════════════════════════════════════
+- Consolidate multiple reports of the SAME incident into one entry with all source URLs combined.
+- Use the HIGHEST reported casualty numbers when consolidating.
+
+═══════════════════════════════════════════
+DATA REQUIREMENTS
+═══════════════════════════════════════════
+For each incident found, provide:
+1. Title: "[Attack type] in [Town], [State]"
+2. Detailed description
+3. Date (ISO 8601). Use midnight if only date is known.
+4. Location: use EXACTLY one of the 37 canonical Nigerian state names:
+   Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
+   Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
+   Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
+   Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
+   NEVER append "State". Use "FCT" for Abuja.
+5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
+6. Casualties: civilians and security forces ONLY (not attackers). Use null if unknown.
+7. Source URLs (real, working links only)
+8. Status: "confirmed" | "unconfirmed" | "developing"
+9. Tags
+
+ONLY return incidents in the TARGET STATES listed above. Do not include incidents from other states.
+Do NOT fabricate incidents. If none found for a state, simply omit it.
+
+${OUTPUT_SCHEMA_PROMPT}
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    let attacks: RawAttackData[] = JSON.parse(cleanedText);
+
+    const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
+    attacks = resolveGroundingUrls(attacks, groundingChunks);
+    attacks = validateAndNormalize(attacks);
+
+    // Guard: only keep attacks that actually belong to the requested states
+    const stateSet = new Set(states.map(s => s.toLowerCase()));
+    return attacks.filter(a => stateSet.has(a.location.state.toLowerCase()));
   } catch (error) {
     throw error;
   }
@@ -362,9 +432,9 @@ export async function checkDuplicateAttack(
     tools: []
   });
 
-  const cleanSources = (sources: any[]) => sources?.map(s => ({ 
-    publisher: s.publisher || "Unknown", 
-    title: s.title || "Unknown" 
+  const cleanSources = (sources: any[]) => sources?.map(s => ({
+    publisher: s.publisher || "Unknown",
+    title: s.title || "Unknown"
   })) || [];
 
   const prompt = `You are a security intelligence analyst specializing in deduplicating incident reports.
@@ -460,12 +530,16 @@ export async function mergeIncidentStrategies(
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-2.5-flash" });
 
-    // 1. Merge Casualties (Target: Max)
+    // 1. Merge Casualties (Target: Max, preserve null when both sides are unknown)
+    const mergeCount = (a: number | null | undefined, b: number | null | undefined): number | null => {
+        if (a == null && b == null) return null;
+        return Math.max(a ?? 0, b ?? 0);
+    };
     const mergedCasualties = {
-        killed: Math.max(existing.casualties?.killed || 0, candidate.casualties?.killed || 0),
-        injured: Math.max(existing.casualties?.injured || 0, candidate.casualties?.injured || 0),
-        kidnapped: Math.max(existing.casualties?.kidnapped || 0, candidate.casualties?.kidnapped || 0),
-        displaced: Math.max(existing.casualties?.displaced || 0, candidate.casualties?.displaced || 0),
+        killed: mergeCount(existing.casualties?.killed, candidate.casualties?.killed),
+        injured: mergeCount(existing.casualties?.injured, candidate.casualties?.injured),
+        kidnapped: mergeCount(existing.casualties?.kidnapped, candidate.casualties?.kidnapped),
+        displaced: mergeCount(existing.casualties?.displaced, candidate.casualties?.displaced),
     };
 
     // 2. Merge Sources (Unique by URL)
@@ -483,13 +557,13 @@ export async function mergeIncidentStrategies(
     let mergedDescription = existing.description;
     try {
         const prompt = `You are an intelligence analyst. Consolidate these two reports of the SAME incident into a single, comprehensive description.
-    
+
     EXISTING REPORT:
     "${existing.description}"
-    
+
     NEW REPORT (may have new details):
     "${candidate.description}"
-    
+
     INSTRUCTIONS:
     - Combine details from both.
     - If the new report has more specific info (exact numbers, names, locations), use it.
