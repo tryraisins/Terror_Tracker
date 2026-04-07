@@ -115,6 +115,226 @@ function isSourceTrusted(source: { url: string; publisher: string }): boolean {
   return false;
 }
 
+const SOURCE_STOPWORDS = new Set([
+  "attack", "attacks", "attacked", "kills", "kill", "killed", "gunmen", "bandits",
+  "terrorists", "terrorist", "unknown", "armed", "group", "groups", "incident",
+  "incidents", "state", "states", "community", "communities", "village", "villages",
+  "security", "forces", "troops", "police", "soldiers", "residents", "people",
+  "breaking", "news", "report", "reports", "nigeria", "nigerian",
+]);
+
+const EVIDENCE_FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
+const MAX_SOURCES_TO_VERIFY = Number(process.env.MAX_SOURCES_TO_VERIFY || 3);
+
+interface ValidationOptions {
+  windowStart: Date;
+  windowEnd: Date;
+  maxSourceAgeDays: number;
+  label: string;
+}
+
+interface SourceInspection {
+  ok: boolean;
+  finalUrl: string;
+  finalTitle: string;
+  publishedAt: Date | null;
+}
+
+function normalizeText(text: string): string {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenize(text: string, minLength = 4): string[] {
+  return normalizeText(text)
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter(token => token.length >= minLength && !SOURCE_STOPWORDS.has(token));
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+export function isUsableEvidenceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    if (!["http:", "https:"].includes(parsed.protocol)) return false;
+    if (hostname === "vertexaisearch.cloud.google.com") return false;
+    if (hostname.endsWith("google.com") && pathname.startsWith("/search")) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseLooseDate(value: string): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const year = parsed.getUTCFullYear();
+  if (year < 2015 || year > new Date().getUTCFullYear() + 1) return null;
+
+  return parsed;
+}
+
+function extractDateFromUrl(url: string): Date | null {
+  const match = url.match(/(20\d{2})[/-](\d{2})[/-](\d{2})/);
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  return parseLooseDate(`${year}-${month}-${day}T12:00:00Z`);
+}
+
+function extractHtmlTitle(html: string): string {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!titleMatch) return "";
+
+  return titleMatch[1]
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
+function extractPublishedDate(html: string, finalUrl: string): Date | null {
+  const patterns = [
+    /"datePublished"\s*:\s*"([^"]+)"/i,
+    /"dateCreated"\s*:\s*"([^"]+)"/i,
+    /property=["']article:published_time["'][^>]*content=["']([^"']+)["']/i,
+    /name=["']pubdate["'][^>]*content=["']([^"']+)["']/i,
+    /name=["']publishdate["'][^>]*content=["']([^"']+)["']/i,
+    /itemprop=["']datePublished["'][^>]*content=["']([^"']+)["']/i,
+    /<time[^>]+datetime=["']([^"']+)["']/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    const parsed = parseLooseDate(match?.[1] || "");
+    if (parsed) return parsed;
+  }
+
+  return extractDateFromUrl(finalUrl);
+}
+
+function buildAttackMatchers(attack: RawAttackData) {
+  const locationTokens = dedupeStrings([
+    ...tokenize(attack.location.state, 3),
+    ...tokenize(attack.location.lga, 3),
+    ...tokenize(attack.location.town, 3),
+  ]).filter(token => token !== "unknown");
+
+  const semanticTokens = dedupeStrings([
+    ...tokenize(attack.title, 4),
+    ...tokenize(attack.group, 4),
+    ...tokenize(attack.description, 4).slice(0, 12),
+  ]).filter(token => !locationTokens.includes(token));
+
+  return { locationTokens, semanticTokens };
+}
+
+function isSourceRelevantToAttack(
+  attack: RawAttackData,
+  title: string,
+  url: string,
+): boolean {
+  const { locationTokens, semanticTokens } = buildAttackMatchers(attack);
+  const sourceText = `${title} ${url}`;
+  const sourceTokens = new Set([
+    ...tokenize(sourceText, 3),
+    ...tokenize(sourceText, 4),
+  ]);
+
+  const locationHits = locationTokens.filter(token => sourceTokens.has(token)).length;
+  const semanticHits = semanticTokens.filter(token => sourceTokens.has(token)).length;
+
+  if (locationHits >= 1 && semanticHits >= 1) return true;
+  if (semanticHits >= 2) return true;
+
+  return false;
+}
+
+function scoreGroundingChunkMatch(
+  attack: RawAttackData,
+  source: { title: string; publisher: string },
+  chunk: any,
+): number {
+  const chunkTitle = normalizeText(chunk?.web?.title || "");
+  const sourceTitle = normalizeText(source.title || "");
+  if (!chunkTitle || !sourceTitle) return -1;
+
+  const sourceTokens = new Set(tokenize(sourceTitle, 3));
+  const chunkTokens = tokenize(chunkTitle, 3);
+  const titleOverlap = chunkTokens.filter(token => sourceTokens.has(token)).length;
+
+  let score = titleOverlap;
+
+  const domain = extractDomain(chunk?.web?.uri || "");
+  const publisher = normalizeText(source.publisher || "");
+  if (publisher && domain) {
+    if (publisher.includes("zagazola") && domain.includes("zagazola")) score += 2;
+    if (publisher.includes("premium times") && domain.includes("premiumtimesng.com")) score += 2;
+    if (publisher.includes("punch") && domain.includes("punchng.com")) score += 2;
+    if (publisher.includes("channels") && domain.includes("channelstv.com")) score += 2;
+    if (publisher.includes("daily post") && domain.includes("dailypost.ng")) score += 2;
+  }
+
+  if (isSourceRelevantToAttack(attack, chunkTitle, chunk?.web?.uri || "")) {
+    score += 2;
+  }
+
+  return score;
+}
+
+async function inspectSourceUrl(url: string): Promise<SourceInspection> {
+  if (!isUsableEvidenceUrl(url)) {
+    return { ok: false, finalUrl: url, finalTitle: "", publishedAt: null };
+  }
+
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(EVIDENCE_FETCH_TIMEOUT_MS),
+      headers: {
+        "user-agent": "Mozilla/5.0 (compatible; NigeriaAttackTracker/1.0)",
+      },
+    });
+
+    const finalUrl = response.url || url;
+    if (!response.ok || !isUsableEvidenceUrl(finalUrl)) {
+      return { ok: false, finalUrl, finalTitle: "", publishedAt: null };
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/html")) {
+      return {
+        ok: true,
+        finalUrl,
+        finalTitle: "",
+        publishedAt: extractDateFromUrl(finalUrl),
+      };
+    }
+
+    const html = await response.text();
+    return {
+      ok: true,
+      finalUrl,
+      finalTitle: extractHtmlTitle(html),
+      publishedAt: extractPublishedDate(html, finalUrl),
+    };
+  } catch {
+    return { ok: false, finalUrl: url, finalTitle: "", publishedAt: null };
+  }
+}
+
 /** Resolve grounding redirect URLs using Gemini's groundingMetadata chunks */
 function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]): RawAttackData[] {
   if (groundingChunks.length === 0) return attacks;
@@ -122,29 +342,89 @@ function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]):
     ...attack,
     sources: attack.sources.map(source => {
       if (!source.url.includes("grounding-api-redirect") && source.url.startsWith("http")) return source;
-      const match = groundingChunks.find((chunk: any) =>
-        chunk.web?.title && source.title &&
-        (chunk.web.title.toLowerCase().includes(source.title.toLowerCase()) ||
-         source.title.toLowerCase().includes(chunk.web.title.toLowerCase()))
-      );
+      const rankedMatches = groundingChunks
+        .filter((chunk: any) => chunk?.web?.uri && chunk?.web?.title)
+        .map((chunk: any) => ({
+          chunk,
+          score: scoreGroundingChunkMatch(attack, source, chunk),
+        }))
+        .sort((a, b) => b.score - a.score);
+      const match = rankedMatches[0];
       return {
         ...source,
-        url: match?.web?.uri || `https://www.google.com/search?q=${encodeURIComponent(attack.title + " " + source.publisher)}`,
+        url: match && match.score >= 3 ? match.chunk.web.uri : "",
       };
     }),
   }));
 }
 
 /** Filter attacks to only those with at least one trusted source, and normalize state names */
-function validateAndNormalize(attacks: RawAttackData[]): RawAttackData[] {
-  return attacks
+async function validateAndNormalize(
+  attacks: RawAttackData[],
+  options: ValidationOptions,
+): Promise<RawAttackData[]> {
+  const sourceInspectionCache = new Map<string, Promise<SourceInspection>>();
+  const freshnessThreshold = new Date(options.windowEnd);
+  freshnessThreshold.setUTCDate(freshnessThreshold.getUTCDate() - options.maxSourceAgeDays);
+
+  const inspected = await Promise.all(attacks
     .map(attack => ({
       ...attack,
       sources: attack.sources.filter(isSourceTrusted),
       location: { ...attack.location, state: normalizeStateName(attack.location.state) },
     }))
     .filter(attack => attack.sources.length > 0)
-    .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group);
+    .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group)
+    .map(async attack => {
+      const attackDate = new Date(attack.date);
+      if (Number.isNaN(attackDate.getTime())) return null;
+      if (attackDate < options.windowStart || attackDate > options.windowEnd) return null;
+
+      const dedupedSources = attack.sources.filter((source, index, allSources) => {
+        const key = `${source.url}|${source.title}|${source.publisher}`.toLowerCase();
+        return allSources.findIndex(other => `${other.url}|${other.title}|${other.publisher}`.toLowerCase() === key) === index;
+      });
+
+      let verifiedSources = 0;
+      const sources = [];
+
+      for (const source of dedupedSources) {
+        if (!isUsableEvidenceUrl(source.url)) continue;
+
+        let inspectionPromise = sourceInspectionCache.get(source.url);
+        if (!inspectionPromise) {
+          inspectionPromise = inspectSourceUrl(source.url);
+          sourceInspectionCache.set(source.url, inspectionPromise);
+        }
+        const inspection = await inspectionPromise;
+        if (!inspection.ok || !isUsableEvidenceUrl(inspection.finalUrl)) continue;
+
+        const effectiveTitle = inspection.finalTitle || source.title || "";
+        if (!isSourceRelevantToAttack(attack, effectiveTitle, inspection.finalUrl)) continue;
+
+        if (inspection.publishedAt && inspection.publishedAt < freshnessThreshold) continue;
+
+        sources.push({
+          ...source,
+          url: inspection.finalUrl,
+          title: effectiveTitle || source.title,
+        });
+        verifiedSources++;
+        if (verifiedSources >= MAX_SOURCES_TO_VERIFY) break;
+      }
+
+      if (sources.length === 0) {
+        console.log(`[${options.label}] Dropping attack with no usable evidence source: ${attack.title}`);
+        return null;
+      }
+
+      return {
+        ...attack,
+        sources,
+      };
+    }));
+
+  return inspected.filter((attack): attack is RawAttackData => Boolean(attack));
 }
 
 // Reusable source tier description for prompts
@@ -299,7 +579,18 @@ ${OUTPUT_SCHEMA_PROMPT}
     const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
     attacks = resolveGroundingUrls(attacks, groundingChunks);
 
-    return validateAndNormalize(attacks);
+    const windowStart = new Date(fourDaysAgo);
+    windowStart.setUTCHours(0, 0, 0, 0);
+    const windowEnd = new Date(today);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+    windowEnd.setUTCHours(23, 59, 59, 999);
+
+    return validateAndNormalize(attacks, {
+      windowStart,
+      windowEnd,
+      maxSourceAgeDays: 21,
+      label: "Gemini Recent",
+    });
   } catch (error) {
     throw error;
   }
@@ -393,7 +684,18 @@ ${OUTPUT_SCHEMA_PROMPT}
 
     const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
     attacks = resolveGroundingUrls(attacks, groundingChunks);
-    attacks = validateAndNormalize(attacks);
+    const windowStart = new Date(lookbackDate);
+    windowStart.setUTCHours(0, 0, 0, 0);
+    const windowEnd = new Date(today);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+    windowEnd.setUTCHours(23, 59, 59, 999);
+
+    attacks = await validateAndNormalize(attacks, {
+      windowStart,
+      windowEnd,
+      maxSourceAgeDays: Math.max(21, lookbackDays + 14),
+      label: `Gemini States/${stateList}`,
+    });
 
     // Guard: only keep attacks that actually belong to the requested states
     const stateSet = new Set(states.map(s => s.toLowerCase()));

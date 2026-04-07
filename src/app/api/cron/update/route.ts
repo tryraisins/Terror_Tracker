@@ -1,15 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { after } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
-import Attack from "@/lib/models/Attack";
-import { fetchRecentAttacks, generateAttackHash, mergeIncidentStrategies } from "@/lib/gemini";
+import { fetchRecentAttacks } from "@/lib/gemini";
+import { ingestAttacks } from "@/lib/ingest-attacks";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
-import { normalizeStateName } from "@/lib/normalize-state";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  // Strict security: require cron secret, very low rate limit
   const securityError = await applySecurityChecks(req, {
     rateLimit: 5,
     rateLimitWindow: 3600_000,
@@ -17,7 +14,6 @@ export async function POST(req: NextRequest) {
   });
   if (securityError) return securityError;
 
-  // Schedule the heavy work to run AFTER the response is sent
   after(async () => {
     try {
       await connectDB();
@@ -25,7 +21,6 @@ export async function POST(req: NextRequest) {
       console.log("[CRON] Starting attack data update...");
 
       const rawAttacks = await fetchRecentAttacks();
-
       console.log(`[CRON] Gemini returned ${rawAttacks.length} potential incidents`);
 
       if (rawAttacks.length === 0) {
@@ -33,224 +28,25 @@ export async function POST(req: NextRequest) {
         return;
       }
 
-      // Filter out incidents where only terrorists/attackers were killed
-      // We only want incidents involving civilian or security force casualties
-      const filteredAttacks = rawAttacks.filter((attack) => {
-        // If Gemini explicitly marked no civilian casualties, skip
-        if (attack.civilianCasualties === false) {
-          console.log(`[CRON] Skipping attacker-only incident: ${attack.title}`);
-          return false;
-        }
-
-        // Extra safety: if all casualty counts are 0 or null, still include 
-        // (could be kidnapping/displacement or developing situation)
-        const { killed, injured, kidnapped, displaced } = attack.casualties || {};
-        const hasCasualties = (killed && killed > 0) || (injured && injured > 0) || 
-                              (kidnapped && kidnapped > 0) || (displaced && displaced > 0);
-        
-        // If no casualties at all but status is "developing", include it
-        if (!hasCasualties && attack.status === "developing") return true;
-        
-        // If it has casualties and civilianCasualties wasn't explicitly false, include
-        return true;
-      });
-
-      console.log(`[CRON] After filtering: ${filteredAttacks.length} incidents with civilian casualties (removed ${rawAttacks.length - filteredAttacks.length} attacker-only incidents)`);
-
-      let saved = 0;
-      let merged = 0;
-      let errors = 0;
-
-      for (const rawAttack of filteredAttacks) {
-        try {
-          const hash = generateAttackHash(rawAttack);
-
-          // Check for duplicates using hash
-          let existing = await Attack.findOne({ hash });
-
-          if (!existing) {
-             // Additional dedup: check for similar attacks within ±2 days in the same location
-             const attackDate = new Date(rawAttack.date);
-             const windowStart = new Date(attackDate);
-             windowStart.setDate(windowStart.getDate() - 2);
-             windowStart.setHours(0, 0, 0, 0);
-             const windowEnd = new Date(attackDate);
-             windowEnd.setDate(windowEnd.getDate() + 2);
-             windowEnd.setHours(23, 59, 59, 999);
-
-             // Build search title keywords — exclude common attack words so the match is specific
-             const TITLE_STOPWORDS = new Set([
-               "attack", "attacks", "kill", "kills", "killed", "gunmen", "armed",
-               "village", "bandits", "dead", "soldiers", "police", "troops",
-               "people", "residents", "suspected", "abducted", "kidnapped",
-               "shooting", "open", "fire", "shot", "farmers", "worshippers",
-             ]);
-             const titleWords = rawAttack.title.toLowerCase()
-               .replace(/[^a-z0-9\s]/g, " ")
-               .split(/\s+/)
-               .filter((w: string) => w.length > 3 && !TITLE_STOPWORDS.has(w))
-               .slice(0, 5);
-
-             // Extract individual town words for partial matching
-             const townWords = (rawAttack.location.town || "")
-               .toLowerCase()
-               .replace(/[^a-z0-9\s]/g, " ")
-               .split(/\s+/)
-               .filter((w: string) => w.length > 2 && !["near", "and", "the", "from", "area"].includes(w));
-             const townRegex = townWords.length > 0
-               ? new RegExp(townWords.map(escapeRegex).join("|"), "i")
-               : null;
-
-             existing = await Attack.findOne({
-               date: { $gte: windowStart, $lte: windowEnd },
-               "location.state": {
-                 $regex: new RegExp(`^${escapeRegex(rawAttack.location.state)}$`, "i"),
-               },
-               $or: [
-                 // Same town (exact)
-                 {
-                   "location.town": {
-                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.town)}$`, "i"),
-                   },
-                 },
-                 // Town word overlap (catches "Garga (near Wanka)" matching "Wanka, Kyaram")
-                 ...(townRegex ? [{
-                   "location.town": { $regex: townRegex },
-                   "location.lga": {
-                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
-                   },
-                 }] : []),
-                 // Same LGA + same group
-                 {
-                   "location.lga": {
-                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
-                   },
-                   group: {
-                     $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),
-                   },
-                 },
-                 // Same LGA + similar casualty count (catches different group names for same event)
-                 ...(rawAttack.casualties?.killed && rawAttack.casualties.killed > 0 ? [{
-                   "location.lga": {
-                     $regex: new RegExp(`^${escapeRegex(rawAttack.location.lga || "Unknown")}$`, "i"),
-                   },
-                   "casualties.killed": {
-                     $gte: Math.floor(rawAttack.casualties.killed * 0.5),
-                     $lte: Math.ceil(rawAttack.casualties.killed * 1.5),
-                   },
-                 }] : []),
-                 // Title keyword overlap — require ALL significant words (AND via lookaheads, not OR)
-                 ...(titleWords.length >= 2
-                   ? [{
-                       title: {
-                         $regex: new RegExp(
-                           titleWords.slice(0, 3).map((w: string) => `(?=.*${escapeRegex(w)})`).join(""),
-                           "i",
-                         ),
-                       },
-                       group: {
-                         $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i"),
-                       },
-                     }]
-                   : []),
-               ],
-             });
-          }
-
-          if (existing) {
-            console.log(`[CRON] Duplicate/Similar found: "${rawAttack.title}". Merging with existing "${existing.title}"...`);
-            
-            try {
-                const mergedUpdates = await mergeIncidentStrategies(existing.toObject(), rawAttack);
-                await Attack.findByIdAndUpdate(existing._id, mergedUpdates);
-                merged++;
-                console.log(`[CRON] Successfully merged: ${existing._id}`);
-            } catch (mergeErr) {
-                console.error(`[CRON] Merge failed for ${existing._id}:`, mergeErr);
-            }
-            continue;
-          }
-
-          const attack = new Attack({
-            title: sanitizeString(rawAttack.title),
-            description: sanitizeString(rawAttack.description),
-            date: new Date(rawAttack.date),
-            location: {
-              state: normalizeStateName(sanitizeString(rawAttack.location.state)),
-              lga: sanitizeString(rawAttack.location.lga || "Unknown"),
-              town: sanitizeString(rawAttack.location.town || "Unknown"),
-            },
-            group: sanitizeString(rawAttack.group),
-            casualties: {
-              killed: rawAttack.casualties?.killed ?? null,
-              injured: rawAttack.casualties?.injured ?? null,
-              kidnapped: rawAttack.casualties?.kidnapped ?? null,
-              displaced: rawAttack.casualties?.displaced ?? null,
-            },
-            sources: (rawAttack.sources || []).map((s) => ({
-              url: sanitizeString(s.url),
-              title: sanitizeString(s.title || ""),
-              publisher: sanitizeString(s.publisher || ""),
-            })),
-            status: rawAttack.status || "unconfirmed",
-            tags: (rawAttack.tags || []).map(sanitizeString),
-            hash,
-          });
-
-          await attack.save();
-          saved++;
-          console.log(`[CRON] Saved: ${rawAttack.title}`);
-        } catch (err: unknown) {
-          if (
-            err &&
-            typeof err === "object" &&
-            "code" in err &&
-            (err as { code: number }).code === 11000
-          ) {
-             // Check if we can merge even if it failed unique constraint (edge case)
-             // In this specific block we can't easily merge because we don't have the existing doc ID handy
-             // unless we query again. For now, just log and skip or count as duplicate specific handling.
-             // Given we did a pre-check, catching 11000 here is rare race condition.
-             merged++; 
-             console.log(`[CRON] Duplicate key error on save (race condition)`);
-          } else {
-            errors++;
-            console.error(`[CRON] Error saving attack:`, err);
-          }
-        }
-      }
+      const { saved, merged, errors } = await ingestAttacks(rawAttacks, "CRON");
 
       console.log(
-        `[CRON] Update complete — fetched: ${rawAttacks.length}, filtered: ${filteredAttacks.length}, saved: ${saved}, merged: ${merged}, errors: ${errors}`
+        `[CRON] Update complete - fetched: ${rawAttacks.length}, saved: ${saved}, merged: ${merged}, errors: ${errors}`,
       );
     } catch (error) {
       console.error("[CRON] Fatal error:", error);
     }
   });
 
-  // Respond immediately so cron-job.org doesn't timeout
   return setCORSHeaders(
     NextResponse.json({
-      message: "Update initiated — processing in background",
+      message: "Update initiated - processing in background",
       timestamp: new Date().toISOString(),
-    })
+    }),
   );
 }
 
 export async function OPTIONS() {
   const response = new NextResponse(null, { status: 204 });
   return setCORSHeaders(response);
-}
-
-function sanitizeString(str: string): string {
-  if (!str) return "";
-  return str
-    .replace(/[${}]/g, "")
-    .replace(/[\x00-\x1f\x7f]/g, "")
-    .trim()
-    .slice(0, 5000);
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

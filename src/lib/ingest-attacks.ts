@@ -1,5 +1,5 @@
 import Attack from "./models/Attack";
-import { RawAttackData, generateAttackHash, mergeIncidentStrategies } from "./gemini";
+import { RawAttackData, generateAttackHash, isUsableEvidenceUrl, mergeIncidentStrategies } from "./gemini";
 import { normalizeStateName } from "./normalize-state";
 
 export interface IngestResult {
@@ -36,6 +36,15 @@ export async function ingestAttacks(
   const filteredAttacks = rawAttacks.filter(attack => {
     if (attack.civilianCasualties === false) {
       console.log(`[${label}] Skipping attacker-only incident: ${attack.title}`);
+      return false;
+    }
+    return true;
+  }).map(attack => ({
+    ...attack,
+    sources: (attack.sources || []).filter(source => isUsableEvidenceUrl(source.url)),
+  })).filter(attack => {
+    if (attack.sources.length === 0) {
+      console.log(`[${label}] Skipping attack without a usable evidence URL: ${attack.title}`);
       return false;
     }
     return true;
