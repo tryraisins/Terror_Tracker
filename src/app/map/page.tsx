@@ -10,6 +10,7 @@ import {
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
 import { NIGERIA_MAP_DATA, StateMapData } from "@/lib/mapData";
+import { normalizeStateName } from "@/lib/normalize-state";
 
 interface StateData extends StateMapData {
     count: number;
@@ -83,16 +84,8 @@ export default function ThreatMapPage() {
             const next = buildEmptyStateData();
 
             for (const attack of data.attacks || []) {
-                // Normalize state name
-                let stateName = attack.location?.state || "Unknown";
-                stateName = stateName.replace(/\s+state$/i, "").trim();
-
-                // Handle FCT variations
-                if (
-                    stateName.toLowerCase().includes("abuja") ||
-                    stateName.toLowerCase().includes("capital") ||
-                    stateName.toLowerCase() === "fct"
-                ) {
+                let stateName = normalizeStateName(attack.location?.state || "");
+                if (stateName === "FCT") {
                     stateName = "Federal Capital Territory";
                 }
 

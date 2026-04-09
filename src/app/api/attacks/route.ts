@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
+import { normalizeStateName } from "@/lib/normalize-state";
 import { AttackQuerySchema } from "@/lib/validators";
 
 export async function GET(req: NextRequest) {
@@ -119,7 +120,7 @@ function escapeRegex(str: string): string {
 }
 
 function normalizeStateQuery(state: string): string {
-  return state.replace(/\s+state$/i, "").trim();
+  return normalizeStateName(state);
 }
 
 function isFctState(state: string): boolean {
