@@ -32,7 +32,7 @@ interface StatsData {
   };
   byState: { state: string; count: number; }[];
   byGroup: { group: string; count: number; killed: number; }[];
-  byMonth: { month: number; count: number; killed: number; }[];
+  byMonth: { month: number; count: number; killed: number; kidnapped: number; }[];
   recentAttacks: any[];
 }
 
@@ -205,8 +205,8 @@ export default function DashboardPage() {
                 label: String(m.month),
                 value: m.count,
                 killed: m.killed,
+                kidnapped: m.kidnapped,
               }))}
-              color="#8B1A1A"
             />
             <HorizontalBar
               title="Most Affected States"

@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
             _id: { $month: "$date" },
             count: { $sum: 1 },
             killed: { $sum: "$casualties.killed" },
+            kidnapped: { $sum: "$casualties.kidnapped" },
           },
         },
         { $sort: { _id: 1 } },
@@ -122,9 +123,9 @@ export async function GET(req: NextRequest) {
       ),
       byMonth: (() => {
         // Build a lookup from the aggregation results
-        const monthMap = new Map<number, { count: number; killed: number }>();
-        byMonth.forEach((m: { _id: number; count: number; killed: number }) => {
-          monthMap.set(m._id, { count: m.count, killed: m.killed });
+        const monthMap = new Map<number, { count: number; killed: number; kidnapped: number }>();
+        byMonth.forEach((m: { _id: number; count: number; killed: number; kidnapped: number }) => {
+          monthMap.set(m._id, { count: m.count, killed: m.killed, kidnapped: m.kidnapped });
         });
         // Fill in all months from Jan to current month with zeros where no data exists
         const currentMonth = now.getMonth() + 1; // 1-indexed
@@ -135,6 +136,7 @@ export async function GET(req: NextRequest) {
             month: i,
             count: data?.count || 0,
             killed: data?.killed || 0,
+            kidnapped: data?.kidnapped || 0,
           });
         }
         return allMonths;
