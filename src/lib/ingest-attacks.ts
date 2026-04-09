@@ -33,13 +33,7 @@ export async function ingestAttacks(
   rawAttacks: RawAttackData[],
   label = "Ingest",
 ): Promise<IngestResult> {
-  const filteredAttacks = rawAttacks.filter(attack => {
-    if (attack.civilianCasualties === false) {
-      console.log(`[${label}] Skipping attacker-only incident: ${attack.title}`);
-      return false;
-    }
-    return true;
-  }).map(attack => ({
+  const filteredAttacks = rawAttacks.map(attack => ({
     ...attack,
     sources: (attack.sources || []).filter(source => isUsableEvidenceUrl(source.url)),
   })).filter(attack => {

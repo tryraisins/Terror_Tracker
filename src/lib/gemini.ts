@@ -514,12 +514,20 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
 The current date and time is ${today.toISOString()}.
 
-YOUR PRIMARY MISSION: Search for ALL terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen in Nigeria.
+YOUR PRIMARY MISSION: Search for ALL security incidents in Nigeria — terrorist attacks, insurgent attacks, bandit attacks, militant attacks, attacks by unknown gunmen, ambushes on military/police convoys, IED explosions on troops, attacks on army bases/barracks, soldiers killed in combat, kidnappings, communal clashes, and any incident where Nigerian security forces (army, police, DSS, vigilantes) or civilians came under attack or suffered casualties.
 
 SEARCH STRATEGY — FOLLOW THIS ORDER:
-1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search each Tier 2 news site individually for today's articles. Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, and AP/Reuters for today.
-2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}).
+1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search using both civilian and military-focused keywords:
+   - "Nigeria attack today", "Nigeria soldiers killed today", "Nigeria military ambush today", "Nigeria army today"
+   - Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, PRNigeria, and AP/Reuters for today.
+   - Also check @BrantPhilip_ and @Sazedek on X (Twitter) for breaking reports.
+2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}) using same approach.
 3. THIRD: Search for any remaining attacks from the past 4 days (${fourDaysAgo.toISOString().split("T")[0]} to ${todayStr}) that you haven't already found.
+
+MILITARY ATTACK EMPHASIS: Nigerian army troops and officers are frequently targeted — always search explicitly for:
+- "Nigerian soldiers killed", "troops killed Nigeria", "military convoy ambush Nigeria"
+- "army officers killed Nigeria", "barracks attack Nigeria", "Operation Hadin Kai"
+- "NAF airstrike" (after which ground forces may have casualties), "ISWAP ambush"
 
 Do NOT stop after finding just 1 or 2 incidents. Be thorough — Nigeria typically has multiple security incidents per day across different states. Search multiple news sources independently to ensure comprehensive coverage.
 
@@ -550,18 +558,19 @@ For each incident found, provide:
    If an incident spans multiple states, use the state where the PRIMARY attack occurred.
    Also provide the Local Government Area (LGA) and specific town/village.
 5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
-6. Casualties: count ONLY civilians and security forces (soldiers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits. Use null if not reported.
+6. Casualties: count ONLY victims — civilians AND security forces (soldiers, army officers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits in the casualty numbers. Use null if not reported.
 7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
 8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
-9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry")
+9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry", "military-attack")
 
 ═══════════════════════════════════════════
 CRITICAL RULES
 ═══════════════════════════════════════════
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array [].
-- CASUALTY COUNTING: ONLY count dead/injured civilians and security forces. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed"), DO NOT include it.
-- Set "civilianCasualties" to true only if civilians or security forces were killed/injured/kidnapped/displaced.
+- CASUALTY COUNTING: In the casualty fields, count ONLY victims — civilians and security forces (soldiers, officers, police, vigilantes). Do NOT count attackers/insurgents/bandits in the numbers. Use null if unknown.
+- Include ALL attacks regardless of whether casualties are reported — a foiled attack, a raid, or a clash with unknown casualty numbers is still a valid security incident.
+- Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
 - Be specific about locations — always include state AND town/village name.
 - Distinguish carefully between different armed groups.
 
@@ -625,7 +634,7 @@ export async function fetchAttacksForStates(
 
   const stateList = states.join(", ");
   const stateSearchLines = states
-    .map(s => `  - "${s} attack ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} security incident ${year}"`)
+    .map(s => `  - "${s} attack ${year}" OR "${s} soldiers killed ${year}" OR "${s} military ambush ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} army ${year}" OR "${s} security incident ${year}"`)
     .join("\n");
 
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
@@ -634,10 +643,12 @@ Search window: ${lookbackStr} to ${todayStr}
 
 TARGET STATES: ${stateList}
 
-YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks, kidnappings, communal clashes, militant activity, cult violence, IED explosions, or attacks by unknown gunmen — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}.
+YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks, kidnappings, communal clashes, militant activity, cult violence, IED explosions, attacks on military convoys/bases, soldiers/officers killed in ambushes, or attacks by unknown gunmen — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}.
 
-MANDATORY SEARCH — execute a search for EACH state:
+MANDATORY SEARCH — execute a search for EACH state using BOTH civilian and military-focused keywords:
 ${stateSearchLines}
+
+MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as important as civilian attacks. Always search for "[State] soldiers killed", "[State] military ambush", "[State] army casualties", "[State] troops killed", "Operation Hadin Kai [State]" when scanning Northeast states. High-ranking officer deaths MUST be captured.
 
 IMPORTANT: Search each state individually and explicitly. Do NOT rely only on general Nigeria-wide searches — those miss incidents in lower-profile states. Even if a state appears quiet, verify by searching.
 
@@ -663,10 +674,12 @@ For each incident found, provide:
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State". Use "FCT" for Abuja.
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
-6. Casualties: civilians and security forces ONLY (not attackers). Use null if unknown.
+6. Casualties: count civilians AND security forces (soldiers, officers, police, vigilantes) — NOT attackers. Use null if unknown.
 7. Source URLs (real, working links only)
 8. Status: "confirmed" | "unconfirmed" | "developing"
-9. Tags
+9. Tags (include "military-attack" for incidents targeting soldiers/army)
+
+"civilianCasualties" field: set to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Set to false ONLY when the ONLY reported deaths were attackers/insurgents themselves. Include ALL attacks even if casualties are unknown or zero — a foiled raid or patrol clash with no confirmed deaths is still a valid incident.
 
 ONLY return incidents in the TARGET STATES listed above. Do not include incidents from other states.
 Do NOT fabricate incidents. If none found for a state, simply omit it.

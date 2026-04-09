@@ -15,7 +15,7 @@
   schedule = "*/27 * * * *"
 
 [functions."scheduled-state-scan-background"]
-  schedule = "*/13 * * * *"
+  schedule = "*/7 * * * *"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

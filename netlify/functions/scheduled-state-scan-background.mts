@@ -3,9 +3,9 @@ import connectDB from "../../src/lib/db";
 import { fetchAttacksForStates } from "../../src/lib/gemini";
 import { ingestAttacks } from "../../src/lib/ingest-attacks";
 
-// Every 13 minutes — targeted per-state scan covering all 37 states in parallel
+// Every 7 minutes — targeted per-state scan covering all 37 states in parallel
 export const config: Config = {
-  schedule: "*/13 * * * *",
+  schedule: "*/7 * * * *",
 };
 
 /**
