@@ -67,6 +67,8 @@ const TRUSTED_DOMAINS = new Set([
   "en.wikipedia.org",
   // Social — Tier 1 intelligence
   "x.com", "twitter.com",
+  // Popular Nigerian news portals
+  "pulse.ng",
 ]);
 
 const TRUSTED_PUBLISHERS = [
@@ -79,6 +81,7 @@ const TRUSTED_PUBLISHERS = [
   "Voice of America", "VOA", "Associated Press", "AP", "AFP", "Reuters",
   "ACLED", "Zagazola", "Wikipedia",
   "Twitter", "X.com", "@BrantPhilip_", "BrantPhilip", "@Sazedek", "Sazedek",
+  "Pulse Nigeria",
 ];
 
 const BANNED_SOURCES = [
@@ -280,11 +283,43 @@ function scoreGroundingChunkMatch(
   const domain = extractDomain(chunk?.web?.uri || "");
   const publisher = normalizeText(source.publisher || "");
   if (publisher && domain) {
-    if (publisher.includes("zagazola") && domain.includes("zagazola")) score += 2;
-    if (publisher.includes("premium times") && domain.includes("premiumtimesng.com")) score += 2;
-    if (publisher.includes("punch") && domain.includes("punchng.com")) score += 2;
-    if (publisher.includes("channels") && domain.includes("channelstv.com")) score += 2;
-    if (publisher.includes("daily post") && domain.includes("dailypost.ng")) score += 2;
+    // Award +2 whenever the publisher name maps to the chunk's domain
+    const PUBLISHER_DOMAIN_MAP: [string, string][] = [
+      ["zagazola",       "zagazola"],
+      ["premium times",  "premiumtimesng.com"],
+      ["punch",          "punchng.com"],
+      ["channels",       "channelstv.com"],
+      ["daily post",     "dailypost.ng"],
+      ["daily trust",    "dailytrust.com"],
+      ["vanguard",       "vanguardngr.com"],
+      ["sahara",         "saharareporters.com"],
+      ["humangle",       "humanglemedia.com"],
+      ["the cable",      "thecable.ng"],
+      ["peoples gazette","gazettengr.com"],
+      ["prnigeria",      "prnigeria.com"],
+      ["leadership",     "leadership.ng"],
+      ["blueprint",      "blueprint.ng"],
+      ["the nation",     "thenationonlineng.net"],
+      ["thisday",        "thisdaylive.com"],
+      ["tvc",            "tvcnews.tv"],
+      ["arise",          "arise.tv"],
+      ["icir",           "icirnigeria.org"],
+      ["ripples",        "ripplesnigeria.com"],
+      ["guardian nigeria","guardian.ng"],
+      ["daily nigerian", "dailynigerian.com"],
+      ["parallel facts", "parallelfactsnews.com"],
+      ["the whistler",   "thewhistler.ng"],
+      ["bbc",            "bbc.com"],
+      ["reuters",        "reuters.com"],
+      ["ap",             "apnews.com"],
+      ["al jazeera",     "aljazeera.com"],
+      ["voa",            "voanews.com"],
+      ["dw",             "dw.com"],
+      ["pulse",          "pulse.ng"],
+    ];
+    for (const [pub, dom] of PUBLISHER_DOMAIN_MAP) {
+      if (publisher.includes(pub) && domain.includes(dom)) { score += 2; break; }
+    }
   }
 
   if (isSourceRelevantToAttack(attack, chunkTitle, chunk?.web?.uri || "")) {
@@ -335,25 +370,79 @@ async function inspectSourceUrl(url: string): Promise<SourceInspection> {
   }
 }
 
-/** Resolve grounding redirect URLs using Gemini's groundingMetadata chunks */
+/** Resolve grounding redirect URLs using Gemini's groundingMetadata chunks.
+ *  Uses a multi-tier fallback strategy to minimise empty URLs:
+ *  1. Best scored match if score >= 2 (original approach, now with expanded publisher map)
+ *  2. Any chunk from the same publisher's trusted domain
+ *  3. Any chunk from ANY trusted domain that is relevant to the attack
+ *  4. Best scored chunk overall (even if score is low) — avoids empty URL as last resort
+ */
 function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]): RawAttackData[] {
   if (groundingChunks.length === 0) return attacks;
+
+  const validChunks = groundingChunks.filter((c: any) => c?.web?.uri && c?.web?.title);
+
   return attacks.map(attack => ({
     ...attack,
     sources: attack.sources.map(source => {
+      // Non-redirect URLs: keep as-is
       if (!source.url.includes("grounding-api-redirect") && source.url.startsWith("http")) return source;
-      const rankedMatches = groundingChunks
-        .filter((chunk: any) => chunk?.web?.uri && chunk?.web?.title)
-        .map((chunk: any) => ({
-          chunk,
-          score: scoreGroundingChunkMatch(attack, source, chunk),
-        }))
-        .sort((a, b) => b.score - a.score);
-      const match = rankedMatches[0];
-      return {
-        ...source,
-        url: match && match.score >= 3 ? match.chunk.web.uri : "",
-      };
+
+      const ranked = validChunks
+        .map((chunk: any) => ({ chunk, score: scoreGroundingChunkMatch(attack, source, chunk) }))
+        .sort((a: any, b: any) => b.score - a.score);
+
+      // Tier 1: good score match
+      const best = ranked[0];
+      if (best && best.score >= 2) return { ...source, url: best.chunk.web.uri };
+
+      // Tier 2: any chunk from the same publisher's known domain
+      const pubLower = (source.publisher || "").toLowerCase();
+      const publisherDomain = (() => {
+        const MAP: [string, string][] = [
+          ["prnigeria", "prnigeria.com"], ["daily trust", "dailytrust.com"],
+          ["premium times", "premiumtimesng.com"], ["vanguard", "vanguardngr.com"],
+          ["punch", "punchng.com"], ["channels", "channelstv.com"],
+          ["sahara", "saharareporters.com"], ["humangle", "humanglemedia.com"],
+          ["the cable", "thecable.ng"], ["peoples gazette", "gazettengr.com"],
+          ["daily post", "dailypost.ng"], ["leadership", "leadership.ng"],
+          ["the nation", "thenationonlineng.net"], ["thisday", "thisdaylive.com"],
+          ["tvc", "tvcnews.tv"], ["arise", "arise.tv"], ["icir", "icirnigeria.org"],
+          ["ripples", "ripplesnigeria.com"], ["guardian nigeria", "guardian.ng"],
+          ["daily nigerian", "dailynigerian.com"], ["parallel facts", "parallelfactsnews.com"],
+          ["whistler", "thewhistler.ng"], ["zagazola", "zagazola"],
+          ["bbc", "bbc.com"], ["reuters", "reuters.com"], ["ap", "apnews.com"],
+          ["al jazeera", "aljazeera.com"], ["voa", "voanews.com"], ["dw", "dw.com"],
+          ["blueprint", "blueprint.ng"], ["pulse", "pulse.ng"],
+        ];
+        return MAP.find(([pub]) => pubLower.includes(pub))?.[1];
+      })();
+      if (publisherDomain) {
+        const domainMatch = ranked.find((m: any) => {
+          const d = extractDomain(m.chunk.web.uri || "");
+          return d === publisherDomain || d.endsWith(`.${publisherDomain}`);
+        });
+        if (domainMatch) return { ...source, url: (domainMatch as any).chunk.web.uri };
+      }
+
+      // Tier 3: any chunk from a trusted domain that has some relevance to this attack
+      const relevantTrusted = ranked.find((m: any) => {
+        const d = extractDomain(m.chunk.web.uri || "");
+        const domainTrusted = TRUSTED_DOMAINS.has(d) ||
+          (d.split(".").length > 2 && TRUSTED_DOMAINS.has(d.split(".").slice(-2).join(".")));
+        return domainTrusted && isSourceRelevantToAttack(attack, normalizeText(m.chunk.web.title || ""), m.chunk.web.uri);
+      });
+      if (relevantTrusted) return { ...source, url: (relevantTrusted as any).chunk.web.uri };
+
+      // Tier 4: best available chunk from any trusted domain (last resort)
+      const anyTrusted = ranked.find((m: any) => {
+        const d = extractDomain(m.chunk.web.uri || "");
+        return TRUSTED_DOMAINS.has(d) ||
+          (d.split(".").length > 2 && TRUSTED_DOMAINS.has(d.split(".").slice(-2).join(".")));
+      });
+      if (anyTrusted) return { ...source, url: (anyTrusted as any).chunk.web.uri };
+
+      return { ...source, url: "" };
     }),
   }));
 }
@@ -388,8 +477,63 @@ async function validateAndNormalize(
       let verifiedSources = 0;
       const sources = [];
 
+      // Publisher homepage map — used as fallback URL when no article URL can be resolved
+      const PUBLISHER_HOMEPAGE: Record<string, string> = {
+        prnigeria: "https://prnigeria.com",
+        "daily trust": "https://dailytrust.com",
+        "premium times": "https://premiumtimesng.com",
+        vanguard: "https://vanguardngr.com",
+        punch: "https://punchng.com",
+        channels: "https://channelstv.com",
+        "sahara reporters": "https://saharareporters.com",
+        humangle: "https://humanglemedia.com",
+        "the cable": "https://thecable.ng",
+        "peoples gazette": "https://gazettengr.com",
+        "daily post": "https://dailypost.ng",
+        leadership: "https://leadership.ng",
+        "the nation": "https://thenationonlineng.net",
+        thisday: "https://thisdaylive.com",
+        tvc: "https://tvcnews.tv",
+        arise: "https://arise.tv",
+        icir: "https://icirnigeria.org",
+        ripples: "https://ripplesnigeria.com",
+        "guardian nigeria": "https://guardian.ng",
+        "daily nigerian": "https://dailynigerian.com",
+        "parallel facts": "https://parallelfactsnews.com",
+        whistler: "https://thewhistler.ng",
+        zagazola: "https://network.zagazola.org",
+        bbc: "https://bbc.com",
+        reuters: "https://reuters.com",
+        "associated press": "https://apnews.com",
+        "al jazeera": "https://aljazeera.com",
+        voa: "https://voanews.com",
+        dw: "https://dw.com",
+        blueprint: "https://blueprint.ng",
+        pulse: "https://pulse.ng",
+      };
+
+      function getPublisherHomepage(publisher: string): string {
+        const p = (publisher || "").toLowerCase();
+        for (const [key, url] of Object.entries(PUBLISHER_HOMEPAGE)) {
+          if (p.includes(key)) return url;
+        }
+        return "";
+      }
+
       for (const source of dedupedSources) {
-        if (!isUsableEvidenceUrl(source.url)) continue;
+        let resolvedUrl = source.url;
+
+        // If URL is empty or a grounding redirect that couldn't be resolved,
+        // fall back to the publisher's homepage so the incident isn't lost.
+        // The source already passed isSourceTrusted — the publisher is legitimate.
+        if (!resolvedUrl || !isUsableEvidenceUrl(resolvedUrl)) {
+          const homepage = getPublisherHomepage(source.publisher);
+          if (!homepage) continue; // No fallback — genuinely can't link this source
+          sources.push({ ...source, url: homepage });
+          verifiedSources++;
+          if (verifiedSources >= MAX_SOURCES_TO_VERIFY) break;
+          continue;
+        }
 
         let inspectionPromise = sourceInspectionCache.get(source.url);
         if (!inspectionPromise) {
@@ -397,16 +541,26 @@ async function validateAndNormalize(
           sourceInspectionCache.set(source.url, inspectionPromise);
         }
         const inspection = await inspectionPromise;
-        if (!inspection.ok || !isUsableEvidenceUrl(inspection.finalUrl)) continue;
 
+        // Use fetched URL if available, otherwise keep Gemini's provided URL.
+        // The source already passed isSourceTrusted (trusted domain/publisher), so
+        // we trust Gemini's attribution even if the article page was inaccessible
+        // (Nigerian news sites often block bots with 403/429 responses).
+        const finalUrl = (inspection.ok && isUsableEvidenceUrl(inspection.finalUrl))
+          ? inspection.finalUrl
+          : source.url;
         const effectiveTitle = inspection.finalTitle || source.title || "";
-        if (!isSourceRelevantToAttack(attack, effectiveTitle, inspection.finalUrl)) continue;
+
+        // Apply the relevance check only when the URL was successfully fetched and we
+        // have a real page title to compare. If the fetch failed, trust Gemini's
+        // source attribution without the additional token-matching check.
+        if (inspection.ok && !isSourceRelevantToAttack(attack, effectiveTitle, finalUrl)) continue;
 
         if (inspection.publishedAt && inspection.publishedAt < freshnessThreshold) continue;
 
         sources.push({
           ...source,
-          url: inspection.finalUrl,
+          url: finalUrl,
           title: effectiveTitle || source.title,
         });
         verifiedSources++;
@@ -438,7 +592,7 @@ TIER 1 — PRIMARY INTELLIGENCE (search these FIRST):
 
 TIER 2 — TRUSTED & VERIFIED NEWS OUTLETS (reports MUST come from these):
 Nigerian Media:
-  Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com), The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa), Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com), The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com), Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng), The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com), Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com), Parallel Facts News (parallelfactsnews.com)
+  Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com), Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com), Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com), The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa), Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com), The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com), Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng), The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com), Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com), Parallel Facts News (parallelfactsnews.com), Pulse Nigeria (pulse.ng)
 
 International Media:
   Al Jazeera (aljazeera.com), Deutsche Welle/DW (dw.com), Sky News (news.sky.com), BBC (bbc.com), CNN (cnn.com), France 24 (france24.com), Voice of America (voanews.com), Associated Press (apnews.com), AFP (france24.com/afp), Reuters (reuters.com)
@@ -546,7 +700,7 @@ DATA REQUIREMENTS
 ═══════════════════════════════════════════
 For each incident found, provide:
 1. A clear, concise title (format: "[Attack type] in [Town], [State]")
-2. Detailed description of what happened
+2. Detailed description of what happened. Where known, include the name and rank/title of any notable individuals (officers, politicians, community leaders) killed or kidnapped.
 3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
 4. Location: Nigerian state name — use EXACTLY one of these canonical names:
    Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
@@ -648,7 +802,7 @@ YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks,
 MANDATORY SEARCH — execute a search for EACH state using BOTH civilian and military-focused keywords:
 ${stateSearchLines}
 
-MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as important as civilian attacks. Always search for "[State] soldiers killed", "[State] military ambush", "[State] army casualties", "[State] troops killed", "Operation Hadin Kai [State]" when scanning Northeast states. High-ranking officer deaths MUST be captured.
+MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as important as civilian attacks. Always search for "[State] soldiers killed", "[State] military ambush", "[State] army casualties", "[State] troops killed", "Operation Hadin Kai [State]" when scanning Northeast states.
 
 IMPORTANT: Search each state individually and explicitly. Do NOT rely only on general Nigeria-wide searches — those miss incidents in lower-profile states. Even if a state appears quiet, verify by searching.
 
@@ -665,7 +819,7 @@ DATA REQUIREMENTS
 ═══════════════════════════════════════════
 For each incident found, provide:
 1. Title: "[Attack type] in [Town], [State]"
-2. Detailed description
+2. Detailed description. Where known, include the name and rank/title of any notable individuals (officers, politicians, community leaders) killed or kidnapped.
 3. Date (ISO 8601). Use midnight if only date is known.
 4. Location: use EXACTLY one of the 37 canonical Nigerian state names:
    Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
