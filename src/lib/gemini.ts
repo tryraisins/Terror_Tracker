@@ -524,14 +524,8 @@ async function validateAndNormalize(
         let resolvedUrl = source.url;
 
         // If URL is empty or a grounding redirect that couldn't be resolved,
-        // fall back to the publisher's homepage so the incident isn't lost.
-        // The source already passed isSourceTrusted — the publisher is legitimate.
+        // we cannot use it because we require a direct link to the article.
         if (!resolvedUrl || !isUsableEvidenceUrl(resolvedUrl)) {
-          const homepage = getPublisherHomepage(source.publisher);
-          if (!homepage) continue; // No fallback — genuinely can't link this source
-          sources.push({ ...source, url: homepage });
-          verifiedSources++;
-          if (verifiedSources >= MAX_SOURCES_TO_VERIFY) break;
           continue;
         }
 
