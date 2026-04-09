@@ -9,11 +9,16 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-const isHomepage = (url: string) => {
+const isInvalidSource = (url: string) => {
   try {
     const parsed = new URL(url);
     if (!parsed.pathname || parsed.pathname === "/" || parsed.pathname.length < 3) {
       return true; // e.g. https://premiumtimesng.com or https://dailypost.ng/
+    }
+    const pathname = parsed.pathname.toLowerCase();
+    const invalidExtensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".json"];
+    if (invalidExtensions.some(ext => pathname.endsWith(ext))) {
+      return true;
     }
     return false;
   } catch {
@@ -44,7 +49,7 @@ async function run() {
 
   for (const attack of recentAttacks) {
     const originalSources = attack.sources || [];
-    const validSources = originalSources.filter((s: any) => !isHomepage(s.url));
+    const validSources = originalSources.filter((s: any) => !isInvalidSource(s.url));
 
     if (validSources.length === 0) {
       // No valid sources left, delete or soft delete

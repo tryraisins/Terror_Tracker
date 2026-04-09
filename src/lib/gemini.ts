@@ -172,6 +172,12 @@ export function isUsableEvidenceUrl(url: string): boolean {
     if (hostname === "vertexaisearch.cloud.google.com") return false;
     if (hostname.endsWith("google.com") && pathname.startsWith("/search")) return false;
 
+    // Filter out direct links to files and assets
+    const invalidExtensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".json"];
+    if (invalidExtensions.some(ext => pathname.endsWith(ext))) {
+      return false;
+    }
+
     return true;
   } catch {
     return false;
