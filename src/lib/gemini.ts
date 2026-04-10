@@ -672,7 +672,15 @@ For each incident found, provide:
    If an incident spans multiple states, use the state where the PRIMARY attack occurred.
    Also provide the Local Government Area (LGA) and specific town/village.
 5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
-6. Casualties: count ONLY victims — civilians AND security forces (soldiers, army officers, police, vigilantes). NEVER count terrorists/attackers/insurgents/bandits in the casualty numbers. Use null if not reported.
+6. Casualties — VICTIMS ONLY (civilians + security forces):
+   - "killed": soldiers, police, vigilantes, or civilians killed — NOT attackers/terrorists/bandits/insurgents
+   - "injured": same rule — victims only
+   - "kidnapped": number of people abducted
+   - "displaced": number of people forced to flee
+   - EXAMPLE: "5 terrorists neutralised, 2 soldiers killed, 3 civilians injured" → killed=2, injured=3
+   - EXAMPLE: "troops kill 10 ISWAP fighters, no casualties on government side" → killed=null (no victims)
+   - EXAMPLE: "bandits kill 4 farmers, injure 6, abduct 12" → killed=4, injured=6, kidnapped=12
+   - Use null for any field that is not reported or unknown.
 7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
 8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry", "military-attack")
@@ -682,7 +690,7 @@ CRITICAL RULES
 ═══════════════════════════════════════════
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array [].
-- CASUALTY COUNTING: In the casualty fields, count ONLY victims — civilians and security forces (soldiers, officers, police, vigilantes). Do NOT count attackers/insurgents/bandits in the numbers. Use null if unknown.
+- CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=null.
 - Include ALL attacks regardless of whether casualties are reported — a foiled attack, a raid, or a clash with unknown casualty numbers is still a valid security incident.
 - Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
 - Be specific about locations — always include state AND town/village name.
@@ -788,7 +796,14 @@ For each incident found, provide:
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State". Use "FCT" for Abuja.
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
-6. Casualties: count civilians AND security forces (soldiers, officers, police, vigilantes) — NOT attackers. Use null if unknown.
+6. Casualties — VICTIMS ONLY (civilians + security forces):
+   - "killed": soldiers, police, vigilantes, or civilians killed — NOT attackers/terrorists/bandits
+   - "injured": victims only — NOT attacker casualties
+   - "kidnapped": number of people abducted
+   - "displaced": number of people forced to flee
+   - EXAMPLE: "12 bandits killed, 1 soldier killed, 2 farmers injured" → killed=1, injured=2
+   - EXAMPLE: "troops neutralise 7 ISWAP, no friendly casualties" → killed=null, injured=null
+   - Use null for any field not reported or unknown.
 7. Source URLs (real, working links only)
 8. Status: "confirmed" | "unconfirmed" | "developing"
 9. Tags (include "military-attack" for incidents targeting soldiers/army)
@@ -998,6 +1013,7 @@ export async function mergeIncidentStrategies(
     - If the new report has more specific info (exact numbers, names, locations), use it.
     - Keep the tone objective and serious.
     - Result should be a single paragraph.
+    - When mentioning casualties, refer only to victims (civilians and security forces). Attacker/insurgent/terrorist deaths may be mentioned in the narrative but must NOT be presented as victim casualties.
     - Return ONLY the merged description text.`;
 
         const result = await model.generateContent(prompt);
