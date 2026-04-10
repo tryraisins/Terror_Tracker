@@ -24,7 +24,7 @@ const CANONICAL_STATES = [
 
 const STATE_LOOKUP = new Map(CANONICAL_STATES.map((s) => [s.toLowerCase(), s]));
 
-const ALIASES = {
+const ALIASES: Record<string, string> = {
   "federal capital territory": "FCT",
   "abuja": "FCT",
   "fct": "FCT",
@@ -33,7 +33,7 @@ const ALIASES = {
   "nassarawa": "Nasarawa",
 };
 
-function normalizeStateName(raw) {
+function normalizeStateName(raw: string) {
   if (!raw) return "Unknown";
   let s = raw.trim();
 
