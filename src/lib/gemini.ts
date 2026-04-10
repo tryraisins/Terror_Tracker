@@ -172,11 +172,12 @@ export function isUsableEvidenceUrl(url: string): boolean {
     if (hostname === "vertexaisearch.cloud.google.com") return false;
     if (hostname.endsWith("google.com") && pathname.startsWith("/search")) return false;
 
-    // Filter out direct links to files and assets
-    const invalidExtensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".json"];
-    if (invalidExtensions.some(ext => pathname.endsWith(ext))) {
-      return false;
-    }
+    // Reject homepages — must point to a specific article path
+    if (!pathname || pathname === "/" || pathname.length < 3) return false;
+
+    // Reject direct links to files and assets
+    const invalidExtensions = [".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".json", ".xml", ".ico"];
+    if (invalidExtensions.some(ext => pathname.endsWith(ext))) return false;
 
     return true;
   } catch {
@@ -483,51 +484,10 @@ async function validateAndNormalize(
       let verifiedSources = 0;
       const sources = [];
 
-      // Publisher homepage map — used as fallback URL when no article URL can be resolved
-      const PUBLISHER_HOMEPAGE: Record<string, string> = {
-        prnigeria: "https://prnigeria.com",
-        "daily trust": "https://dailytrust.com",
-        "premium times": "https://premiumtimesng.com",
-        vanguard: "https://vanguardngr.com",
-        punch: "https://punchng.com",
-        channels: "https://channelstv.com",
-        "sahara reporters": "https://saharareporters.com",
-        humangle: "https://humanglemedia.com",
-        "the cable": "https://thecable.ng",
-        "peoples gazette": "https://gazettengr.com",
-        "daily post": "https://dailypost.ng",
-        leadership: "https://leadership.ng",
-        "the nation": "https://thenationonlineng.net",
-        thisday: "https://thisdaylive.com",
-        tvc: "https://tvcnews.tv",
-        arise: "https://arise.tv",
-        icir: "https://icirnigeria.org",
-        ripples: "https://ripplesnigeria.com",
-        "guardian nigeria": "https://guardian.ng",
-        "daily nigerian": "https://dailynigerian.com",
-        "parallel facts": "https://parallelfactsnews.com",
-        whistler: "https://thewhistler.ng",
-        zagazola: "https://network.zagazola.org",
-        bbc: "https://bbc.com",
-        reuters: "https://reuters.com",
-        "associated press": "https://apnews.com",
-        "al jazeera": "https://aljazeera.com",
-        voa: "https://voanews.com",
-        dw: "https://dw.com",
-        blueprint: "https://blueprint.ng",
-        pulse: "https://pulse.ng",
-      };
 
-      function getPublisherHomepage(publisher: string): string {
-        const p = (publisher || "").toLowerCase();
-        for (const [key, url] of Object.entries(PUBLISHER_HOMEPAGE)) {
-          if (p.includes(key)) return url;
-        }
-        return "";
-      }
 
       for (const source of dedupedSources) {
-        let resolvedUrl = source.url;
+        const resolvedUrl = source.url;
 
         // If URL is empty or a grounding redirect that couldn't be resolved,
         // we cannot use it because we require a direct link to the article.
