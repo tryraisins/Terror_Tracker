@@ -15,19 +15,17 @@ const ThemeContext = createContext<ThemeContextType>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode; }) {
-    const [theme, setTheme] = useState<Theme>("dark");
+    const [theme, setTheme] = useState<Theme>(() => {
+        if (typeof window === "undefined") return "dark";
+        return (localStorage.getItem("nat-theme") as Theme) ?? "dark";
+    });
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        // Sync initial theme to the DOM, then reveal content
+        document.documentElement.setAttribute("data-theme", theme);
         setMounted(true);
-        const stored = localStorage.getItem("nat-theme") as Theme | null;
-        if (stored) {
-            setTheme(stored);
-            document.documentElement.setAttribute("data-theme", stored);
-        } else {
-            // Default to dark — fits the war / breaking news aesthetic
-            document.documentElement.setAttribute("data-theme", "dark");
-        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const toggleTheme = () => {
