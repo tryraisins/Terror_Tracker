@@ -27,6 +27,24 @@ const SORT_OPTIONS = [
     { value: "casualties_desc", label: "Most Casualties" },
 ];
 
+function generateMonthOptions() {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    let d = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(2026, 0, 1);
+    while (d >= start) {
+        const year = d.getFullYear();
+        const mon = d.getMonth();
+        options.push({
+            value: `${year}-${String(mon + 1).padStart(2, "0")}`,
+            label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        });
+        d = new Date(year, mon - 1, 1);
+    }
+    return options;
+}
+const MONTH_OPTIONS = generateMonthOptions();
+
 interface AttackData {
     _id: string;
     title: string;
@@ -63,6 +81,7 @@ function IncidentsList() {
     const [state, setState] = useState(initialStateParam);
     const [status, setStatus] = useState("");
     const [casualtyType, setCasualtyType] = useState("");
+    const [month, setMonth] = useState("");
     const [sort, setSort] = useState("date_desc");
     const [page, setPage] = useState(1);
 
@@ -77,6 +96,7 @@ function IncidentsList() {
             if (state) params.set("state", state);
             if (status) params.set("status", status);
             if (casualtyType) params.set("casualtyType", casualtyType);
+            if (month) params.set("month", month);
 
             const res = await fetch(`/api/attacks?${params.toString()}`);
             if (!res.ok) throw new Error("Failed to fetch");
@@ -88,7 +108,7 @@ function IncidentsList() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, state, status, casualtyType, sort]);
+    }, [page, search, state, status, casualtyType, month, sort]);
 
     useEffect(() => {
         fetchAttacks();
@@ -110,11 +130,12 @@ function IncidentsList() {
         setState("");
         setStatus("");
         setCasualtyType("");
+        setMonth("");
         setSort("date_desc");
         setPage(1);
     };
 
-    const hasActiveFilters = search || state || status || casualtyType || sort !== "date_desc";
+    const hasActiveFilters = search || state || status || casualtyType || month || sort !== "date_desc";
 
     return (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
@@ -197,7 +218,32 @@ function IncidentsList() {
             ${showFilters ? "mt-4 max-h-[40rem] overflow-visible opacity-100 sm:max-h-80" : "max-h-0 overflow-hidden opacity-0"}
           `}
                 >
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                        {/* Month filter */}
+                        <div>
+                            <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5"
+                                style={{ color: "var(--text-muted)" }}>
+                                Month
+                            </label>
+                            <select
+                                value={month}
+                                onChange={(e) => { setMonth(e.target.value); setPage(1); }}
+                                className="w-full px-3 py-2 rounded-xl text-sm border outline-none transition-all
+                  focus:ring-2 focus:ring-blood/30"
+                                style={{
+                                    background: "var(--bg-secondary)",
+                                    borderColor: "var(--border-subtle)",
+                                    color: "var(--text-primary)",
+                                }}
+                                id="month-filter"
+                            >
+                                <option value="">All Months</option>
+                                {MONTH_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+
                         {/* State filter */}
                         <div>
                             <label className="text-[10px] font-bold uppercase tracking-wider block mb-1.5"

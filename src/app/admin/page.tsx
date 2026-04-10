@@ -26,6 +26,24 @@ const SORT_OPTIONS = [
     { value: "casualties_desc", label: "Most Casualties" },
 ];
 
+function generateMonthOptions() {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    let d = new Date(now.getFullYear(), now.getMonth(), 1);
+    const start = new Date(2026, 0, 1);
+    while (d >= start) {
+        const year = d.getFullYear();
+        const mon = d.getMonth();
+        options.push({
+            value: `${year}-${String(mon + 1).padStart(2, "0")}`,
+            label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        });
+        d = new Date(year, mon - 1, 1);
+    }
+    return options;
+}
+const MONTH_OPTIONS = generateMonthOptions();
+
 interface AttackData {
     _id: string;
     title: string;
@@ -63,6 +81,7 @@ export default function AdminPage() {
     const [state, setState] = useState("");
     const [status, setStatus] = useState("");
     const [casualtyType, setCasualtyType] = useState("");
+    const [month, setMonth] = useState("");
     const [source, setSource] = useState("");
     const [sort, setSort] = useState("date_desc");
     const [page, setPage] = useState(1);
@@ -84,6 +103,7 @@ export default function AdminPage() {
             if (status) params.set("status", status);
             if (source) params.set("source", source);
             if (casualtyType) params.set("casualtyType", casualtyType);
+            if (month) params.set("month", month);
 
             const res = await fetch(`/api/attacks?${params.toString()}`);
             if (!res.ok) throw new Error("Failed to fetch");
@@ -95,7 +115,7 @@ export default function AdminPage() {
         } finally {
             setLoading(false);
         }
-    }, [isAuthenticated, page, search, state, status, casualtyType, source, sort]);
+    }, [isAuthenticated, page, search, state, status, casualtyType, month, source, sort]);
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -213,12 +233,13 @@ export default function AdminPage() {
         setState("");
         setStatus("");
         setCasualtyType("");
+        setMonth("");
         setSource("");
         setSort("date_desc");
         setPage(1);
     };
 
-    const hasActiveFilters = search || state || status || casualtyType || source || sort !== "date_desc";
+    const hasActiveFilters = search || state || status || casualtyType || month || source || sort !== "date_desc";
 
     if (isCheckingAuth) {
         return (
@@ -330,7 +351,12 @@ export default function AdminPage() {
 
                 {/* Expanded Filters Reuse */}
                 <div className={`transition-all duration-400 ease-out ${showFilters ? "mt-4 max-h-[44rem] overflow-visible opacity-100 sm:max-h-96" : "max-h-0 overflow-hidden opacity-0"}`}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: "var(--border-subtle)" }}>
+                        {/* Month */}
+                        <select value={month} onChange={(e) => { setMonth(e.target.value); setPage(1); }} className="w-full px-3 py-2 rounded-xl text-sm border bg-black/20 border-white/10 text-white">
+                            <option value="">All Months</option>
+                            {MONTH_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
                         {/* State */}
                         <select value={state} onChange={(e) => setState(e.target.value)} className="w-full px-3 py-2 rounded-xl text-sm border bg-black/20 border-white/10 text-white">
                             <option value="">All States</option>

@@ -8,6 +8,7 @@ export const AttackQuerySchema = z.object({
   status: z.enum(["confirmed", "unconfirmed", "developing"]).optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   search: z.string().trim().max(200).optional(),
   sort: z.enum(["date_desc", "date_asc", "casualties_desc"]).default("date_desc"),
   casualtyType: z.enum(["killed", "injured", "kidnapped"]).optional(),

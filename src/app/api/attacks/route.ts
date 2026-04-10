@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { page, limit, state, group, status, startDate, endDate, search, sort, source } =
+    const { page, limit, state, group, status, startDate, endDate, month, search, sort, source } =
       parseResult.data;
 
     await connectDB();
@@ -55,7 +55,13 @@ export async function GET(req: NextRequest) {
     if (status) filter.status = status;
     if (source) filter["sources.publisher"] = source;
 
-    if (startDate || endDate) {
+    if (month) {
+      const [y, m] = month.split("-").map(Number);
+      filter.date = {
+        $gte: new Date(y, m - 1, 1),
+        $lte: new Date(y, m, 0, 23, 59, 59, 999),
+      };
+    } else if (startDate || endDate) {
       filter.date = {};
       if (startDate) (filter.date as Record<string, unknown>).$gte = new Date(startDate);
       if (endDate) (filter.date as Record<string, unknown>).$lte = new Date(endDate);
