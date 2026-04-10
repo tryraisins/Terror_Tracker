@@ -78,6 +78,20 @@ const DUPLICATE_GROUPS = [
     secondaryIds: ["69b198b63fbb13f16143b05f", "69b3308cf2303bcbf77c0d35"],
   },
   {
+    // Both reports cover the same midnight bandit attack across Sabon Birni LGA on Apr 9 2026.
+    // Secondary had Unknown LGA/Town; primary has LGA=Sabon Birni and 9 merged sources.
+    name: "Sokoto Sabon Birni bandit attack Apr 9 2026",
+    primaryId: "69d84d18c94c5844bb675e74",
+    secondaryIds: ["69d83e9c5328e58b4d23d73e"],
+  },
+  {
+    // Same Igbesa motorcyclist stabbing (Apr 8 2026). Secondary stored Igbesa (a town) as the LGA.
+    // Primary has correct LGA=Ado-Odo/Ota, Town=Igbesa, and merged sources.
+    name: "Ogun Igbesa motorcyclist stabbing Apr 8 2026",
+    primaryId: "69d8009aef6f39593bfb1b41",
+    secondaryIds: ["69d839999e19cdfd23c350ea"],
+  },
+  {
     name: "Niger village attacks Feb 14-17",
     primaryId: "699217cf4048faea94b8672d",
     secondaryIds: ["6997b2422c9f37dc506662c6"],

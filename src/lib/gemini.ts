@@ -38,8 +38,16 @@ export interface RawAttackData {
 export function generateAttackHash(attack: RawAttackData): string {
   const dateStr = new Date(attack.date).toISOString().split("T")[0]; // Day-level
   const normalizedState = normalizeStateName(attack.location.state).toLowerCase();
-  const normalizedTown = attack.location.town.toLowerCase().trim();
   const normalizedGroup = attack.group.toLowerCase().trim();
+
+  // When town is unknown/unspecified, fall back to LGA so that two reports of the
+  // same incident — one with a specific LGA and one with "Unknown" town — produce
+  // the same hash and are blocked at the unique-index level.
+  const rawTown = (attack.location.town || "").toLowerCase().trim();
+  const townIsUnknown = !rawTown || rawTown === "unknown" || rawTown.startsWith("unknown ");
+  const normalizedTown = townIsUnknown
+    ? (attack.location.lga || "unknown").toLowerCase().trim()
+    : rawTown;
 
   const hashInput = `${dateStr}|${normalizedState}|${normalizedTown}|${normalizedGroup}`;
   return crypto.createHash("sha256").update(hashInput).digest("hex");

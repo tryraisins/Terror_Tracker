@@ -105,6 +105,15 @@ export async function ingestAttacks(
               },
               group: { $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i") },
             }] : []),
+            // Fallback: same state + same group + exact casualties (catches Unknown-LGA records
+            // that share the same incident but were stored with different LGA precision).
+            // Requires both killed AND kidnapped to be non-null to avoid false positives.
+            ...(rawAttack.casualties?.killed && rawAttack.casualties.killed > 0 &&
+                rawAttack.casualties?.kidnapped && rawAttack.casualties.kidnapped > 0 ? [{
+              group: { $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i") },
+              "casualties.killed": rawAttack.casualties.killed,
+              "casualties.kidnapped": rawAttack.casualties.kidnapped,
+            }] : []),
           ],
         });
       }
