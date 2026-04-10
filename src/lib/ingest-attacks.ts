@@ -109,6 +109,71 @@ export async function ingestAttacks(
         });
       }
 
+      // --- Broad follow-up match (no date window) ---
+      // Follow-up articles about ongoing captivity/abductions can be published months
+      // after the original incident. If the narrow window found nothing, do a broader
+      // search for the same location + significant kidnapping count or town match.
+      if (!existing) {
+        const kidnapped = rawAttack.casualties?.kidnapped;
+        const lga = (rawAttack.location.lga || "").trim();
+        const town = (rawAttack.location.town || "").trim();
+        const lgaIsKnown = lga && lga.toLowerCase() !== "unknown";
+        const townIsKnown = town && town.toLowerCase() !== "unknown";
+
+        const broadOrClauses: object[] = [];
+
+        // Clause A: same LGA + large matching kidnap count (within 20%)
+        if (lgaIsKnown && kidnapped && kidnapped >= 10) {
+          broadOrClauses.push({
+            "location.lga": { $regex: new RegExp(`^${escapeRegex(lga)}$`, "i") },
+            "casualties.kidnapped": {
+              $gte: Math.floor(kidnapped * 0.8),
+              $lte: Math.ceil(kidnapped * 1.2),
+            },
+          });
+        }
+
+        // Clause B: same LGA + same town (exact)
+        if (lgaIsKnown && townIsKnown) {
+          broadOrClauses.push({
+            "location.lga": { $regex: new RegExp(`^${escapeRegex(lga)}$`, "i") },
+            "location.town": { $regex: new RegExp(escapeRegex(town), "i") },
+          });
+        }
+
+        if (broadOrClauses.length > 0) {
+          const broadCandidate = await Attack.findOne({
+            _deleted: { $ne: true },
+            "location.state": { $regex: new RegExp(`^${escapeRegex(rawAttack.location.state)}$`, "i") },
+            $or: broadOrClauses,
+          }).sort({ date: 1 }); // oldest first — original incident predates re-report
+
+          if (broadCandidate) {
+            console.log(
+              `[${label}] Broad follow-up match: "${rawAttack.title}" → existing "${broadCandidate.title}" (${broadCandidate.date.toISOString().slice(0, 10)}). Merging sources only.`,
+            );
+            // For a follow-up article we only absorb new sources — we don't overwrite
+            // casualty counts or description, because the re-report may use the original
+            // incident date as its "peg" and the numbers may be stale/inflated.
+            const existingUrls = new Set(
+              (broadCandidate.sources || []).map((s) => s.url.trim().toLowerCase().replace(/\/$/, "")),
+            );
+            const newSources = (rawAttack.sources || []).filter(
+              (s) => s.url && !existingUrls.has(s.url.trim().toLowerCase().replace(/\/$/, "")),
+            );
+            if (newSources.length > 0) {
+              await Attack.findByIdAndUpdate(broadCandidate._id, {
+                $push: { sources: { $each: newSources } },
+                $set: { updatedAt: new Date() },
+              });
+              console.log(`[${label}] Added ${newSources.length} new source(s) to existing incident ${broadCandidate._id}`);
+            }
+            merged++;
+            continue;
+          }
+        }
+      }
+
       if (existing) {
         console.log(`[${label}] Duplicate found: "${rawAttack.title}" — merging with "${existing.title}"`);
         try {
