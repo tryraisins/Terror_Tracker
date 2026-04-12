@@ -921,21 +921,28 @@ ${JSON.stringify(existingAttacks.map(a => ({
 ═══════════ MATCHING RULES ═══════════
 
 Two reports describe the SAME INCIDENT if ALL of these are true:
-1. LOCATION MATCH: Same state, AND same or similar town/LGA (ignore spelling variations like "Maiduguri" vs "Maiduguri City", "Kafanchan" vs "Kafachan")
-2. DATE MATCH: Same date OR within 1 day of each other (reports of the same event often differ by a day)
+1. LOCATION MATCH: Same state, AND same or similar town/LGA — OR one description explicitly references the other's location/town name even if the stored location fields differ (follow-up coverage is often filed under a different dateline than the original attack)
+2. DATE MATCH: Same date OR within 3 days of each other (follow-up articles, military responses, and rescue operations are often filed 1–3 days after the original attack and reference the same casualties)
 3. NATURE MATCH: Same basic type of attack (e.g., both are kidnappings, both are bombings, both involve gunmen attacking a village)
+
+⚠️ KEY INSIGHT — FOLLOW-UP COVERAGE: A military operation, rescue mission, or security response article frequently describes the SAME incident as the original attack report but:
+  - Uses the military base / operational area as its location instead of the attack village
+  - Is dated when the response happened (1–3 days later) rather than the original attack date
+  - Has a different title focused on the response rather than the attack
+  If both descriptions mention the same casualty figures (especially kidnapping counts), the same villages/LGAs, or the same perpetrator group in the same state, treat them as the SAME INCIDENT.
 
 Two reports are NOT the same incident if:
 - They occurred in different states
-- They occurred more than 2 days apart
+- They occurred more than 5 days apart AND descriptions share no overlapping location keywords
 - They describe fundamentally different types of events (e.g., kidnapping vs bombing)
-- They are in the same state but clearly different towns/villages with no name overlap
+- They are in the same state but clearly different towns/villages with no name overlap in either title or description
 
 ⚠️ IMPORTANT: When evidence is AMBIGUOUS, ERR ON THE SIDE OF MARKING AS DUPLICATE. It is much worse to have duplicate entries in the database than to miss a genuinely unique incident.
 
 Examples:
 - "Bandits kill 15 in Zamfara attack" AND "Gunmen attack Zamfara village, 12 dead" on the same date → SAME INCIDENT (different names for attackers, slight casualty variation)
 - "Boko Haram attacks Maiduguri" AND "ISWAP militants hit Maiduguri" on the same date → SAME INCIDENT (group attribution often varies between sources)
+- "Bandit attack in Kurfa, Zamfara — 150 kidnapped" AND "Military operation in Tsafe LGA, Zamfara — 150 still missing" 2 days later → SAME INCIDENT (same kidnap count, same state, response to the same original attack)
 - "Attack in Kaduna" AND "Attack in Zamfara" on the same date → DIFFERENT INCIDENTS (different states)
 
 IF DUPLICATE FOUND, compare quality:

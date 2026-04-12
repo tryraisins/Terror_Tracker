@@ -86,14 +86,41 @@ export async function GET(req: NextRequest) {
     // Sort
     let sortObj: Record<string, 1 | -1> = { date: -1 };
     if (sort === "date_asc") sortObj = { date: 1 };
-    if (sort === "casualties_desc") sortObj = { "casualties.killed": -1, date: -1 };
 
     const skip = (page - 1) * limit;
 
-    const [attacks, total] = await Promise.all([
-      Attack.find(filter).sort(sortObj).skip(skip).limit(limit).lean(),
-      Attack.countDocuments(filter),
-    ]);
+    // For casualties sort, use aggregation to rank by total affected (killed + injured + kidnapped + displaced)
+    let attacks: unknown[];
+    let total: number;
+
+    if (sort === "casualties_desc") {
+      [attacks, total] = await Promise.all([
+        Attack.aggregate([
+          { $match: filter },
+          {
+            $addFields: {
+              _totalAffected: {
+                $add: [
+                  { $ifNull: ["$casualties.killed", 0] },
+                  { $ifNull: ["$casualties.injured", 0] },
+                  { $ifNull: ["$casualties.kidnapped", 0] },
+                  { $ifNull: ["$casualties.displaced", 0] },
+                ],
+              },
+            },
+          },
+          { $sort: { _totalAffected: -1, date: -1 } },
+          { $skip: skip },
+          { $limit: limit },
+        ]),
+        Attack.countDocuments(filter),
+      ]);
+    } else {
+      [attacks, total] = await Promise.all([
+        Attack.find(filter).sort(sortObj).skip(skip).limit(limit).lean(),
+        Attack.countDocuments(filter),
+      ]);
+    }
 
     const response = NextResponse.json({
       attacks,

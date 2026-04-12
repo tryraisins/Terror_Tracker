@@ -23,7 +23,7 @@ const NIGERIAN_STATES = [
 const SORT_OPTIONS = [
     { value: "date_desc", label: "Latest First" },
     { value: "date_asc", label: "Oldest First" },
-    { value: "casualties_desc", label: "Most Casualties" },
+    { value: "casualties_desc", label: "Most Affected" },
 ];
 
 function generateMonthOptions() {

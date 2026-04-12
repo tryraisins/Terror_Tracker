@@ -150,6 +150,20 @@ export async function ingestAttacks(
           });
         }
 
+        // Clause C: state-level large kidnapping count match (no LGA required).
+        // For mass-kidnapping events (50+ victims) the count alone is distinctive
+        // enough to match across records that used different location labels — e.g.
+        // a military-response article stored under a different LGA/town than the
+        // original attack record it is following up on.
+        if (kidnapped && kidnapped >= 50) {
+          broadOrClauses.push({
+            "casualties.kidnapped": {
+              $gte: Math.floor(kidnapped * 0.8),
+              $lte: Math.ceil(kidnapped * 1.2),
+            },
+          });
+        }
+
         if (broadOrClauses.length > 0) {
           const broadCandidate = await Attack.findOne({
             _deleted: { $ne: true },

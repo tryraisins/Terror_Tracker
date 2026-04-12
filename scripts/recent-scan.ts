@@ -38,7 +38,7 @@ async function run() {
   await connectDB();
   console.log("✓ Connected to MongoDB\n");
 
-  let grand = { saved: 0, merged: 0, errors: 0 };
+  const grand = { saved: 0, merged: 0, errors: 0 };
 
   // ── 1. General scan (fetchRecentAttacks covers ~4 days) ──────────────────
   console.log("═".repeat(60));
