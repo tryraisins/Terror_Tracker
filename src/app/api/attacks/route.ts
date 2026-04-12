@@ -93,6 +93,19 @@ export async function GET(req: NextRequest) {
     let attacks: unknown[];
     let total: number;
 
+    // Totals aggregation — runs across all filtered results (not just current page)
+    const totalsAgg = Attack.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          killed: { $sum: { $ifNull: ["$casualties.killed", 0] } },
+          injured: { $sum: { $ifNull: ["$casualties.injured", 0] } },
+          kidnapped: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } },
+        },
+      },
+    ]);
+
     if (sort === "casualties_desc") {
       [attacks, total] = await Promise.all([
         Attack.aggregate([
@@ -123,8 +136,16 @@ export async function GET(req: NextRequest) {
       ]);
     }
 
+    const [totalsResult] = await totalsAgg;
+    const totals = {
+      killed: totalsResult?.killed ?? 0,
+      injured: totalsResult?.injured ?? 0,
+      kidnapped: totalsResult?.kidnapped ?? 0,
+    };
+
     const response = NextResponse.json({
       attacks,
+      totals,
       pagination: {
         page,
         limit,

@@ -73,6 +73,7 @@ function IncidentsList() {
 
     const [attacks, setAttacks] = useState<AttackData[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
+    const [totals, setTotals] = useState<{ killed: number; injured: number; kidnapped: number } | null>(null);
     const [loading, setLoading] = useState(true);
     const [showFilters, setShowFilters] = useState(Boolean(initialStateParam));
 
@@ -103,6 +104,7 @@ function IncidentsList() {
             const data = await res.json();
             setAttacks(data.attacks);
             setPagination(data.pagination);
+            setTotals(data.totals ?? null);
         } catch (err) {
             console.error("Error fetching attacks:", err);
         } finally {
@@ -357,6 +359,36 @@ function IncidentsList() {
                     )}
                 </div>
             </div>
+
+            {/* Casualty Totals Summary */}
+            {totals && (
+                <div className="grid grid-cols-3 gap-3 mb-6 animate-fade-in-up stagger-3">
+                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-blood">
+                        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                            Killed
+                        </span>
+                        <span className="text-2xl font-bold tabular-nums" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+                            {totals.killed.toLocaleString()}
+                        </span>
+                    </div>
+                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-orange-500">
+                        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                            Kidnapped
+                        </span>
+                        <span className="text-2xl font-bold tabular-nums" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+                            {totals.kidnapped.toLocaleString()}
+                        </span>
+                    </div>
+                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-yellow-500">
+                        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                            Injured
+                        </span>
+                        <span className="text-2xl font-bold tabular-nums" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+                            {totals.injured.toLocaleString()}
+                        </span>
+                    </div>
+                </div>
+            )}
 
             {/* Results */}
             {loading ? (
