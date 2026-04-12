@@ -99,12 +99,13 @@ export async function GET(req: NextRequest) {
           { $match: filter },
           {
             $addFields: {
+              // Displaced is excluded — it inflates totals disproportionately
+              // and is far less severe than being killed, kidnapped, or injured
               _totalAffected: {
                 $add: [
                   { $ifNull: ["$casualties.killed", 0] },
                   { $ifNull: ["$casualties.injured", 0] },
                   { $ifNull: ["$casualties.kidnapped", 0] },
-                  { $ifNull: ["$casualties.displaced", 0] },
                 ],
               },
             },
