@@ -457,7 +457,10 @@ function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]):
       });
       if (anyTrusted) return { ...source, url: (anyTrusted as any).chunk.web.uri };
 
-      return { ...source, url: "" };
+      // All chunk-matching tiers failed. Keep the original URL (may be a grounding
+      // redirect) so validateAndNormalize can follow the redirect to recover the
+      // real article URL rather than discarding the source entirely.
+      return source;
     }),
   }));
 }
@@ -494,11 +497,33 @@ async function validateAndNormalize(
 
 
 
-      for (const source of dedupedSources) {
-        const resolvedUrl = source.url;
+      for (let source of dedupedSources) {
+        let resolvedUrl = source.url;
 
-        // If URL is empty or a grounding redirect that couldn't be resolved,
-        // we cannot use it because we require a direct link to the article.
+        // Grounding redirect URLs couldn't be matched to a real article URL via
+        // chunk scoring. Try following the redirect directly to recover the
+        // actual article URL (e.g. saharareporters.com, premiumtimesng.com).
+        if (resolvedUrl && resolvedUrl.includes("grounding-api-redirect")) {
+          try {
+            const res = await fetch(resolvedUrl, {
+              redirect: "follow",
+              signal: AbortSignal.timeout(EVIDENCE_FETCH_TIMEOUT_MS),
+              headers: { "user-agent": "Mozilla/5.0 (compatible; NigeriaAttackTracker/1.0)" },
+            });
+            if (res.ok && isUsableEvidenceUrl(res.url)) {
+              resolvedUrl = res.url;
+              source = { ...source, url: resolvedUrl };
+            } else {
+              console.log(`[${options.label}] Grounding redirect resolved to unusable URL (${res.status}), dropping source: ${source.publisher}`);
+              continue;
+            }
+          } catch {
+            console.log(`[${options.label}] Grounding redirect follow failed, dropping source: ${source.publisher}`);
+            continue;
+          }
+        }
+
+        // If URL is empty or otherwise unusable, skip this source.
         if (!resolvedUrl || !isUsableEvidenceUrl(resolvedUrl)) {
           continue;
         }
