@@ -17,6 +17,10 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeUrl(url: string): string {
+  return String(url || "").trim().toLowerCase().replace(/\/$/, "");
+}
+
 const TITLE_STOPWORDS = new Set([
   "attack", "attacks", "kill", "kills", "killed", "gunmen", "armed",
   "village", "bandits", "dead", "soldiers", "police", "troops",
@@ -124,6 +128,7 @@ export async function ingestAttacks(
       // search for the same location + significant kidnapping count or town match.
       if (!existing) {
         const kidnapped = rawAttack.casualties?.kidnapped;
+        const killed = rawAttack.casualties?.killed;
         const lga = (rawAttack.location.lga || "").trim();
         const town = (rawAttack.location.town || "").trim();
         const lgaIsKnown = lga && lga.toLowerCase() !== "unknown";
@@ -193,6 +198,68 @@ export async function ingestAttacks(
             }
             merged++;
             continue;
+          }
+        }
+
+        // --- Cross-state border duplicate guard ---
+        // Some attacks happen at state borders and can be emitted twice with different
+        // state labels. To avoid double-counting, do a strict cross-state check using
+        // same town + date window and require strong corroboration.
+        if (!existing && townIsKnown) {
+          const crossStart = new Date(rawAttack.date);
+          const crossEnd = new Date(rawAttack.date);
+          if (!Number.isNaN(crossStart.getTime())) {
+            crossStart.setDate(crossStart.getDate() - 1);
+            crossStart.setHours(0, 0, 0, 0);
+            crossEnd.setDate(crossEnd.getDate() + 1);
+            crossEnd.setHours(23, 59, 59, 999);
+
+            const crossCandidates = await Attack.find({
+              _deleted: { $ne: true },
+              date: { $gte: crossStart, $lte: crossEnd },
+              "location.town": { $regex: new RegExp(`^${escapeRegex(town)}$`, "i") },
+              "location.state": { $not: new RegExp(`^${escapeRegex(rawAttack.location.state)}$`, "i") },
+            })
+              .sort({ createdAt: 1 })
+              .limit(10);
+
+            if (crossCandidates.length > 0) {
+              const incomingUrls = new Set(
+                (rawAttack.sources || []).map((s) => normalizeUrl(s.url)).filter(Boolean),
+              );
+
+              const matched = crossCandidates.find((candidate) => {
+                const existingUrls = new Set(
+                  (candidate.sources || []).map((s) => normalizeUrl(s.url)).filter(Boolean),
+                );
+                let sharedSources = 0;
+                for (const url of incomingUrls) {
+                  if (existingUrls.has(url)) sharedSources++;
+                }
+
+                const candidateKilled = candidate.casualties?.killed ?? null;
+                const candidateKidnapped = candidate.casualties?.kidnapped ?? null;
+                const largeCasualtyAgreement =
+                  !!killed &&
+                  killed >= 50 &&
+                  !!candidateKilled &&
+                  candidateKilled >= Math.floor(killed * 0.8) &&
+                  candidateKilled <= Math.ceil(killed * 1.2) &&
+                  ((kidnapped ?? null) === (candidateKidnapped ?? null));
+
+                return sharedSources >= 1 || largeCasualtyAgreement;
+              });
+
+              if (matched) {
+                console.log(
+                  `[${label}] Cross-state duplicate guard matched "${rawAttack.title}" with "${matched.title}" (${matched.location.state}). Merging instead of inserting.`,
+                );
+                const mergedUpdates = await mergeIncidentStrategies(matched.toObject(), rawAttack);
+                await Attack.findByIdAndUpdate(matched._id, mergedUpdates);
+                merged++;
+                continue;
+              }
+            }
           }
         }
       }

@@ -151,6 +151,104 @@ interface SourceInspection {
   publishedAt: Date | null;
 }
 
+const MONTH_NAME_TO_INDEX: Record<string, number> = {
+  january: 0,
+  february: 1,
+  march: 2,
+  april: 3,
+  may: 4,
+  june: 5,
+  july: 6,
+  august: 7,
+  september: 8,
+  october: 9,
+  november: 10,
+  december: 11,
+};
+
+function inferIncidentDateFromNarrative(description: string): Date | null {
+  const text = String(description || "");
+  const patterns = [
+    /\b(?:On\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?\s*(?:or|\/|-)\s*(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(20\d{2})\b/i,
+    /\bOn\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(20\d{2})\b/i,
+    /\b(?:On\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*|\s+)(20\d{2})\b/i,
+    /\b(?:On|Since)\s+(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)(?:,\s*|\s+)(20\d{2})\b/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    let day: number;
+    let monthName: string;
+    let year: number;
+
+    if (match.length === 5) {
+      monthName = match[1];
+      day = Number(match[2]);
+      year = Number(match[4]);
+    } else if (Number.isNaN(Number(match[1]))) {
+      monthName = match[1];
+      day = Number(match[2]);
+      year = Number(match[3]);
+    } else {
+      day = Number(match[1]);
+      monthName = match[2];
+      year = Number(match[3]);
+    }
+
+    const monthIndex = MONTH_NAME_TO_INDEX[monthName.toLowerCase()];
+    if (monthIndex === undefined || !Number.isFinite(day) || !Number.isFinite(year)) continue;
+    if (day < 1 || day > 31 || year < 2015 || year > new Date().getUTCFullYear() + 1) continue;
+
+    const inferred = new Date(Date.UTC(year, monthIndex, day, 12, 0, 0, 0));
+    if (!Number.isNaN(inferred.getTime())) return inferred;
+  }
+
+  return null;
+}
+
+function reconcileIncidentDate(attack: RawAttackData): Date {
+  const parsed = new Date(attack.date);
+  if (Number.isNaN(parsed.getTime())) return parsed;
+
+  const hinted = inferIncidentDateFromNarrative(attack.description);
+  if (!hinted) return parsed;
+
+  const diffDays = Math.abs(hinted.getTime() - parsed.getTime()) / (24 * 60 * 60 * 1000);
+
+  // Only trust explicit narrative dates when the gap is meaningful but still plausible
+  // for late publication / follow-up reports.
+  if (diffDays >= 7 && diffDays <= 60) {
+    return hinted;
+  }
+
+  return parsed;
+}
+
+function isLikelyOperationalUpdate(attack: RawAttackData): boolean {
+  const title = String(attack.title || "");
+  const description = String(attack.description || "");
+  const combined = `${title} ${description}`.toLowerCase();
+
+  const isSecurityOperation =
+    /\b(troops?|soldiers?|military|army|air\s*force|naf|joint\s*task\s*force|jtf|operation\s*hadin\s*kai|dhq|security\s*operatives?|police)\b/i.test(combined);
+
+  const operationalVerb =
+    /\b(rescue|rescued|arrest|arrested|foiled?|foil|recover|recovered|neutrali[sz]e|neutrali[sz]ed|eliminat(?:e|ed|ing)|raid(?:ed|ing)?)\b/i.test(combined);
+
+  const attackDrivenTitle =
+    /\b(boko\s*haram|iswap|bandits?|gunmen|terrorists?|insurgents?|militants?|unknown\s*gunmen)\s+(kill(?:ed|s|ing)?|abduct(?:ed|s|ing)?|attack(?:ed|s|ing)?|kidnap(?:ped|s|ping)?|storm(?:ed|s|ing)?|raid(?:ed|s|ing)?)\b/i.test(title);
+
+  const victimRolePresent =
+    /\b(civilians?|villagers?|residents?|farmers?|passengers?|worshippers?|students?|women|children|soldiers?|troops?|police|officers?|personnel|vigilantes?)\b/i.test(combined);
+  const harmVerbPresent =
+    /\b(killed|died|injured|wounded|kidnapped|abducted|attacked|ambushed|massacred|slaughtered)\b/i.test(combined);
+  const mentionsVictimHarm = victimRolePresent && harmVerbPresent;
+
+  return isSecurityOperation && operationalVerb && !mentionsVictimHarm && !attackDrivenTitle;
+}
+
 function normalizeText(text: string): string {
   return String(text || "")
     .toLowerCase()
@@ -483,7 +581,12 @@ async function validateAndNormalize(
     .filter(attack => attack.sources.length > 0)
     .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group)
     .map(async attack => {
-      const attackDate = new Date(attack.date);
+      if (isLikelyOperationalUpdate(attack)) {
+        console.log(`[${options.label}] Dropping likely operational update: ${attack.title}`);
+        return null;
+      }
+
+      const attackDate = reconcileIncidentDate(attack);
       if (Number.isNaN(attackDate.getTime())) return null;
       if (attackDate < options.windowStart || attackDate > options.windowEnd) return null;
 
@@ -567,6 +670,7 @@ async function validateAndNormalize(
 
       return {
         ...attack,
+        date: attackDate.toISOString(),
         sources,
       };
     }));
