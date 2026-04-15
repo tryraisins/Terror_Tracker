@@ -169,6 +169,21 @@ export async function ingestAttacks(
           });
         }
 
+        // Clause D: same LGA + very large kidnapping event (≥ 100) with wider tolerance.
+        // Initial reporting of mass kidnappings frequently diverges from final verified
+        // counts by 30–40% (e.g., initial "300 abducted" later confirmed as "416 abducted").
+        // Clause A's strict ±20% window misses these; this clause acts as a backstop
+        // specifically for large events where count variance is expected.
+        if (lgaIsKnown && kidnapped && kidnapped >= 100) {
+          broadOrClauses.push({
+            "location.lga": { $regex: new RegExp(`^${escapeRegex(lga)}$`, "i") },
+            "casualties.kidnapped": {
+              $gte: Math.floor(kidnapped * 0.6),
+              $lte: Math.ceil(kidnapped * 1.4),
+            },
+          });
+        }
+
         if (broadOrClauses.length > 0) {
           const broadCandidate = await Attack.findOne({
             _deleted: { $ne: true },

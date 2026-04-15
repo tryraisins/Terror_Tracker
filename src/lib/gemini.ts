@@ -791,6 +791,8 @@ DEDUPLICATION — CRITICAL
 - Do NOT create separate entries for the same attack just because different outlets covered it.
 - Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
 - When consolidating, use the HIGHEST reported casualty numbers and combine all source URLs.
+- RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report that describes the outcome of a KNOWN attack (e.g. "troops rescue 50 kidnapped victims in Gwoza", "military confirms 416 abducted in Ngoshe attack") describes the SAME INCIDENT as the original attack. Consolidate it into the original incident entry — do NOT create a new entry. Use the ORIGINAL attack date (as stated in the article's narrative, e.g. "On March 3…"), not the article's publication date.
+- PAST-WINDOW EVENTS: If an article describes an event that clearly happened BEFORE the current search window (e.g. "On March 3, gunmen attacked…" appearing in an April article), do NOT include it as a new incident — it was already captured in earlier tracking. Only include incidents whose attack date falls within the search window.
 
 ═══════════════════════════════════════════
 DATA REQUIREMENTS
@@ -918,6 +920,8 @@ DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into one entry with all source URLs combined.
 - Use the HIGHEST reported casualty numbers when consolidating.
+- RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement or follow-up report describing the outcome of a KNOWN attack (e.g. "troops rescue 50 kidnapped victims", "military confirms attack casualties") is the SAME INCIDENT as the original attack. Consolidate into one entry using the ORIGINAL attack date from the article's narrative, not the article's publication date.
+- PAST-WINDOW EVENTS: If an article describes an attack that clearly occurred BEFORE the current search window (e.g. a March attack described in an April press release), do NOT include it as a new incident — it has already been tracked. Only include incidents whose attack date falls within the ${lookbackStr}–${todayStr} search window.
 
 ═══════════════════════════════════════════
 DATA REQUIREMENTS
