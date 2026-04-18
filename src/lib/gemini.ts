@@ -17,13 +17,20 @@ function ensureCredentials(): void {
 
 function createAI(): GoogleGenAI {
   const project = process.env.GOOGLE_CLOUD_PROJECT;
-  if (!project) throw new Error("GOOGLE_CLOUD_PROJECT is not configured");
-  ensureCredentials();
-  return new GoogleGenAI({
-    vertexai: true,
-    project,
-    location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
-  });
+  // If a GCP project is configured, use Vertex AI with service account credentials.
+  // Otherwise fall back to direct Gemini API key (avoids the ~2KB service account JSON
+  // env var that breaks AWS Lambda's 4KB environment variable limit on Netlify).
+  if (project) {
+    ensureCredentials();
+    return new GoogleGenAI({
+      vertexai: true,
+      project,
+      location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
+    });
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Either GOOGLE_CLOUD_PROJECT or GEMINI_API_KEY must be set");
+  return new GoogleGenAI({ apiKey });
 }
 
 
