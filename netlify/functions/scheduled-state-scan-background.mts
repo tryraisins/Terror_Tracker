@@ -34,7 +34,7 @@ const handler: BackgroundHandler = async () => {
       Object.entries(STATE_GROUPS).map(async ([region, states]) => {
         console.log(`[State Scan] Scanning ${region}: ${states.join(", ")}`);
         try {
-          const rawAttacks = await fetchAttacksForStates(states, 7);
+          const rawAttacks = await fetchAttacksForStates(states, 4);
           console.log(`[State Scan] ${region}: Gemini returned ${rawAttacks.length} incident(s)`);
 
           if (rawAttacks.length === 0) return { region, saved: 0, merged: 0, errors: 0 };

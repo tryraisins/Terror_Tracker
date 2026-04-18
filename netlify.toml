@@ -12,10 +12,10 @@
   schedule = "0 * * * *"
 
 [functions."scheduled-check-duplicates-background"]
-  schedule = "*/27 * * * *"
+  schedule = "0 */1 * * *"
 
 [functions."scheduled-state-scan-background"]
-  schedule = "*/7 * * * *"
+  schedule = "*/30 * * * *"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

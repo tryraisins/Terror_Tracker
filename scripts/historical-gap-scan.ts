@@ -19,7 +19,10 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import mongoose from "mongoose";
 
 import Attack from "../src/lib/models/Attack";
@@ -30,6 +33,29 @@ import {
   mergeIncidentStrategies,
 } from "../src/lib/gemini";
 import { normalizeStateName } from "../src/lib/normalize-state";
+
+// ─────────────────────────────────────────────
+// Google Gen AI setup
+// ─────────────────────────────────────────────
+
+function ensureCredentials(): void {
+  const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  if (!json || process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+  const tmpPath = path.join(os.tmpdir(), "gcp-credentials.json");
+  if (!fs.existsSync(tmpPath)) fs.writeFileSync(tmpPath, json, { mode: 0o600 });
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
+}
+
+function createAI(): GoogleGenAI {
+  const project = process.env.GOOGLE_CLOUD_PROJECT;
+  if (!project) throw new Error("GOOGLE_CLOUD_PROJECT is not configured");
+  ensureCredentials();
+  return new GoogleGenAI({
+    vertexai: true,
+    project,
+    location: process.env.GOOGLE_CLOUD_LOCATION || "us-central1",
+  });
+}
 
 // ─────────────────────────────────────────────
 // DB
@@ -67,8 +93,8 @@ const TRUSTED_DOMAINS = new Set([
   "leadership.ng", "sunnewsonline.com", "tribuneonlineng.com", "blueprint.ng",
   "businessday.ng", "thewhistler.ng", "icirnigeria.org", "ripplesnigeria.com",
   "dailynigerian.com", "prnigeria.com", "parallelfactsnews.com",
-  "aljazeera.com", "dw.com", "news.sky.com", "bbc.com", "bbc.co.uk",
-  "cnn.com", "france24.com", "voanews.com", "apnews.com", "reuters.com",
+  // International wire services only — regional/Western outlets removed (never uniquely contribute)
+  "aljazeera.com", "bbc.com", "bbc.co.uk", "apnews.com", "reuters.com",
   "acleddata.com", "network.zagazola.org", "en.wikipedia.org",
   "x.com", "twitter.com",
 ]);
@@ -79,16 +105,21 @@ const TRUSTED_PUBLISHERS = [
   "Daily Post", "News Central", "Arise News", "TVC News", "ThisDay", "The Nation",
   "Leadership", "Sun News", "Tribune", "Blueprint", "Business Day", "The Whistler",
   "ICIR", "Ripples Nigeria", "Daily Nigerian", "PRNigeria", "Parallel Facts", "Parallel Facts News",
-  "Al Jazeera", "Deutsche Welle", "DW", "Sky News", "BBC", "CNN", "France 24",
-  "Voice of America", "VOA", "Associated Press", "AP", "AFP", "Reuters",
+  // International wire services only — CNN, DW, Sky News, VOA, France 24, AFP removed
+  "Al Jazeera", "BBC", "Associated Press", "AP", "Reuters",
   "ACLED", "Zagazola", "Wikipedia", "Twitter", "X.com",
   "@BrantPhilip_", "BrantPhilip", "@Sazedek", "Sazedek",
 ];
 
 const BANNED_SOURCES = [
   "truth nigeria", "aid to the church in need", "acn international",
-  "the journal", "council on foreign relations", "cfr.org", "trust tv",
+  "the journal", "council on foreign relations", "cfr.org",
+  "trust tv", "trusttv",
   "zenit news", "youtube", "blogspot", "wordpress.com", "medium.com",
+  "allafrica", "reliefweb",
+  "presstv", "press tv",
+  "ahram online", "al-ahram", "eastleigh voice", "graphic online",
+  "japan today", "japan times", "straits times",
 ];
 
 function extractDomain(url: string): string {
@@ -218,20 +249,13 @@ TIER 1 — PRIMARY INTELLIGENCE (search these FIRST):
 
 TIER 2 — TRUSTED & VERIFIED NEWS OUTLETS:
 Nigerian Media:
-  Premium Times (premiumtimesng.com), The Cable (thecable.ng), Peoples Gazette (gazettengr.com),
-  Channels TV (channelstv.com), Sahara Reporters (saharareporters.com), Punch Nigeria (punchng.com),
-  Vanguard Nigeria (vanguardngr.com), Daily Trust (dailytrust.com), HumAngle (humanglemedia.com),
-  The Guardian Nigeria (guardian.ng), Daily Post (dailypost.ng), News Central (newscentral.africa),
-  Arise News (arise.tv), TVC News (tvcnews.tv), ThisDay (thisdaylive.com),
-  The Nation (thenationonlineng.net), Leadership (leadership.ng), Sun News (sunnewsonline.com),
-  Tribune Online (tribuneonlineng.com), Blueprint (blueprint.ng), Business Day (businessday.ng),
-  The Whistler (thewhistler.ng), ICIR (icirnigeria.org), Ripples Nigeria (ripplesnigeria.com),
-  Daily Nigerian (dailynigerian.com), PRNigeria (prnigeria.com), Parallel Facts News (parallelfactsnews.com)
+  Premium Times, The Cable, Peoples Gazette, Channels TV, Sahara Reporters, Punch Nigeria,
+  Vanguard Nigeria, Daily Trust, HumAngle, The Guardian Nigeria, Daily Post, News Central,
+  Arise News, TVC News, ThisDay, The Nation, Leadership, Sun News, Tribune Online, Blueprint,
+  Business Day, The Whistler, ICIR, Ripples Nigeria, Daily Nigerian, PRNigeria, Parallel Facts News
 
-International Media:
-  Al Jazeera (aljazeera.com), Deutsche Welle/DW (dw.com), Sky News (news.sky.com), BBC (bbc.com),
-  CNN (cnn.com), France 24 (france24.com), Voice of America (voanews.com),
-  Associated Press (apnews.com), Reuters (reuters.com)
+International Wire Services (major events only):
+  Al Jazeera, BBC, Associated Press/AP, Reuters
 
 Security Trackers:
   ACLED (acleddata.com), Zagazola Makama (network.zagazola.org)
@@ -239,9 +263,10 @@ Security Trackers:
 Reference: Wikipedia (en.wikipedia.org)
 
 TIER 3 — BANNED SOURCES (NEVER USE):
-  "Truth Nigeria", "Aid to the Church in Need", "ACN International", "The Journal",
-  "Council on Foreign Relations", "cfr.org", "Trust TV", "ZENIT News", YouTube channels,
-  unknown blogs, unrecognizable news sites.
+  "Truth Nigeria", "Trust TV", "TrustTV", "Aid to the Church in Need", "ACN International",
+  "The Journal", "Council on Foreign Relations", "cfr.org", "ZENIT News",
+  YouTube channels, AllAfrica.com, ReliefWeb, Press TV, allAfrica aggregators,
+  blogs, WordPress sites, unknown regional outlets outside Nigeria.
 
 ⚠️ STRICT SOURCE ENFORCEMENT:
 - Every incident MUST have at least one Tier 1 or Tier 2 source.
@@ -271,14 +296,8 @@ async function fetchGapAttacks(
   windowStart: Date,
   windowEnd: Date,
 ): Promise<RawAttackData[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    tools: [{ googleSearch: {} } as any],
-  });
+  const ai = createAI();
+  const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
   const startStr  = windowStart.toISOString().split("T")[0];
   const endStr    = windowEnd.toISOString().split("T")[0];
@@ -369,9 +388,12 @@ Do NOT fabricate incidents. Return [] if genuinely nothing found.
 
 ${OUTPUT_SCHEMA}`;
 
-  const result = await model.generateContent(prompt);
-  const response = result.response;
-  const text = response.text();
+  const response = await ai.models.generateContent({
+    model: modelName,
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }] },
+  });
+  const text = response.text ?? "";
 
   // Resolve grounding redirect URLs using Gemini's metadata chunks
   const groundingChunks: any[] =
@@ -575,9 +597,15 @@ function buildWindows(year: number, month: number, chunkDays = 14) {
 // Main
 // ─────────────────────────────────────────────
 
-// Targeted 5-day scan: Apr 4–9 2026
+// 96-hour day-by-day scan: Apr 14–18 2026 (5 days × 6 state groups = 30 targeted calls)
 const MONTHS: never[] = [];
-const CUSTOM_WINDOWS = [{ start: new Date("2026-04-04T00:00:00Z"), end: new Date("2026-04-09T23:59:59Z") }];
+const CUSTOM_WINDOWS = [
+  { start: new Date("2026-04-14T00:00:00Z"), end: new Date("2026-04-14T23:59:59Z") },
+  { start: new Date("2026-04-15T00:00:00Z"), end: new Date("2026-04-15T23:59:59Z") },
+  { start: new Date("2026-04-16T00:00:00Z"), end: new Date("2026-04-16T23:59:59Z") },
+  { start: new Date("2026-04-17T00:00:00Z"), end: new Date("2026-04-17T23:59:59Z") },
+  { start: new Date("2026-04-18T00:00:00Z"), end: new Date("2026-04-18T23:59:59Z") },
+];
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
