@@ -184,6 +184,29 @@ export async function ingestAttacks(
           });
         }
 
+        // Clause E: follow-up/outcome article — same town + same group within 60 days.
+        // Catches release, rescue, or government-response articles that use the same
+        // location and perpetrator but have a later publication date than the original
+        // attack (e.g., "Christians released in Kaduna" → merges with original abduction).
+        const groupIsKnown = rawAttack.group &&
+          !["unknown", "unidentified", "armed men", "gunmen", "armed group"].includes(
+            rawAttack.group.toLowerCase().trim(),
+          );
+        if (townIsKnown && groupIsKnown) {
+          const attackDate = new Date(rawAttack.date);
+          if (!Number.isNaN(attackDate.getTime())) {
+            const followUpStart = new Date(attackDate);
+            followUpStart.setDate(followUpStart.getDate() - 60);
+            const followUpEnd = new Date(attackDate);
+            followUpEnd.setDate(followUpEnd.getDate() + 60);
+            broadOrClauses.push({
+              "location.town": { $regex: new RegExp(`^${escapeRegex(town)}$`, "i") },
+              group: { $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i") },
+              date: { $gte: followUpStart, $lte: followUpEnd },
+            });
+          }
+        }
+
         if (broadOrClauses.length > 0) {
           const broadCandidate = await Attack.findOne({
             _deleted: { $ne: true },
