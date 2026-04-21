@@ -49,3 +49,5 @@ next-env.d.ts
 scripts/*.mjs
 scripts/*.js
 scripts/dupes-output.txt
+
+yeknal-security.log
