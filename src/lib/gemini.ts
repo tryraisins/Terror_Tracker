@@ -523,6 +523,47 @@ async function inspectSourceUrl(url: string): Promise<SourceInspection> {
  *  3. Any chunk from ANY trusted domain that is relevant to the attack
  *  4. Best scored chunk overall (even if score is low) — avoids empty URL as last resort
  */
+// Gemini 2.5 Flash sometimes prepends a Thought[...] reasoning trace before the
+// JSON output. This strips it by finding the first real JSON array in the text.
+function extractJsonArray(text: string): string {
+  const stripped = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const idx = stripped.search(/\[\s*(?:\{|\])/);
+  return idx >= 0 ? stripped.slice(idx) : stripped;
+}
+
+// Grounding redirect URLs from Vertex AI are ephemeral — they resolve correctly
+// immediately after the Gemini response but return 404 within ~30-60 seconds.
+// This function follows all redirect URLs in parallel right after parsing, before
+// any further processing that would delay the fetch past the expiry window.
+async function resolveRedirectUrlsNow(attacks: RawAttackData[]): Promise<RawAttackData[]> {
+  const REDIRECT_PATTERNS = ["grounding-api-redirect", "vertexaisearch.cloud.google.com"];
+
+  const resolveOne = async (url: string): Promise<string> => {
+    if (!REDIRECT_PATTERNS.some(p => url.includes(p))) return url;
+    try {
+      const res = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(EVIDENCE_FETCH_TIMEOUT_MS),
+        headers: { "user-agent": "Mozilla/5.0 (compatible; NigeriaAttackTracker/1.0)" },
+      });
+      if (res.ok && isUsableEvidenceUrl(res.url)) return res.url;
+    } catch {}
+    return url;
+  };
+
+  return Promise.all(
+    attacks.map(async attack => ({
+      ...attack,
+      sources: await Promise.all(
+        (attack.sources || []).map(async source => ({
+          ...source,
+          url: await resolveOne(source.url),
+        })),
+      ),
+    })),
+  );
+}
+
 function resolveGroundingUrls(attacks: RawAttackData[], groundingChunks: any[]): RawAttackData[] {
   if (groundingChunks.length === 0) return attacks;
 
@@ -878,11 +919,11 @@ ${OUTPUT_SCHEMA_PROMPT}
     });
     const text = response.text ?? "";
 
-    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    let attacks: RawAttackData[] = JSON.parse(cleanedText);
+    let attacks: RawAttackData[] = JSON.parse(extractJsonArray(text));
 
     const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
     attacks = resolveGroundingUrls(attacks, groundingChunks);
+    attacks = await resolveRedirectUrlsNow(attacks);
 
     const windowStart = new Date(fourDaysAgo);
     windowStart.setUTCHours(0, 0, 0, 0);
@@ -994,11 +1035,11 @@ ${OUTPUT_SCHEMA_PROMPT}
     });
     const text = response.text ?? "";
 
-    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    let attacks: RawAttackData[] = JSON.parse(cleanedText);
+    let attacks: RawAttackData[] = JSON.parse(extractJsonArray(text));
 
     const groundingChunks = (response.candidates?.[0]?.groundingMetadata as any)?.groundingChunks || [];
     attacks = resolveGroundingUrls(attacks, groundingChunks);
+    attacks = await resolveRedirectUrlsNow(attacks);
     const windowStart = new Date(lookbackDate);
     windowStart.setUTCHours(0, 0, 0, 0);
     const windowEnd = new Date(today);
@@ -1121,8 +1162,9 @@ RESPOND WITH JSON ONLY:
   try {
     const response = await ai.models.generateContent({ model: dedupModel, contents: prompt });
     const text = response.text ?? "";
-    const cleanedText = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    return JSON.parse(cleanedText);
+    const stripped = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const jsonStart = stripped.search(/\{/);
+    return JSON.parse(jsonStart >= 0 ? stripped.slice(jsonStart) : stripped);
   } catch (error) {
     console.error("Error checking duplicates with Gemini:", error);
     // Default to assuming unique if AI fails, to be safe
