@@ -11,7 +11,7 @@ function ensureCredentials(): void {
   const json = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
   if (!json || process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
   const tmpPath = path.join(os.tmpdir(), "gcp-credentials.json");
-  if (!fs.existsSync(tmpPath)) fs.writeFileSync(tmpPath, json, { mode: 0o600 });
+  fs.writeFileSync(tmpPath, json, { mode: 0o600 });
   process.env.GOOGLE_APPLICATION_CREDENTIALS = tmpPath;
 }
 
