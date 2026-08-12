@@ -3,7 +3,7 @@ import connectDB from "@/lib/db";
 import { DuplicateCheckerService } from "@/lib/duplicate-checker";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
-export const maxDuration = 300; // 5 minutes
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -40,16 +40,17 @@ export async function GET(req: NextRequest) {
       );
       }
 
-      const processedResults =
-        await DuplicateCheckerService.processDuplicates(candidates);
-
       return setCORSHeaders(
         NextResponse.json({
-        message: `Processed duplicates for ${queryState}`,
+        message: `Found possible duplicates for ${queryState}; automatic AI confirmation and deletion are disabled.`,
         state: queryState,
         candidatesFound: candidates.length,
-        processedCount: processedResults.length,
-        results: processedResults,
+        candidates: candidates.map((candidate) => ({
+          reportA: candidate.reportA._id,
+          reportB: candidate.reportB._id,
+          score: candidate.heuristicScore,
+          reason: candidate.reason,
+        })),
         })
       );
     }
@@ -65,7 +66,8 @@ export async function GET(req: NextRequest) {
     const stateResults =
       await DuplicateCheckerService.findDuplicatesForRecentIncidents(sinceDate);
 
-    // Flatten all candidates across states for processing
+    // Report candidates only. Auto-merging used a paid model and could delete a
+    // legitimate incident; an admin must now review a candidate before merging.
     const allCandidates = stateResults.flatMap((r) => r.candidates);
 
     console.log(
@@ -82,16 +84,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const processedResults =
-      await DuplicateCheckerService.processDuplicates(allCandidates);
-
     return setCORSHeaders(
       NextResponse.json({
-      message: `Processed duplicates across ${stateResults.length} state(s)`,
+      message: `Found possible duplicates across ${stateResults.length} state(s); no records were changed.`,
       statesChecked: stateResults.length,
       candidatesFound: allCandidates.length,
-      processedCount: processedResults.length,
-      results: processedResults,
+      candidates: allCandidates.map((candidate) => ({
+        reportA: candidate.reportA._id,
+        reportB: candidate.reportB._id,
+        score: candidate.heuristicScore,
+        reason: candidate.reason,
+      })),
       })
     );
   } catch (error) {

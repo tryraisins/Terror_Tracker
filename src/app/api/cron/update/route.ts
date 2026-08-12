@@ -1,7 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
-import { fetchRecentAttacks } from "@/lib/gemini";
-import { ingestAttacks } from "@/lib/ingest-attacks";
+import { collectFreeIncidents } from "@/lib/free-news";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 export const maxDuration = 60;
@@ -18,21 +17,8 @@ export async function POST(req: NextRequest) {
     try {
       await connectDB();
 
-      console.log("[CRON] Starting attack data update...");
-
-      const rawAttacks = await fetchRecentAttacks();
-      console.log(`[CRON] Gemini returned ${rawAttacks.length} potential incidents`);
-
-      if (rawAttacks.length === 0) {
-        console.log("[CRON] No new attacks found");
-        return;
-      }
-
-      const { saved, merged, errors } = await ingestAttacks(rawAttacks, "CRON");
-
-      console.log(
-        `[CRON] Update complete - fetched: ${rawAttacks.length}, saved: ${saved}, merged: ${merged}, errors: ${errors}`,
-      );
+      console.log("[CRON] Starting free source-led collection...");
+      console.log("[CRON] Update complete", await collectFreeIncidents());
     } catch (error) {
       console.error("[CRON] Fatal error:", error);
     }

@@ -17,10 +17,12 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
   - Interactive hover states with detailed statistics per region.
   - Pulse animations for critical/active threat zones.
 
-- **Automated Intelligence Gathering**:
-  - Integrated **Google Gemini 2.5 Flash** to scour news sources and social media for potential incidents.
-  - **Smart Casualty Filtering**: Automatically distinguishes between civilian/security force victims and neutralized terrorists. Counts only relevant human cost (civilians & security personnel), excluding attacker deaths.
-  - **Expanded Source Network**: Monitors key verified sources including:
+- **Free, Source-Led Collection**:
+  - Polls RSS feeds from established Nigerian publishers; no AI API or paid web-search API is used.
+  - Inspects only newly-seen article URLs and retains a receipt for every accepted, rejected, and retrospective article.
+  - Publishes only when the article itself contains a recent incident date, Nigerian state, precise town/LGA, and incident language. An article publication date is never treated as an incident date.
+  - Older/referenced events are recorded as evidence-only and cannot become new incidents merely because another publisher mentions them.
+  - Monitors trusted publishers including:
     - Zagazola Makama (Counter-Insurgency Expert)
     - Peoples Gazette, Premium Times, HumAngle
     - Validated Twitter/X intel accounts
@@ -44,7 +46,7 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
 - **Frontend**: [Next.js 15](https://nextjs.org/) (App Router), [React 19](https://react.dev/), [Tailwind CSS v4](https://tailwindcss.com/)
 - **Backend**: Next.js API Routes (Serverless)
 - **Database**: [MongoDB](https://www.mongodb.com/) (Mongoose ODM)
-- **AI/LLM**: [Google Gemini 2.5 Flash](https://ai.google.dev/) (via Vercel AI SDK)
+- **Collection**: Publisher RSS feeds and deterministic validation (no AI API)
 - **Animations**: [GSAP](https://greensock.com/gsap/) & CSS Keyframes
 - **Icons**: [Heroicons](https://heroicons.com/)
 
@@ -56,7 +58,7 @@ Follow these instructions to set up the project locally for development and test
 
 - **Node.js** (v18 or higher)
 - **MongoDB Atlas** account (or local MongoDB instance)
-- **Google AI Studio API Key** (for Gemini)
+- No AI API key is required
 
 ### Installation
 
@@ -80,8 +82,9 @@ Follow these instructions to set up the project locally for development and test
     # Database Connection
     MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/your-db-name
 
-    # AI Integration (Get key from Google AI Studio)
-    GEMINI_API_KEY=your_gemini_api_key_here
+    # Free source-led collection guards
+    FREE_SOURCE_MAX_ARTICLE_AGE_HOURS=72
+    FREE_SOURCE_MAX_INCIDENT_AGE_DAYS=3
 
     # Security
     CRON_SECRET=your_random_secure_string_for_cron_jobs
@@ -105,11 +108,10 @@ The system uses an API route (`src/app/api/cron/update/route.ts`) designed to be
 - **Endpoint**: `POST /api/cron/update`
 - **Headers**: `x-cron-secret: <CRON_SECRET>`
 - **Function**:
-    1.  Fetches recent security-related news using specific keywords and specialized sources.
-    2.  Uses Gemini 2.5 Flash to parse the news into structured JSON (Title, Location, Casualties, etc.).
-    3.  **Server-Side Filtering**: Rejects incidents where only attackers/terrorists were neutralized, ensuring stats reflect the true toll on the populace and security forces.
-    4.  Checks for duplicates in the database via strict hashing and fuzzy matching.
-    5.  Saves valid new incidents.
+    1.  Fetches only newly-seen articles from trusted publisher RSS feeds.
+    2.  Verifies article freshness, explicit incident date, state, town/LGA, and incident language before publishing.
+    3.  Treats older/referenced events as evidence-only, never as a new incident.
+    4.  Merges only an exact incident fingerprint; fuzzy matches are review-only and never delete records automatically.
 
 ## 🧹 Data Integrity & Cleanup
 
