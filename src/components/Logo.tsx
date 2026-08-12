@@ -1,0 +1,11 @@
+export default function Logo({ className }: { className?: string; }) {
+    return (
+        <svg className={className} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="1024" height="1024" rx="256" fill="#D32F2F"></rect>
+            <path d="M512 256L704 384V640C704 768 624 864 512 912C400 864 320 768 320 640V384L512 256Z" fill="white"></path>
+            <circle cx="512" cy="512" r="120" fill="#FF5722"></circle>
+            <rect x="496" y="440" width="32" height="160" rx="16" fill="white"></rect>
+            <circle cx="512" cy="660" r="20" fill="white"></circle>
+        </svg>
+    );
+}
