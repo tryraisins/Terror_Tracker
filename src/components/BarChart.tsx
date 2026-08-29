@@ -47,7 +47,7 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
   const active = activeIndex === null ? null : displayData[activeIndex];
   const activeGroupX = activeIndex === null ? 0 : padding.left + groupWidth * activeIndex + groupMargin;
   const activeLeft = activeIndex === null ? "50%" : `${Math.min(Math.max(((activeGroupX + groupInnerWidth / 2) / width) * 100, 12), 88)}%`;
-  const activeTop = active ? `${Math.max(((height - padding.bottom - Math.max(active.value, active.killed ?? 0, active.kidnapped ?? 0) / maxValue * chartHeight) / height) * 100 - 3, 12)}%` : "0";
+  const activeTop = active ? `${Math.max(((height - padding.bottom - (Math.max(active.value, active.killed ?? 0, active.kidnapped ?? 0) / maxValue) * chartHeight) / height) * 100 - 3, 12)}%` : "0";
 
   return <div className="bar-chart">
     {title ? <h3 className="bar-chart__title">{title}</h3> : null}
