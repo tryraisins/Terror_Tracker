@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-    title: "Incident Reports — NATracker",
-    description: "Browse, search, and filter all tracked terrorist and insurgent attack incidents across Nigeria.",
+    title: "Incident Records — NATracker",
+    description: "Browse reported incidents with sources, reporting status and visible uncertainty.",
 };
 
 export default function IncidentsLayout({

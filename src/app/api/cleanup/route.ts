@@ -4,7 +4,8 @@ import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 /**
- * One-time cleanup endpoint to remove incidents where only
+ * One-time cleanup endpoint to move suspected attacker-only incidents out of
+ * the public record for review. It retains the source record and audit reason.
  * terrorists/attackers were killed (no civilian or security force casualties).
  * 
  * Protected by cron secret. Call with:
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
     if (dryRun) {
       return setCORSHeaders(
         NextResponse.json({
-          mode: "DRY RUN — nothing deleted",
+          mode: "DRY RUN — no records moved to review",
           totalScanned: allAttacks.length,
           flagged: toRemove.length,
           incidents: toRemove.map((a: any) => ({
@@ -131,20 +132,30 @@ export async function POST(req: NextRequest) {
             location: a.location?.state,
             casualties: a.casualties,
           })),
-          tip: 'Send { "dryRun": false } in the request body to actually delete them',
+          tip: 'Send { "dryRun": false } in the request body to move them out of the public record for review',
         })
       );
     }
 
-    // Actually delete
+    // Preserve records and their evidence instead of deleting them permanently.
     const ids = toRemove.map((a: any) => a._id);
-    const result = await Attack.deleteMany({ _id: { $in: ids } });
+    const result = await Attack.updateMany(
+      { _id: { $in: ids }, _deleted: { $ne: true } },
+      {
+        $set: {
+          _deleted: true,
+          _deletedReason: "Automated cleanup review: suspected attacker-only incident; retained for audited review.",
+          _deletedAt: new Date(),
+          _deletedBy: "automated-cleanup",
+        },
+      }
+    );
 
     return setCORSHeaders(
       NextResponse.json({
-        mode: "LIVE — records deleted",
+        mode: "LIVE — records moved to review",
         totalScanned: allAttacks.length,
-        deleted: result.deletedCount,
+        movedToReview: result.modifiedCount,
         incidents: toRemove.map((a: any) => ({
           id: a._id,
           title: a.title,

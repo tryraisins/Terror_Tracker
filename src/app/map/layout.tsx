@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-    title: "Threat Map — NATracker",
-    description: "Geographic visualization of terrorist and insurgent attacks across Nigerian states.",
+    title: "Incident Map — NATracker",
+    description: "Geographic distribution of recorded incidents by Nigerian state. It does not predict safety or future events.",
 };
 
 export default function MapLayout({

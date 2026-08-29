@@ -43,12 +43,14 @@ export async function GET(req: NextRequest) {
       totalKilled,
       totalInjured,
       totalKidnapped,
+      totalDisplaced,
       attacksLast30Days,
       attacksLast7Days,
       byState,
       byGroup,
       byMonth,
       recentAttacks,
+      coverage,
     ] = await Promise.all([
       // Total attacks this year
       Attack.countDocuments({ ...active, date: { $gte: startOfYear } }),
@@ -69,6 +71,11 @@ export async function GET(req: NextRequest) {
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: null, total: { $sum: "$casualties.kidnapped" } } },
+      ]),
+
+      Attack.aggregate([
+        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $group: { _id: null, total: { $sum: "$casualties.displaced" } } },
       ]),
 
       // Attacks in last 30 days
@@ -113,6 +120,28 @@ export async function GET(req: NextRequest) {
         .limit(5)
         .select("title date location group casualties status sources")
         .lean(),
+
+      Attack.aggregate([
+        { $match: { ...active, date: { $gte: startOfYear } } },
+        {
+          $project: {
+            status: 1,
+            updatedAt: 1,
+            sourceCount: { $size: { $ifNull: ["$sources", []] } },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            sourceLinks: { $sum: "$sourceCount" },
+            confirmed: { $sum: { $cond: [{ $eq: ["$status", "confirmed"] }, 1, 0] } },
+            developing: { $sum: { $cond: [{ $eq: ["$status", "developing"] }, 1, 0] } },
+            unconfirmed: { $sum: { $cond: [{ $eq: ["$status", "unconfirmed"] }, 1, 0] } },
+            multipleSources: { $sum: { $cond: [{ $gte: ["$sourceCount", 2] }, 1, 0] } },
+            latestReview: { $max: "$updatedAt" },
+          },
+        },
+      ]),
     ]);
 
     const response = NextResponse.json({
@@ -120,10 +149,19 @@ export async function GET(req: NextRequest) {
         totalAttacks,
         totalKilled: totalKilled[0]?.total || 0,
         totalInjured: totalInjured[0]?.total || 0,
-        totalKidnapped: totalKidnapped[0]?.total || 0,
+      totalKidnapped: totalKidnapped[0]?.total || 0,
+      totalDisplaced: totalDisplaced[0]?.total || 0,
         attacksLast30Days,
         attacksLast7Days,
-        year: nigeriaYear,
+      year: nigeriaYear,
+    },
+      coverage: {
+        sourceLinks: coverage[0]?.sourceLinks ?? 0,
+        confirmed: coverage[0]?.confirmed ?? 0,
+        developing: coverage[0]?.developing ?? 0,
+        unconfirmed: coverage[0]?.unconfirmed ?? 0,
+        multipleSources: coverage[0]?.multipleSources ?? 0,
+        latestReview: coverage[0]?.latestReview?.toISOString?.() ?? null,
       },
       byState: byState.map((s: { _id: string; count: number }) => ({
         state: s._id,

@@ -28,13 +28,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { source } = await req.json();
+    const { source, reason, confirmation } = await req.json();
 
-    if (!source || typeof source !== "string") {
+    if (!source || typeof source !== "string" || typeof reason !== "string" || reason.trim().length < 8) {
       return NextResponse.json(
-        { error: "Invalid source provided" },
+        { error: "A source and review reason are required" },
         { status: 400 }
       );
+    }
+
+    if (confirmation !== `REVIEW SOURCE: ${source}`) {
+      return NextResponse.json({ error: `Type \"REVIEW SOURCE: ${source}\" to continue` }, { status: 400 });
     }
 
     await dbConnect();
@@ -46,14 +50,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Delete all incidents where ANY source's publisher matches the provided source
-    const result = await Attack.deleteMany({
-      "sources.publisher": source,
-    });
+    const result = await Attack.updateMany(
+      { "sources.publisher": source, _deleted: { $ne: true } },
+      { $set: { _deleted: true, _deletedReason: reason.trim(), _deletedAt: new Date(), _deletedBy: session.userId } }
+    );
 
     return NextResponse.json({
       success: true,
-      deletedCount: result.deletedCount,
+      movedToReviewCount: result.modifiedCount,
     });
   } catch (error) {
     console.error("Delete by source error:", error);

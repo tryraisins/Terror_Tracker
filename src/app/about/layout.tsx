@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-    title: "About — NATracker",
-    description: "Learn about the Nigeria Attack Tracker, our data pipeline, sources, and methodology.",
+    title: "Methodology — NATracker",
+    description: "How reported incidents become records, including evidence labels and known limitations.",
 };
 
 export default function AboutLayout({

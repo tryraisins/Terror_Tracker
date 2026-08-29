@@ -28,11 +28,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { ids } = await req.json();
+    const { ids, reason, confirmation } = await req.json();
 
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    if (!ids || !Array.isArray(ids) || ids.length === 0 || typeof reason !== "string" || reason.trim().length < 8) {
       return NextResponse.json(
-        { error: "Invalid request body" },
+        { error: "Select records and provide a review reason of at least 8 characters" },
+        { status: 400 }
+      );
+    }
+
+    const expectedConfirmation = `MOVE ${ids.length} RECORDS TO REVIEW`;
+    if (confirmation !== expectedConfirmation) {
+      return NextResponse.json(
+        { error: `Type \"${expectedConfirmation}\" to continue` },
         { status: 400 }
       );
     }
@@ -46,11 +54,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await Attack.deleteMany({ _id: { $in: ids } });
+    // The public list already excludes _deleted records. Preserve the record and
+    // audit context instead of permanently deleting evidence from the database.
+    const result = await Attack.updateMany(
+      { _id: { $in: ids }, _deleted: { $ne: true } },
+      {
+        $set: {
+          _deleted: true,
+          _deletedReason: reason.trim(),
+          _deletedAt: new Date(),
+          _deletedBy: session.userId,
+        },
+      }
+    );
 
     return NextResponse.json({
       success: true,
-      deletedCount: result.deletedCount,
+      movedToReviewCount: result.modifiedCount,
     });
   } catch (error) {
     console.error("Delete error:", error);

@@ -30,6 +30,8 @@ export interface IAttack extends Document {
   hash: string; // SHA-256 hash for deduplication
   _deleted: boolean;
   _deletedReason?: string;
+  _deletedAt?: Date;
+  _deletedBy?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -118,6 +120,16 @@ const AttackSchema = new Schema<IAttack>(
       default: "",
       trim: true,
       maxlength: 500,
+    },
+    _deletedAt: {
+      type: Date,
+      default: null,
+    },
+    _deletedBy: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 128,
     },
   },
   {

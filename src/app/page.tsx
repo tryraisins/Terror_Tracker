@@ -1,281 +1,75 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import gsap from "gsap";
-import StatCard from "@/components/StatCard";
-import AttackCard from "@/components/AttackCard";
-import BarChart from "@/components/BarChart";
-import HorizontalBar from "@/components/HorizontalBar";
-import TimeSinceLastAttack from "@/components/TimeSinceLastAttack";
-import { CardSkeleton, AttackCardSkeleton, ChartSkeleton } from "@/components/Skeletons";
-import {
-  BoltIcon,
-  UserMinusIcon,
-  ExclamationTriangleIcon,
-  LockClosedIcon,
-  ArrowRightIcon,
-  ClockIcon,
-  CalendarDaysIcon,
-  SignalIcon,
-} from "@heroicons/react/24/outline";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { ErrorState, LoadingState } from "@/components/DataState";
+import { IncidentRecord, formatDateLong, impactParts } from "@/lib/incident-view";
 
 interface StatsData {
-  overview: {
-    totalAttacks: number;
-    totalKilled: number;
-    totalInjured: number;
-    totalKidnapped: number;
-    attacksLast30Days: number;
-    attacksLast7Days: number;
-    year: number;
-  };
-  byState: { state: string; count: number; }[];
-  byGroup: { group: string; count: number; killed: number; }[];
-  byMonth: { month: number; count: number; killed: number; kidnapped: number; }[];
-  recentAttacks: any[];
+  overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; year: number };
+  coverage: { sourceLinks: number; confirmed: number; developing: number; unconfirmed: number; multipleSources: number; latestReview: string | null };
+  byState: { state: string; count: number }[];
+  byGroup: { group: string; count: number }[];
+  byMonth: { month: number; count: number }[];
+  recentAttacks: IncidentRecord[];
 }
+
+const monthName = (month: number) => new Intl.DateTimeFormat("en-GB", { month: "short" }).format(new Date(2026, month - 1, 1));
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<StatsData | null>(null);
+  const [data, setData] = useState<StatsData | null>(null);
   const [loading, setLoading] = useState(true);
-  const heroRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // Animate hero text
-    if (heroRef.current) {
-      const children = heroRef.current.children;
-      gsap.fromTo(
-        children,
-        { opacity: 0, y: 40 },
-        { opacity: 1, y: 0, duration: 0.8, stagger: 0.15, ease: "power3.out" }
-      );
-    }
-
-    fetchStats();
-  }, []);
-
-  async function fetchStats() {
+  const [failed, setFailed] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true); setFailed(false); setOffline(typeof navigator !== "undefined" && !navigator.onLine);
     try {
-      const res = await fetch("/api/stats");
-      if (!res.ok) throw new Error("Failed to fetch stats");
-      const data = await res.json();
-      setStats(data);
-    } catch (err) {
-      console.error("Error fetching stats:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
+      const response = await fetch("/api/stats", { cache: "no-store" });
+      if (!response.ok) throw new Error("Stats request failed");
+      setData(await response.json());
+    } catch {
+      setFailed(true);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); const update = () => setOffline(!navigator.onLine); window.addEventListener("online", update); window.addEventListener("offline", update); return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update); }; }, [load]);
 
-  return (
-    <div className="max-w-[76rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
-      {/* Hero Section */}
-      <div ref={heroRef} className="mb-10 lg:mb-14 grid gap-7 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end">
-        <div style={{ opacity: 0 }}>
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider"
-            style={{
-              background: "rgba(139,26,26,0.1)",
-              color: "var(--color-blood-light)",
-              border: "1px solid rgba(139,26,26,0.2)",
-            }}
-          >
-            <SignalIcon className="w-3.5 h-3.5" />
-            Intelligence Dashboard
-          </div>
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            {new Date().toLocaleDateString("en-NG", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
-          </span>
-        </div>
+  if (loading && !data) return <div className="page-wrap"><LoadingState label="Loading dashboard" /></div>;
+  if (failed && !data) return <div className="page-wrap"><ErrorState offline={offline} retry={load} /></div>;
+  if (!data) return null;
 
-        <h1
-          className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.1] mb-4"
-          style={{ fontFamily: "var(--font-heading)" }}
-        >
-          Nigeria Attack
-          <br />
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage: "linear-gradient(135deg, var(--color-blood), var(--color-ember), var(--color-flame))",
-            }}
-          >
-            Tracker {stats?.overview?.year || new Date().getFullYear()}
-          </span>
-        </h1>
-
-        <p
-          className="text-lg max-w-2xl leading-relaxed"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          Real-time intelligence on terrorist and insurgent activities across Nigeria.
-          Data sourced from verified news outlets, security reports, and field correspondents.
-        </p>
-        </div>
-        <div className="glass-card rounded-2xl p-5 hidden lg:block" style={{ opacity: 0 }}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-3" style={{ color: "var(--text-muted)" }}>Research note</p>
-          <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-            Use source links in every report before sharing or citing an incident.
-          </p>
-          <Link href="/incidents" className="mt-5 inline-flex items-center gap-2 text-sm font-bold" style={{ color: "var(--accent)" }}>
-            Browse reports <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-        </div>
-      </div>
-
-      {/* Time Since Last Attack */}
-      {!loading && stats?.recentAttacks?.[0]?.date && (
-        <TimeSinceLastAttack lastAttackDate={stats.recentAttacks[0].date} />
-      )}
-
-      {/* Stats Grid */}
-      <section className="mb-12">
-        {loading ? (
-          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-            {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
-          </div>
-        ) : stats ? (
-          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-            <StatCard
-              label="Total Incidents"
-              value={stats.overview.totalAttacks}
-              icon={<BoltIcon className="w-6 h-6" />}
-              color="var(--color-blood)"
-              delay={0}
-            />
-            <StatCard
-              label="Lives Lost"
-              value={stats.overview.totalKilled}
-              icon={<UserMinusIcon className="w-6 h-6" />}
-              color="var(--color-urgent)"
-              delay={0.1}
-            />
-            <StatCard
-              label="Injured"
-              value={stats.overview.totalInjured}
-              icon={<ExclamationTriangleIcon className="w-6 h-6" />}
-              color="var(--color-caution)"
-              delay={0.2}
-            />
-            <StatCard
-              label="Kidnapped"
-              value={stats.overview.totalKidnapped}
-              icon={<LockClosedIcon className="w-6 h-6" />}
-              color="var(--color-verified)"
-              delay={0.3}
-            />
-          </div>
-        ) : (
-          <div className="glass-card rounded-2xl p-8 text-center bg-grain">
-            <ExclamationTriangleIcon className="w-10 h-10 mx-auto mb-3" style={{ color: "var(--text-muted)" }} />
-            <p style={{ color: "var(--text-secondary)" }}>
-              Unable to load statistics. Please check your database connection.
-            </p>
-          </div>
-        )}
+  const { overview, coverage } = data;
+  const total = Math.max(overview.totalAttacks, 1);
+  const months = data.byMonth.slice(-6);
+  const maxMonth = Math.max(...months.map((item) => item.count), 1);
+  const maxState = Math.max(...data.byState.map((item) => item.count), 1);
+  return <div className="page-wrap">
+    <header className="page-header">
+      <div><span className="eyebrow">{overview.year} data overview</span><h1>Nigeria incident record</h1><p className="lede">A public-interest record of reported attacks and human harm across Nigeria. Figures reflect published reports and remain subject to correction.</p></div>
+      <aside className="panel coverage-note"><span className="eyebrow">Coverage note</span><p className="coverage-note__date">{coverage.latestReview ? `Updated ${formatDateLong(coverage.latestReview)}` : "Update date unavailable"}</p><p className="coverage-note__fine">{overview.totalAttacks} recorded incidents · {coverage.sourceLinks} source links</p><span className="chip chip--burgundy" style={{ marginTop: ".75rem" }}>Not a live safety service</span></aside>
+    </header>
+    {failed ? <div className="panel panel--notice" style={{ marginBottom: "1.25rem", padding: "1rem" }} role="status">Some dashboard information may be older than the latest request. <button className="text-link" type="button" onClick={load}>Retry</button></div> : null}
+    <section className="metric-grid" aria-label="Reported figures">
+      <Metric label="Recorded incidents" value={overview.totalAttacks} detail={`${overview.attacksLast30Days} in the last 30 days`} />
+      <Metric label="People killed" value={overview.totalKilled} detail="reported minimum" className="metric-card--impact" />
+      <Metric label="People injured" value={overview.totalInjured} detail="reported minimum" className="metric-card--caution" />
+      <Metric label="People abducted" value={overview.totalKidnapped} detail="reported minimum" className="metric-card--evidence" />
+    </section>
+    <section className="dashboard-grid">
+      <section className="panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">Recorded incidents by month</p></div></div>
+        <div className="bars" style={{ "--bar-count": months.length || 1 } as CSSProperties}>{months.length ? months.map((item, index) => <div className={`bar ${index === months.length - 1 ? "bar--current" : ""}`} key={item.month}><span className="bar__value">{item.count}</span><div className="bar__column" style={{ height: `${Math.max((item.count / maxMonth) * 100, item.count ? 5 : 0)}%` }} /><span className="bar__label">{monthName(item.month)}</span></div>) : <p className="supporting">No monthly records are available.</p>}</div>
       </section>
-
-      {/* Secondary Stats */}
-      {stats && !loading && (
-        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5 mb-12">
-          <StatCard
-            label="Attacks (Last 7 Days)"
-            value={stats.overview.attacksLast7Days}
-            icon={<ClockIcon className="w-6 h-6" />}
-            color="var(--color-ember)"
-            delay={0.4}
-          />
-          <StatCard
-            label="Attacks (Last 30 Days)"
-            value={stats.overview.attacksLast30Days}
-            icon={<CalendarDaysIcon className="w-6 h-6" />}
-            color="var(--color-sand)"
-            delay={0.5}
-          />
-        </section>
-      )}
-
-      {/* Charts */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5 mb-12">
-        {loading ? (
-          <>
-            <ChartSkeleton />
-            <ChartSkeleton />
-          </>
-        ) : stats ? (
-          <>
-            <BarChart
-              title="Monthly Attack Frequency"
-              data={stats.byMonth.map((m) => ({
-                label: String(m.month),
-                value: m.count,
-                killed: m.killed,
-                kidnapped: m.kidnapped,
-              }))}
-            />
-            <HorizontalBar
-              title="Most Affected States"
-              data={stats.byState.map((s) => ({
-                label: s.state,
-                value: s.count,
-              }))}
-              color="var(--color-ember)"
-            />
-          </>
-        ) : null}
+      <section className="panel"><div className="panel-heading"><div><h2>Evidence coverage</h2><p className="panel-subtitle">Source depth and review state</p></div></div>
+        <Coverage label="Confirmed records" value={coverage.confirmed} total={total} /><Coverage label="Developing" value={coverage.developing} total={total} tone="caution" /><Coverage label="Two or more sources" value={coverage.multipleSources} total={total} tone="confirmed" /><Coverage label="Single-source records" value={Math.max(total - coverage.multipleSources, 0)} total={total} tone="muted" />
+        <div className="panel panel--notice" style={{ padding: ".6rem .8rem", marginTop: ".75rem", boxShadow: "none" }}><span className="text-link" style={{ color: "var(--evidence)" }}>Source count is shown on every incident summary.</span></div>
       </section>
-
-      {/* Groups Chart */}
-
-
-      {/* Recent Attacks */}
-      <section className="mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2
-            className="text-2xl font-bold"
-            style={{ fontFamily: "var(--font-heading)" }}
-          >
-            Recent Incidents
-          </h2>
-          <Link
-            href="/incidents"
-            className="flex items-center gap-2 text-sm font-semibold transition-colors hover:text-blood-light"
-            style={{ color: "var(--accent)" }}
-          >
-            View All
-            <ArrowRightIcon className="w-4 h-4" />
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => <AttackCardSkeleton key={i} />)}
-          </div>
-        ) : stats?.recentAttacks?.length ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {stats.recentAttacks.map((attack, i) => (
-              <AttackCard key={attack._id} attack={attack} index={i} />
-            ))}
-          </div>
-        ) : (
-          <div className="glass-card rounded-2xl p-12 text-center">
-            <ExclamationTriangleIcon className="w-12 h-12 mx-auto mb-4" style={{ color: "var(--text-muted)" }} />
-            <h3 className="text-lg font-semibold mb-2" style={{ fontFamily: "var(--font-heading)" }}>
-              No Incidents Recorded Yet
-            </h3>
-            <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-secondary)" }}>
-              The tracker will begin populating once it starts
-              fetching data from news sources.
-            </p>
-          </div>
-        )}
-      </section>
-    </div>
-  );
+    </section>
+    <section className="dashboard-grid">
+      <section className="panel"><div className="panel-heading"><h2>Most recorded states</h2><Link href="/map" className="text-link">View map →</Link></div><div className="rank-list">{data.byState.slice(0, 5).map((item) => <div className="rank-row" key={item.state}><span>{item.state || "Unknown"}</span><span className="rank-row__track"><span className="rank-row__fill" style={{ width: `${(item.count / maxState) * 100}%` }} /></span><span>{item.count}</span></div>)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><h2>Reported actors</h2><p className="panel-subtitle">Attribution is recorded as reported</p></div></div>{data.byGroup.slice(0, 5).map((item) => <div className="actor-row" key={item.group}><span><i className="dot" />{item.group || "Unknown"}</span><span>{item.count}</span></div>)}</section>
+    </section>
+    <section><div className="section-heading"><h2>Recent incident records</h2><Link href="/incidents" className="text-link">Browse all {overview.totalAttacks} →</Link></div><div className="card table-card"><table className="records-table"><thead><tr><th>Date / place</th><th>Incident</th><th>Human impact</th><th>Evidence</th></tr></thead><tbody>{data.recentAttacks.map((incident) => <tr key={incident._id}><td><span className="records-table__date">{formatDateLong(incident.date)}</span><br /><strong>{incident.location.state || "Location unknown"}</strong></td><td><Link href={`/incidents/${incident._id}`} className="records-table__title">{incident.title}</Link></td><td className="record-card__impact">{impactParts(incident.casualties).join(" · ") || "Not reported"}</td><td><span className={`status status--${incident.status}`}>{incident.status}</span><br /><span className="evidence-count">{incident.sources?.length || 0} sources</span></td></tr>)}</tbody></table></div></section>
+  </div>;
 }
+
+function Metric({ label, value, detail, className = "" }: { label: string; value: number; detail: string; className?: string }) { return <article className={`metric-card ${className}`}><div className="metric-card__label">{label}</div><div className="metric-card__value">{value.toLocaleString("en-NG")}</div><span className="metric-card__detail">{detail}</span></article>; }
+function Coverage({ label, value, total, tone = "" }: { label: string; value: number; total: number; tone?: "" | "caution" | "confirmed" | "muted" }) { return <div className="coverage-row"><div className="coverage-row__meta"><span>{label}</span><span>{value} / {total}</span></div><span className="coverage-row__track"><span className={`coverage-row__fill ${tone ? `coverage-row__fill--${tone}` : ""}`} style={{ width: `${Math.min((value / total) * 100, 100)}%` }} /></span></div>; }
