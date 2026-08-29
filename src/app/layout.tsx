@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import PWARegistration from "@/components/PWARegistration";
 
 export const metadata: Metadata = {
@@ -19,14 +18,14 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en" data-theme="dark" suppressHydrationWarning><head>
+  return <html lang="en"><head>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-    <meta name="theme-color" content="#111417" />
+    <meta name="theme-color" content="#0b0c0f" />
+    <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <script dangerouslySetInnerHTML={{ __html: "try { document.documentElement.dataset.theme = localStorage.getItem('natracker-theme') === 'light' ? 'light' : 'dark'; } catch (_) {}" }} />
-  </head><body><ThemeProvider>
+  </head><body>
     <a className="skip-link" href="#main-content">Skip to content</a><PWARegistration /><Navbar />
     <main id="main-content" className="app-main">{children}</main><Footer />
-  </ThemeProvider></body></html>;
+  </body></html>;
 }
