@@ -31,8 +31,10 @@ export function locationLabel(location: IncidentRecord["location"], compact = fa
   return compact ? [known[0], location.state].filter(Boolean).join(", ") : [...known, location.state].filter(Boolean).join(" · ");
 }
 
-export function displayValue(value: number | null | undefined) {
-  return value == null ? "Unknown" : value.toLocaleString("en-NG");
+export function displayValue(value: number | null | undefined, zeroLabel = "No reported impact") {
+  if (value == null) return "Unknown";
+  if (value === 0) return zeroLabel;
+  return value.toLocaleString("en-NG");
 }
 
 export function impactParts(casualties: IncidentRecord["casualties"]) {

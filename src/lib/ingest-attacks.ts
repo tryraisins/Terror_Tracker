@@ -325,10 +325,10 @@ export async function ingestAttacks(
         },
         group: sanitizeString(rawAttack.group),
         casualties: {
-          killed: rawAttack.casualties?.killed ?? null,
-          injured: rawAttack.casualties?.injured ?? null,
-          kidnapped: rawAttack.casualties?.kidnapped ?? null,
-          displaced: rawAttack.casualties?.displaced ?? null,
+          killed: rawAttack.casualties?.killed ?? 0,
+          injured: rawAttack.casualties?.injured ?? 0,
+          kidnapped: rawAttack.casualties?.kidnapped ?? 0,
+          displaced: rawAttack.casualties?.displaced ?? 0,
         },
         sources: (rawAttack.sources || []).map(s => ({
           url: sanitizeString(s.url),

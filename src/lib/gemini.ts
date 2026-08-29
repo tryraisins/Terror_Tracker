@@ -53,6 +53,21 @@ export interface RawAttackData {
   tags: string[];
 }
 
+function normalizeReportedCasualties(casualties?: Partial<RawAttackData["casualties"]>): RawAttackData["casualties"] {
+  const normalize = (value: number | null | undefined): number | null => {
+    if (value === null) return null;
+    if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+    return Math.max(0, Math.trunc(value));
+  };
+
+  return {
+    killed: normalize(casualties?.killed),
+    injured: normalize(casualties?.injured),
+    kidnapped: normalize(casualties?.kidnapped),
+    displaced: normalize(casualties?.displaced),
+  };
+}
+
 /**
  * Generate a deduplication hash based on core attack identifiers.
  * Uses date (day-level), state, town, and group to create a unique hash.
@@ -649,6 +664,7 @@ async function validateAndNormalize(
   const inspected = await Promise.all(attacks
     .map(attack => ({
       ...attack,
+      casualties: normalizeReportedCasualties(attack.casualties),
       sources: attack.sources.filter(isSourceTrusted),
       location: { ...attack.location, state: normalizeStateName(attack.location.state) },
     }))
@@ -820,6 +836,8 @@ const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each e
   "tags": ["string"]
 }
 
+For every casualty field, use 0 when that impact was not reported or was explicitly absent. Use null only when the source reports that impact but does not give a reliable number.
+
 RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.`;
 
 /**
@@ -890,9 +908,9 @@ For each incident found, provide:
    - "kidnapped": number of people abducted
    - "displaced": number of people forced to flee
    - EXAMPLE: "5 terrorists neutralised, 2 soldiers killed, 3 civilians injured" → killed=2, injured=3
-   - EXAMPLE: "troops kill 10 ISWAP fighters, no casualties on government side" → killed=null (no victims)
+   - EXAMPLE: "troops kill 10 ISWAP fighters, no casualties on government side" → killed=0, injured=0, kidnapped=0, displaced=0
    - EXAMPLE: "bandits kill 4 farmers, injure 6, abduct 12" → killed=4, injured=6, kidnapped=12
-   - Use null for any field that is not reported or unknown.
+   - Use 0 when a type of impact is not reported or is explicitly absent. Use null only when that type of impact is reported but its figure is unknown.
 7. Source URLs — direct, working article or official-statement URLs. Each URL must support the incident date, location, and core event; search-result, homepage, category, and image URLs are not evidence.
 8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for an ongoing incident or unresolved credible disagreement.
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry", "military-attack")
@@ -902,7 +920,7 @@ CRITICAL RULES
 ═══════════════════════════════════════════
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array [].
-- CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=null.
+- CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=0, injured=0, kidnapped=0, displaced=0. Use null only when the report identifies a victim impact but does not give its number.
 - Include ALL attacks regardless of whether casualties are reported — a foiled attack, a raid, or a clash with unknown casualty numbers is still a valid security incident.
 - Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
 - Be specific about locations — always include state AND town/village name.
@@ -1033,8 +1051,8 @@ For each incident found, provide:
    - "kidnapped": number of people abducted
    - "displaced": number of people forced to flee
    - EXAMPLE: "12 bandits killed, 1 soldier killed, 2 farmers injured" → killed=1, injured=2
-   - EXAMPLE: "troops neutralise 7 ISWAP, no friendly casualties" → killed=null, injured=null
-   - Use null for any field not reported or unknown.
+   - EXAMPLE: "troops neutralise 7 ISWAP, no friendly casualties" → killed=0, injured=0, kidnapped=0, displaced=0
+   - Use 0 when a type of impact is not reported or is explicitly absent. Use null only when that type of impact is reported but its figure is unknown.
 7. Source URLs (real, working direct article or official-statement links only; never a search result, home page, tag page, or image)
 8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for a credible conflict or ongoing event
 9. Tags (include "military-attack" for incidents targeting soldiers/army)

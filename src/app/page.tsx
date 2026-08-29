@@ -7,7 +7,6 @@ import { IncidentRecord, formatDateLong, impactParts } from "@/lib/incident-view
 
 interface StatsData {
   overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; year: number };
-  coverage: { sourceLinks: number; confirmed: number; developing: number; unconfirmed: number; multipleSources: number; latestReview: string | null };
   byState: { state: string; count: number }[];
   byGroup: { group: string; count: number }[];
   byMonth: { month: number; count: number }[];
@@ -37,15 +36,13 @@ export default function DashboardPage() {
   if (failed && !data) return <div className="page-wrap"><ErrorState offline={offline} retry={load} /></div>;
   if (!data) return null;
 
-  const { overview, coverage } = data;
-  const total = Math.max(overview.totalAttacks, 1);
-  const months = data.byMonth.slice(-6);
+  const { overview } = data;
+  const months = data.byMonth;
   const maxMonth = Math.max(...months.map((item) => item.count), 1);
   const maxState = Math.max(...data.byState.map((item) => item.count), 1);
   return <div className="page-wrap">
-    <header className="page-header">
+    <header className="page-header page-header--simple">
       <div><span className="eyebrow">{overview.year} data overview</span><h1>Nigeria incident record</h1><p className="lede">A public-interest record of reported attacks and human harm across Nigeria. Figures reflect published reports and remain subject to correction.</p></div>
-      <aside className="panel coverage-note"><span className="eyebrow">Coverage note</span><p className="coverage-note__date">{coverage.latestReview ? `Updated ${formatDateLong(coverage.latestReview)}` : "Update date unavailable"}</p><p className="coverage-note__fine">{overview.totalAttacks} recorded incidents · {coverage.sourceLinks} source links</p><span className="chip chip--burgundy" style={{ marginTop: ".75rem" }}>Not a live safety service</span></aside>
     </header>
     {failed ? <div className="panel panel--notice" style={{ marginBottom: "1.25rem", padding: "1rem" }} role="status">Some dashboard information may be older than the latest request. <button className="text-link" type="button" onClick={load}>Retry</button></div> : null}
     <section className="metric-grid" aria-label="Reported figures">
@@ -54,13 +51,9 @@ export default function DashboardPage() {
       <Metric label="People injured" value={overview.totalInjured} detail="reported minimum" className="metric-card--caution" />
       <Metric label="People abducted" value={overview.totalKidnapped} detail="reported minimum" className="metric-card--evidence" />
     </section>
-    <section className="dashboard-grid">
-      <section className="panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">Recorded incidents by month</p></div></div>
+    <section className="dashboard-grid dashboard-grid--single">
+      <section className="panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">January through the latest month in the Nigerian reporting year</p></div></div>
         <div className="bars" style={{ "--bar-count": months.length || 1 } as CSSProperties}>{months.length ? months.map((item, index) => <div className={`bar ${index === months.length - 1 ? "bar--current" : ""}`} key={item.month}><span className="bar__value">{item.count}</span><div className="bar__column" style={{ height: `${Math.max((item.count / maxMonth) * 100, item.count ? 5 : 0)}%` }} /><span className="bar__label">{monthName(item.month)}</span></div>) : <p className="supporting">No monthly records are available.</p>}</div>
-      </section>
-      <section className="panel"><div className="panel-heading"><div><h2>Evidence coverage</h2><p className="panel-subtitle">Source depth and review state</p></div></div>
-        <Coverage label="Confirmed records" value={coverage.confirmed} total={total} /><Coverage label="Developing" value={coverage.developing} total={total} tone="caution" /><Coverage label="Two or more sources" value={coverage.multipleSources} total={total} tone="confirmed" /><Coverage label="Single-source records" value={Math.max(total - coverage.multipleSources, 0)} total={total} tone="muted" />
-        <div className="panel panel--notice" style={{ padding: ".6rem .8rem", marginTop: ".75rem", boxShadow: "none" }}><span className="text-link" style={{ color: "var(--evidence)" }}>Source count is shown on every incident summary.</span></div>
       </section>
     </section>
     <section className="dashboard-grid">
@@ -72,4 +65,3 @@ export default function DashboardPage() {
 }
 
 function Metric({ label, value, detail, className = "" }: { label: string; value: number; detail: string; className?: string }) { return <article className={`metric-card ${className}`}><div className="metric-card__label">{label}</div><div className="metric-card__value">{value.toLocaleString("en-NG")}</div><span className="metric-card__detail">{detail}</span></article>; }
-function Coverage({ label, value, total, tone = "" }: { label: string; value: number; total: number; tone?: "" | "caution" | "confirmed" | "muted" }) { return <div className="coverage-row"><div className="coverage-row__meta"><span>{label}</span><span>{value} / {total}</span></div><span className="coverage-row__track"><span className={`coverage-row__fill ${tone ? `coverage-row__fill--${tone}` : ""}`} style={{ width: `${Math.min((value / total) * 100, 100)}%` }} /></span></div>; }

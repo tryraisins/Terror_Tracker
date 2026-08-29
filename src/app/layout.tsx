@@ -19,11 +19,12 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><head>
+  return <html lang="en" data-theme="dark" suppressHydrationWarning><head>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-    <meta name="theme-color" content="#f7f5f1" />
+    <meta name="theme-color" content="#111417" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <script dangerouslySetInnerHTML={{ __html: "try { document.documentElement.dataset.theme = localStorage.getItem('natracker-theme') === 'light' ? 'light' : 'dark'; } catch (_) {}" }} />
   </head><body><ThemeProvider>
     <a className="skip-link" href="#main-content">Skip to content</a><PWARegistration /><Navbar />
     <main id="main-content" className="app-main">{children}</main><Footer />

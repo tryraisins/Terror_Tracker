@@ -96,7 +96,14 @@ function extractTown(title: string, state: string): string | null {
   return /^(nigeria|community|village|state)$/i.test(town) ? null : town;
 }
 function extractGroup(text: string): string { if (/boko\s+haram/i.test(text)) return "Boko Haram"; if (/\biswap\b/i.test(text)) return "ISWAP"; if (/\bipob|\besn\b/i.test(text)) return "IPOB/ESN"; if (/\bbandits?\b/i.test(text)) return "Bandits"; if (/\bherdsmen\b/i.test(text)) return "Herdsmen"; if (/\bcultists?\b/i.test(text)) return "Cultists"; return "Unknown Gunmen"; }
-function extractCasualties(text: string, verb: string): number | null { const match = text.match(new RegExp(`\\b(\\d{1,4})\\s+(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?)?\\s*(?:were\\s+)?(?:${verb})\\b`, "i")); return match ? Number(match[1]) : null; }
+function extractCasualtyCount(text: string, terms: string): number | null {
+  const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|victims?)?";
+  const counted = text.match(new RegExp(`\\b(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+  if (counted) return Number(counted[1]);
+  if (new RegExp(`\\b(?:no|zero|none|without(?:\\s+any)?)\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i").test(text)) return 0;
+  const impactWasReportedWithoutFigure = new RegExp(`\\b(?:${terms})\\b`, "i").test(text) || /\\b(?:casualties?|victims?)\\s+(?:were\\s+)?(?:unknown|unclear|not known|unconfirmed)\\b/i.test(text);
+  return impactWasReportedWithoutFigure ? null : 0;
+}
 function hashFor(attack: RawAttackData): string { const day = new Date(attack.date).toISOString().slice(0, 10); return crypto.createHash("sha256").update(`${day}|${attack.location.state.toLowerCase()}|${attack.location.town.toLowerCase()}|${attack.group.toLowerCase()}`).digest("hex"); }
 
 async function record(item: FeedItem, publisher: string, outcome: "published" | "merged" | "reference" | "rejected", reason: string, incidentDate?: Date | null, attackId?: unknown): Promise<void> {
@@ -135,7 +142,7 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   }
   const town = extractTown(title, state);
   if (!town) { await record(item, publisher, "rejected", "Precise town/LGA was not deterministically extractable, so article was not auto-published.", incidentDate); return "rejected"; }
-  const attack: RawAttackData = { title, description: (description || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location: { state, lga: "Unknown", town }, group, casualties: { killed: extractCasualties(text, "killed"), injured: extractCasualties(text, "injured|wounded"), kidnapped: extractCasualties(text, "kidnapped|abducted"), displaced: null }, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: "unconfirmed", tags: ["source-led", group.toLowerCase().replace(/\W+/g, "-")] };
+  const attack: RawAttackData = { title, description: (description || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location: { state, lga: "Unknown", town }, group, casualties: { killed: extractCasualtyCount(text, "killed"), injured: extractCasualtyCount(text, "injured|wounded"), kidnapped: extractCasualtyCount(text, "kidnapped|abducted"), displaced: extractCasualtyCount(text, "displaced|forced to flee") }, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: "unconfirmed", tags: ["source-led", group.toLowerCase().replace(/\W+/g, "-")] };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) { if (!existing.sources.some((source: { url: string }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""))) await Attack.findByIdAndUpdate(existing._id, { $push: { sources: attack.sources[0] } }); await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id); return "merged"; }
   const saved = await Attack.create({ ...attack, hash }); await record(item, publisher, "published", "Recent incident date, state, town, event language, and fresh source all passed.", incidentDate, saved._id); return "published";

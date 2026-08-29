@@ -2,6 +2,13 @@ export function LoadingState({ label = "Loading records" }: { label?: string }) 
   return <div className="panel skeleton" role="status" aria-live="polite"><span className="sr-only">{label}</span></div>;
 }
 
+export function RecordListSkeleton({ count = 3, label = "Loading filtered incident records" }: { count?: number; label?: string }) {
+  return <section className="record-list record-list--skeleton" role="status" aria-live="polite" aria-label={label}>
+    <span className="sr-only">{label}</span>
+    {Array.from({ length: count }, (_, index) => <article className="record-skeleton" key={index} aria-hidden="true"><span className="record-skeleton__date" /><span className="record-skeleton__title" /><span className="record-skeleton__line" /><span className="record-skeleton__line record-skeleton__line--short" /><span className="record-skeleton__meta" /></article>)}
+  </section>;
+}
+
 export function EmptyState({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return <section className="panel state-message"><h2>{title}</h2><p>{children}</p>{action}</section>;
 }

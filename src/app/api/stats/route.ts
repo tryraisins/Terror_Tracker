@@ -50,7 +50,6 @@ export async function GET(req: NextRequest) {
       byGroup,
       byMonth,
       recentAttacks,
-      coverage,
     ] = await Promise.all([
       // Total attacks this year
       Attack.countDocuments({ ...active, date: { $gte: startOfYear } }),
@@ -121,27 +120,6 @@ export async function GET(req: NextRequest) {
         .select("title date location group casualties status sources")
         .lean(),
 
-      Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
-        {
-          $project: {
-            status: 1,
-            updatedAt: 1,
-            sourceCount: { $size: { $ifNull: ["$sources", []] } },
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            sourceLinks: { $sum: "$sourceCount" },
-            confirmed: { $sum: { $cond: [{ $eq: ["$status", "confirmed"] }, 1, 0] } },
-            developing: { $sum: { $cond: [{ $eq: ["$status", "developing"] }, 1, 0] } },
-            unconfirmed: { $sum: { $cond: [{ $eq: ["$status", "unconfirmed"] }, 1, 0] } },
-            multipleSources: { $sum: { $cond: [{ $gte: ["$sourceCount", 2] }, 1, 0] } },
-            latestReview: { $max: "$updatedAt" },
-          },
-        },
-      ]),
     ]);
 
     const response = NextResponse.json({
@@ -155,14 +133,6 @@ export async function GET(req: NextRequest) {
         attacksLast7Days,
       year: nigeriaYear,
     },
-      coverage: {
-        sourceLinks: coverage[0]?.sourceLinks ?? 0,
-        confirmed: coverage[0]?.confirmed ?? 0,
-        developing: coverage[0]?.developing ?? 0,
-        unconfirmed: coverage[0]?.unconfirmed ?? 0,
-        multipleSources: coverage[0]?.multipleSources ?? 0,
-        latestReview: coverage[0]?.latestReview?.toISOString?.() ?? null,
-      },
       byState: byState.map((s: { _id: string; count: number }) => ({
         state: s._id,
         count: s.count,
