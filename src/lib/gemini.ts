@@ -853,7 +853,7 @@ MILITARY ATTACK EMPHASIS: Nigerian army troops and officers are frequently targe
 - "army officers killed Nigeria", "barracks attack Nigeria", "Operation Hadin Kai"
 - "NAF airstrike" (after which ground forces may have casualties), "ISWAP ambush"
 
-Do NOT stop after finding just 1 or 2 incidents. Be thorough — Nigeria typically has multiple security incidents per day across different states. Search multiple news sources independently to ensure comprehensive coverage.
+Search methodically and do not infer an expected number of incidents. A quiet day or state may legitimately have no qualifying report. Search multiple independent outlets before concluding that an apparent event is a duplicate, follow-up, or out of scope.
 
 ${SOURCE_TIERS_PROMPT}
 
@@ -863,8 +863,8 @@ DEDUPLICATION — CRITICAL
 - If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
 - Do NOT create separate entries for the same attack just because different outlets covered it.
 - Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
-- When consolidating, use the HIGHEST reported casualty numbers and combine all source URLs.
-- RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report that describes the outcome of a KNOWN attack (e.g. "troops rescue 50 kidnapped victims in Gwoza", "military confirms 416 abducted in Ngoshe attack") describes the SAME INCIDENT as the original attack. Consolidate it into the original incident entry — do NOT create a new entry. Use the ORIGINAL attack date (as stated in the article's narrative, e.g. "On March 3…"), not the article's publication date.
+- Combine all source URLs, but never resolve conflicting casualty figures by choosing the higher number. Keep an agreed or only-known value; if credible sources disagree, use null for that field and status "developing".
+- RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report belongs to an existing attack only when its narrative identifies the original attack date and location. Use that ORIGINAL attack date, not the article's publication date. If it does not identify the original incident well enough to match safely, do NOT create a standalone incident from the rescue report.
 - PAST-WINDOW EVENTS: If an article describes an event that clearly happened BEFORE the current search window (e.g. "On March 3, gunmen attacked…" appearing in an April article), do NOT include it as a new incident — it was already captured in earlier tracking. Only include incidents whose attack date falls within the search window.
 
 ═══════════════════════════════════════════
@@ -893,8 +893,8 @@ For each incident found, provide:
    - EXAMPLE: "troops kill 10 ISWAP fighters, no casualties on government side" → killed=null (no victims)
    - EXAMPLE: "bandits kill 4 farmers, injure 6, abduct 12" → killed=4, injured=6, kidnapped=12
    - Use null for any field that is not reported or unknown.
-7. Source URLs — direct links to articles or tweets. Every URL must be real and working.
-8. Status: "confirmed" (multiple reliable sources), "unconfirmed" (single source), "developing" (ongoing)
+7. Source URLs — direct, working article or official-statement URLs. Each URL must support the incident date, location, and core event; search-result, homepage, category, and image URLs are not evidence.
+8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for an ongoing incident or unresolved credible disagreement.
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry", "military-attack")
 
 ═══════════════════════════════════════════
@@ -951,7 +951,27 @@ export async function fetchAttacksForStates(
   states: string[],
   lookbackDays = 7,
 ): Promise<RawAttackData[]> {
-  if (states.length === 0) return [];
+  const uniqueStates = [...new Set(states.map((state) => state.trim()).filter(Boolean))];
+  if (uniqueStates.length === 0) return [];
+
+  // A grouped prompt routinely returned only the high-profile states. Make the
+  // unit of search one state, with a bounded concurrency to keep recovery
+  // scans auditable and controllable through STATE_SCAN_CONCURRENCY.
+  if (uniqueStates.length > 1) {
+    const configuredConcurrency = Number(process.env.STATE_SCAN_CONCURRENCY || 3);
+    const concurrency = Number.isFinite(configuredConcurrency)
+      ? Math.max(1, Math.min(Math.floor(configuredConcurrency), uniqueStates.length))
+      : 3;
+    const results: RawAttackData[] = [];
+    for (let index = 0; index < uniqueStates.length; index += concurrency) {
+      const batch = uniqueStates.slice(index, index + concurrency);
+      const found = await Promise.all(batch.map((state) => fetchAttacksForStates([state], lookbackDays)));
+      results.push(...found.flat());
+    }
+    return results;
+  }
+
+  states = uniqueStates;
 
   const ai = createAI();
   const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
@@ -965,7 +985,7 @@ export async function fetchAttacksForStates(
 
   const stateList = states.join(", ");
   const stateSearchLines = states
-    .map(s => `  - "${s} attack ${year}" OR "${s} soldiers killed ${year}" OR "${s} military ambush ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} army ${year}" OR "${s} security incident ${year}"`)
+    .map(s => `  - "${s} attack ${year}" OR "${s} soldiers killed ${year}" OR "${s} military ambush ${year}" OR "${s} police attack ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} IED ${year}" OR "${s} security incident ${year}"`)
     .join("\n");
 
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
@@ -976,12 +996,12 @@ TARGET STATES: ${stateList}
 
 YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks, kidnappings, communal clashes, militant activity, cult violence, IED explosions, attacks on military convoys/bases, soldiers/officers killed in ambushes, or attacks by unknown gunmen — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}.
 
-MANDATORY SEARCH — execute a search for EACH state using BOTH civilian and military-focused keywords:
+MANDATORY SEARCH — this request covers exactly the state named above. Complete every search family below before deciding that the state has no qualifying incident:
 ${stateSearchLines}
 
 MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as important as civilian attacks. Always search for "[State] soldiers killed", "[State] military ambush", "[State] army casualties", "[State] troops killed", "Operation Hadin Kai [State]" when scanning Northeast states.
 
-IMPORTANT: Search each state individually and explicitly. Do NOT rely only on general Nigeria-wide searches — those miss incidents in lower-profile states. Even if a state appears quiet, verify by searching.
+IMPORTANT: Do NOT rely only on general Nigeria-wide searches — they miss lower-profile states. Search the target state explicitly, including town/LGA names returned by early results. A quiet state is a valid outcome only after the specified search families have been checked.
 
 ${SOURCE_TIERS_PROMPT}
 
@@ -989,8 +1009,8 @@ ${SOURCE_TIERS_PROMPT}
 DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into one entry with all source URLs combined.
-- Use the HIGHEST reported casualty numbers when consolidating.
-- RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement or follow-up report describing the outcome of a KNOWN attack (e.g. "troops rescue 50 kidnapped victims", "military confirms attack casualties") is the SAME INCIDENT as the original attack. Consolidate into one entry using the ORIGINAL attack date from the article's narrative, not the article's publication date.
+- Never choose a higher conflicting casualty value. Keep an agreed or only-known value; otherwise use null for that field and status "developing".
+- RESCUE/FOLLOW-UP ARTICLES: Treat a rescue or operational update as the original incident only when the narrative identifies the original attack date and location. Use that date, not the publication date. If the original incident cannot be identified, omit the rescue update rather than inventing a new dated incident.
 - PAST-WINDOW EVENTS: If an article describes an attack that clearly occurred BEFORE the current search window (e.g. a March attack described in an April press release), do NOT include it as a new incident — it has already been tracked. Only include incidents whose attack date falls within the ${lookbackStr}–${todayStr} search window.
 
 ═══════════════════════════════════════════
@@ -1015,8 +1035,8 @@ For each incident found, provide:
    - EXAMPLE: "12 bandits killed, 1 soldier killed, 2 farmers injured" → killed=1, injured=2
    - EXAMPLE: "troops neutralise 7 ISWAP, no friendly casualties" → killed=null, injured=null
    - Use null for any field not reported or unknown.
-7. Source URLs (real, working links only)
-8. Status: "confirmed" | "unconfirmed" | "developing"
+7. Source URLs (real, working direct article or official-statement links only; never a search result, home page, tag page, or image)
+8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for a credible conflict or ongoing event
 9. Tags (include "military-attack" for incidents targeting soldiers/army)
 
 "civilianCasualties" field: set to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Set to false ONLY when the ONLY reported deaths were attackers/insurgents themselves. Include ALL attacks even if casualties are unknown or zero — a foiled raid or patrol clash with no confirmed deaths is still a valid incident.
@@ -1136,7 +1156,7 @@ Two reports are NOT the same incident if:
 - They describe fundamentally different types of events (e.g., kidnapping vs bombing)
 - They are in the same state but clearly different towns/villages with no name overlap in either title or description
 
-⚠️ IMPORTANT: When evidence is AMBIGUOUS, ERR ON THE SIDE OF MARKING AS DUPLICATE. It is much worse to have duplicate entries in the database than to miss a genuinely unique incident.
+⚠️ IMPORTANT: Mark reports as duplicates only with affirmative evidence: a shared source URL, the same named town/LGA plus a matching date and event, or explicit cross-reference in the narrative. If evidence is ambiguous, return NOT duplicate and preserve both records for review. Incorrectly merging two distinct incidents creates a permanent coverage gap.
 
 Examples:
 - "Bandits kill 15 in Zamfara attack" AND "Gunmen attack Zamfara village, 12 dead" on the same date → SAME INCIDENT (different names for attackers, slight casualty variation)
@@ -1147,7 +1167,7 @@ Examples:
 IF DUPLICATE FOUND, compare quality:
 - Prefer reports from reliable outlets over tweets
 - Prefer reports with MORE SPECIFIC details
-- Prefer HIGHER casualty counts (later reports are usually more accurate)
+- Do not prefer a higher casualty count merely because it is higher. Prefer directly sourced, attributable figures; unresolved differences must remain developing.
 - If quality is roughly equal, prefer the existing report
 
 RESPOND WITH JSON ONLY:
@@ -1175,7 +1195,8 @@ RESPOND WITH JSON ONLY:
 /**
  * Merge two incident reports (existing and new candidate).
  * Strategies:
- * - Casualties: Take the HIGHER number for each field.
+ * - Casualties: Keep an agreed or only-known value; do not silently choose a
+ *   higher conflicting value.
  * - Sources: Combine unique sources.
  * - Description: Use AI to merge and update if new info is available.
  */
@@ -1186,10 +1207,13 @@ export async function mergeIncidentStrategies(
     const ai = createAI();
     const dedupModel = process.env.GEMINI_DEDUP_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
-    // 1. Merge Casualties (Target: Max, preserve null when both sides are unknown)
+    // 1. Merge casualties conservatively. A discrepancy between reports is
+    // evidence of uncertainty, not evidence that the larger figure is right.
     const mergeCount = (a: number | null | undefined, b: number | null | undefined): number | null => {
         if (a == null && b == null) return null;
-        return Math.max(a ?? 0, b ?? 0);
+        if (a == null) return b ?? null;
+        if (b == null) return a;
+        return a === b ? a : null;
     };
     const mergedCasualties = {
         killed: mergeCount(existing.casualties?.killed, candidate.casualties?.killed),
@@ -1197,6 +1221,8 @@ export async function mergeIncidentStrategies(
         kidnapped: mergeCount(existing.casualties?.kidnapped, candidate.casualties?.kidnapped),
         displaced: mergeCount(existing.casualties?.displaced, candidate.casualties?.displaced),
     };
+    const hasCasualtyConflict = (Object.keys(mergedCasualties) as Array<keyof typeof mergedCasualties>)
+        .some((field) => existing.casualties?.[field] != null && candidate.casualties?.[field] != null && existing.casualties[field] !== candidate.casualties[field]);
 
     // 2. Merge Sources (Unique by URL)
     const sourceMap = new Map();
@@ -1222,7 +1248,7 @@ export async function mergeIncidentStrategies(
 
     INSTRUCTIONS:
     - Combine details from both.
-    - If the new report has more specific info (exact numbers, names, locations), use it.
+    - Use a new specific detail only when it does not conflict with the existing report. Do not invent a resolution for conflicting dates, locations, or casualty figures; describe the disagreement neutrally if necessary.
     - Keep the tone objective and serious.
     - Result should be a single paragraph.
     - When mentioning casualties, refer only to victims (civilians and security forces). Attacker/insurgent/terrorist deaths may be mentioned in the narrative but must NOT be presented as victim casualties.
@@ -1242,7 +1268,8 @@ export async function mergeIncidentStrategies(
         description: mergedDescription,
         casualties: mergedCasualties,
         sources: mergedSources,
-        // If status was unconfirmed but new report is confirmed, upgrade it
-        status: candidate.status === "confirmed" ? "confirmed" : existing.status,
+        // Conflicting casualty reports remain visible as a developing incident
+        // until a human verifies an authoritative figure.
+        status: hasCasualtyConflict ? "developing" : (candidate.status === "confirmed" ? "confirmed" : existing.status),
     };
 }

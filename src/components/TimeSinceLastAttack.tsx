@@ -97,10 +97,10 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                     </div>
 
                     {/* Timer digits */}
-                    <div className="flex items-center justify-center gap-1 sm:gap-3 md:gap-5">
+                    <div className="flex items-center justify-center gap-2 sm:gap-3 md:gap-5">
                         {units.map((unit, i) => (
-                            <div key={unit.label} className="flex items-center gap-1 sm:gap-3 md:gap-5">
-                                <div className="text-center min-w-[3.25rem] sm:min-w-[4.5rem] md:min-w-[5.5rem]">
+                            <div key={unit.label} className="flex items-center gap-2 sm:gap-3 md:gap-5">
+                                <div className="text-center min-w-[3rem] sm:min-w-[4.5rem] md:min-w-[5.5rem]">
                                     <div
                                         className="text-3xl sm:text-5xl md:text-6xl font-bold tabular-nums leading-none mb-1 sm:mb-1.5"
                                         style={{
@@ -121,7 +121,7 @@ export default function TimeSinceLastAttack({ lastAttackDate }: TimeSinceLastAtt
                                 {/* Separator colon */}
                                 {i < units.length - 1 && (
                                     <span
-                                        className="text-2xl sm:text-4xl md:text-5xl font-light -mt-2 sm:-mt-4 opacity-30"
+                                        className="hidden sm:inline text-2xl sm:text-4xl md:text-5xl font-light -mt-2 sm:-mt-4 opacity-30"
                                         style={{ color: "var(--text-muted)" }}
                                     >
                                         :

@@ -9,8 +9,8 @@
  *       civilianCasualties filters were removed after these months ran)
  *
  * Covers: January, February, March, and April 2026.
- * Strategy: for each month the scan is broken into ≤14-day windows; within
- *   each window the 6 geographic state groups are queried in parallel.
+ * Strategy: for each window, query one state at a time (with bounded
+ *   concurrency). Grouped prompts silently skipped quieter states.
  *
  * Run:
  *   npx tsx scripts/historical-gap-scan.ts
@@ -69,7 +69,8 @@ async function connectDB() {
 }
 
 // ─────────────────────────────────────────────
-// State groups (mirrors scheduled-state-scan-background.mts)
+// State list. Each model request gets exactly one state to make coverage
+// observable instead of allowing a regional prompt to favour headline events.
 // ─────────────────────────────────────────────
 
 const STATE_GROUPS: Record<string, string[]> = {
@@ -80,6 +81,11 @@ const STATE_GROUPS: Record<string, string[]> = {
   SouthSouth:   ["Rivers", "Delta", "Edo", "Bayelsa", "Akwa Ibom", "Cross River"],
   Southeast:    ["Anambra", "Imo", "Abia", "Enugu", "Ebonyi"],
 };
+const ALL_STATES = Object.values(STATE_GROUPS).flat();
+const configuredScanConcurrency = Number(process.env.GAP_SCAN_CONCURRENCY || 3);
+const GAP_SCAN_CONCURRENCY = Number.isFinite(configuredScanConcurrency)
+  ? Math.max(1, Math.min(Math.floor(configuredScanConcurrency), ALL_STATES.length))
+  : 3;
 
 // ─────────────────────────────────────────────
 // Source trust helpers (mirror gemini.ts)
@@ -206,7 +212,7 @@ function resolveGroundingUrls(attacks: RawAttackData[], chunks: any[]): RawAttac
 
 function extractJsonArray(text: string): RawAttackData[] {
   // Strip code fences
-  let cleaned = text.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+  const cleaned = text.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
 
   // If the whole thing is valid JSON, use it
   try { return JSON.parse(cleaned); } catch { /* fall through */ }
@@ -322,7 +328,7 @@ You must find incidents that occurred between ${startStr} and ${endStr} (inclusi
 
 TARGET STATES: ${stateList}
 
-YOUR MISSION: Find ALL security incidents in these states during ${startStr} – ${endStr}, with special emphasis on:
+YOUR MISSION: Find ALL qualifying security incidents in the target state during ${startStr} – ${endStr}. Complete each search family before deciding the state has no report. Do not infer that a state is quiet from Nigeria-wide results.
 
 1. ATTACKS ON SECURITY FORCES (non-civilian targets):
    - ISWAP/Boko Haram ambushes on military convoys or bases
@@ -341,7 +347,7 @@ YOUR MISSION: Find ALL security incidents in these states during ${startStr} –
 3. ALL OTHER ATTACKS: kidnappings, bandit raids, village attacks, communal clashes,
    cult violence — include everything from the TARGET STATES in the date window.
 
-MANDATORY SEARCH — execute for EACH state:
+MANDATORY SEARCH — execute every search family for the target state:
 ${stateSearchLines}
 
 Also search:
@@ -358,7 +364,8 @@ ${SOURCE_TIERS_PROMPT}
 DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into ONE entry with all sources combined.
-- Use the HIGHEST reported casualty numbers when consolidating.
+- Never choose a higher conflicting casualty value. Preserve an agreed or only-known value; otherwise use null for that field and status "developing".
+- A rescue, arrest, or military-operation update is not a standalone incident. Link it only when the article identifies the original attack date and location; otherwise omit it rather than using publication date as the incident date.
 
 ═══════════════════════════════════════════
 DATA REQUIREMENTS
@@ -379,8 +386,8 @@ DATA REQUIREMENTS
 7. "civilianCasualties": set TRUE whenever soldiers, officers, police, vigilantes, OR civilians
    were killed/injured/kidnapped/displaced. Set FALSE ONLY when the ONLY deaths were attackers.
    For incidents with no confirmed casualties, set TRUE if civilians or security forces were targeted.
-8. Source URLs (real, working links)
-9. Status: "confirmed" | "unconfirmed" | "developing"
+8. Source URLs (real, working, direct article or official-statement links — never a search result, home page, category page, or image)
+9. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for a credible conflict or ongoing event
 10. Tags — include "military-attack" for army/police targets, "no-casualties" if zero/null.
 
 ONLY return incidents from TARGET STATES dated between ${startStr} and ${endStr}.
@@ -597,7 +604,7 @@ function buildWindows(year: number, month: number, chunkDays = 14) {
 // Main
 // ─────────────────────────────────────────────
 
-// 96-hour day-by-day scan: Apr 14–18 2026 (5 days × 6 state groups = 30 targeted calls)
+// 96-hour day-by-day scan: Apr 14–18 2026 (5 days × 37 state calls).
 const MONTHS: never[] = [];
 const CUSTOM_WINDOWS = [
   { start: new Date("2026-04-14T00:00:00Z"), end: new Date("2026-04-14T23:59:59Z") },
@@ -609,11 +616,19 @@ const CUSTOM_WINDOWS = [
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += concurrency) {
+    results.push(...await Promise.all(items.slice(index, index + concurrency).map(work)));
+  }
+  return results;
+}
+
 async function run() {
   await connectDB();
   console.log("✓ Connected to MongoDB\n");
 
-  let grand = { saved: 0, merged: 0, errors: 0 };
+  const grand = { saved: 0, merged: 0, errors: 0 };
 
   // Build the full list of windows: monthly chunks + any custom windows
   const allWindows: { label: string; start: Date; end: Date }[] = [];
@@ -636,34 +651,28 @@ async function run() {
     console.log(`${"═".repeat(60)}`);
     console.log(`  Window: ${windowLabel}`);
 
-    // Run all 6 state groups in parallel for this window
-    const groupResults = await Promise.allSettled(
-      Object.entries(STATE_GROUPS).map(async ([region, states]) => {
-        const callLabel = `${label}/${region}`;
+    // One request per state, so a quiet result is a recorded coverage result
+    // rather than an omission hidden inside a regional response.
+    const stateResults = await mapWithConcurrency(ALL_STATES, GAP_SCAN_CONCURRENCY, async (state) => {
+        const callLabel = `${label}/${state}`;
         try {
-          const raw = await fetchGapAttacks(states, start, end);
-          console.log(`  [${region}] Gemini returned ${raw.length} candidate(s)`);
-          if (raw.length === 0) return { region, saved: 0, merged: 0, errors: 0 };
-          return { region, ...(await ingest(raw, callLabel)) };
+          const raw = await fetchGapAttacks([state], start, end);
+          console.log(`  [${state}] Gemini returned ${raw.length} candidate(s)`);
+          if (raw.length === 0) return { state, saved: 0, merged: 0, errors: 0 };
+          return { state, ...(await ingest(raw, callLabel)) };
         } catch (err: any) {
-          console.error(`  [${region}] Failed:`, err?.message || err);
-          return { region, saved: 0, merged: 0, errors: 1 };
+          console.error(`  [${state}] Failed:`, err?.message || err);
+          return { state, saved: 0, merged: 0, errors: 1 };
         }
-      }),
-    );
+    });
 
-      for (const r of groupResults) {
-        if (r.status === "fulfilled") {
-          const { region, saved, merged, errors } = r.value;
-          grand.saved  += saved;
-          grand.merged += merged;
-          grand.errors += errors;
-          if (saved > 0 || merged > 0) {
-            console.log(`  [${region}] saved: ${saved}, merged: ${merged}, errors: ${errors}`);
-          }
-        } else {
-          grand.errors++;
-          console.error("  Group promise rejected:", r.reason);
+      for (const result of stateResults) {
+        const { state, saved, merged, errors } = result;
+        grand.saved  += saved;
+        grand.merged += merged;
+        grand.errors += errors;
+        if (saved > 0 || merged > 0 || errors > 0) {
+          console.log(`  [${state}] saved: ${saved}, merged: ${merged}, errors: ${errors}`);
         }
       }
 

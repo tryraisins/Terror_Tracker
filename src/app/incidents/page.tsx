@@ -140,7 +140,7 @@ function IncidentsList() {
     const hasActiveFilters = search || state || status || casualtyType || month || sort !== "date_desc";
 
     return (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="max-w-[76rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
             {/* Header */}
             <div className="mb-8">
                 <h1
@@ -160,8 +160,8 @@ function IncidentsList() {
             </div>
 
             {/* Search & Filter Bar */}
-            <div className="glass-card rounded-2xl p-4 mb-6 animate-fade-in-up stagger-2">
-                <div className="flex flex-col sm:flex-row gap-3">
+            <div className="glass-card rounded-2xl p-3 sm:p-4 mb-6 animate-fade-in-up stagger-2 lg:sticky lg:top-[8.35rem] z-30">
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
                     {/* Search */}
                     <div className="flex-1 relative">
                         <MagnifyingGlassIcon
@@ -173,7 +173,7 @@ function IncidentsList() {
                             value={searchInput}
                             onChange={(e) => setSearchInput(e.target.value)}
                             placeholder="Search incidents, locations, groups..."
-                            className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm font-medium
+                            className="w-full min-h-12 pl-10 pr-4 py-2.5 rounded-xl text-sm font-medium
                 border transition-all duration-300 outline-none
                 focus:ring-2 focus:ring-blood/30"
                             style={{
@@ -197,7 +197,7 @@ function IncidentsList() {
                     {/* Filter toggle */}
                     <button
                         onClick={() => setShowFilters(!showFilters)}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
+                        className={`min-h-12 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
               border transition-all duration-300 ${showFilters ? "ring-2 ring-blood/30" : ""}`}
                         style={{
                             background: showFilters ? "var(--accent)" : "var(--bg-secondary)",
@@ -362,8 +362,8 @@ function IncidentsList() {
 
             {/* Casualty Totals Summary */}
             {totals && (
-                <div className="grid grid-cols-3 gap-3 mb-6 animate-fade-in-up stagger-3">
-                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-blood">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6 animate-fade-in-up stagger-3">
+                    <div className="glass-card rounded-2xl px-3 sm:px-4 py-3 flex flex-col gap-0.5 border-l-2 border-blood">
                         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                             Killed
                         </span>
@@ -371,7 +371,7 @@ function IncidentsList() {
                             {totals.killed.toLocaleString()}
                         </span>
                     </div>
-                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-orange-500">
+                    <div className="glass-card rounded-2xl px-3 sm:px-4 py-3 flex flex-col gap-0.5 border-l-2 border-orange-500">
                         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                             Kidnapped
                         </span>
@@ -379,7 +379,7 @@ function IncidentsList() {
                             {totals.kidnapped.toLocaleString()}
                         </span>
                     </div>
-                    <div className="glass-card rounded-2xl px-4 py-3 flex flex-col gap-0.5 border-l-2 border-yellow-500">
+                    <div className="glass-card rounded-2xl px-3 sm:px-4 py-3 flex flex-col gap-0.5 border-l-2 border-yellow-500">
                         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                             Injured
                         </span>
@@ -473,7 +473,7 @@ function IncidentsList() {
 export default function IncidentsPage() {
     return (
         <Suspense fallback={
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+            <div className="max-w-[76rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
                 <div className="mb-8">
                     <div className="h-10 w-64 bg-gray-200 dark:bg-gray-800 rounded animate-pulse mb-2"></div>
                     <div className="h-5 w-96 bg-gray-200 dark:bg-gray-800 rounded animate-pulse"></div>

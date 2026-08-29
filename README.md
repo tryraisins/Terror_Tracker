@@ -85,6 +85,11 @@ Follow these instructions to set up the project locally for development and test
     # Free source-led collection guards
     FREE_SOURCE_MAX_ARTICLE_AGE_HOURS=72
     FREE_SOURCE_MAX_INCIDENT_AGE_DAYS=3
+    FREE_SOURCE_MAX_ITEMS_PER_FEED=12
+    FREE_SOURCE_CONCURRENCY=4
+    # Used only by the deliberate Gemini state-recovery scan, not hourly RSS collection.
+    STATE_SCAN_CONCURRENCY=3
+    GAP_SCAN_CONCURRENCY=3
 
     # Security
     CRON_SECRET=your_random_secure_string_for_cron_jobs
@@ -108,10 +113,12 @@ The system uses an API route (`src/app/api/cron/update/route.ts`) designed to be
 - **Endpoint**: `POST /api/cron/update`
 - **Headers**: `x-cron-secret: <CRON_SECRET>`
 - **Function**:
-    1.  Fetches only newly-seen articles from trusted publisher RSS feeds.
+    1.  Fetches only newly-seen articles from trusted publisher RSS feeds, including regional/security outlets alongside national outlets.
     2.  Verifies article freshness, explicit incident date, state, town/LGA, and incident language before publishing.
     3.  Treats older/referenced events as evidence-only, never as a new incident.
     4.  Merges only an exact incident fingerprint; fuzzy matches are review-only and never delete records automatically.
+
+The hourly collector is intentionally source-led and does not certify that every state was searched. Use the deliberate one-state-per-request recovery scan for evidence-backed historical or coverage work; it has a configurable concurrency cap, and its sources and database changes should be reviewed before it is run.
 
 ## 🧹 Data Integrity & Cleanup
 

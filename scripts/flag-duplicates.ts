@@ -165,22 +165,30 @@ async function main() {
     }
     const mergedSources = Array.from(sourceMap.values());
 
-    // Merge casualties (take max)
-    let maxKilled = primary.casualties?.killed ?? 0;
-    let maxInjured = primary.casualties?.injured ?? 0;
-    let maxKidnapped = primary.casualties?.kidnapped ?? 0;
-    let maxDisplaced = primary.casualties?.displaced ?? 0;
-    for (const sec of secondaries) {
-      maxKilled = Math.max(maxKilled, sec.casualties?.killed ?? 0);
-      maxInjured = Math.max(maxInjured, sec.casualties?.injured ?? 0);
-      maxKidnapped = Math.max(maxKidnapped, sec.casualties?.kidnapped ?? 0);
-      maxDisplaced = Math.max(maxDisplaced, sec.casualties?.displaced ?? 0);
-    }
+    // Preserve an agreed or only-known casualty count. A conflict is not an
+    // instruction to use the higher figure; leave it unknown for review.
+    const reconcileCount = (values: Array<number | null | undefined>): number | null => {
+      const known = Array.from(new Set(values.filter((value): value is number => Number.isInteger(value) && value >= 0)));
+      return known.length === 1 ? known[0] : null;
+    };
+    const allRecords = [primary, ...secondaries];
+    const mergedCasualties = {
+      killed: reconcileCount(allRecords.map((record) => record.casualties?.killed)),
+      injured: reconcileCount(allRecords.map((record) => record.casualties?.injured)),
+      kidnapped: reconcileCount(allRecords.map((record) => record.casualties?.kidnapped)),
+      displaced: reconcileCount(allRecords.map((record) => record.casualties?.displaced)),
+    };
+    const casualtyFields = ["killed", "injured", "kidnapped", "displaced"] as const;
+    const hasCasualtyConflict = casualtyFields.some((field) => new Set(
+      allRecords
+        .map((record) => record.casualties?.[field])
+        .filter((value): value is number => Number.isInteger(value) && value >= 0)
+    ).size > 1);
 
     console.log(`GROUP: "${group.name}"`);
     console.log(`  PRIMARY: [${primary._id}] "${primary.title}"`);
     console.log(`    Sources: ${(primary.sources || []).length} → ${mergedSources.length}`);
-    console.log(`    Casualties: killed ${primary.casualties?.killed ?? "?"} → ${maxKilled || "?"}`);
+    console.log(`    Casualties: killed ${primary.casualties?.killed ?? "?"} → ${mergedCasualties.killed ?? "?"}`);
     for (const sec of secondaries) {
       console.log(`  FLAG: [${sec._id}] "${sec.title}" (state: "${sec.location?.state}")`);
     }
@@ -192,10 +200,11 @@ async function main() {
         {
           $set: {
             sources: mergedSources,
-            "casualties.killed": maxKilled || null,
-            "casualties.injured": maxInjured || null,
-            "casualties.kidnapped": maxKidnapped || null,
-            "casualties.displaced": maxDisplaced || null,
+            "casualties.killed": mergedCasualties.killed,
+            "casualties.injured": mergedCasualties.injured,
+            "casualties.kidnapped": mergedCasualties.kidnapped,
+            "casualties.displaced": mergedCasualties.displaced,
+            ...(hasCasualtyConflict ? { status: "developing" } : {}),
           },
         }
       );

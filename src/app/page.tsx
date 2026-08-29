@@ -69,10 +69,11 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+    <div className="max-w-[76rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
       {/* Hero Section */}
-      <div ref={heroRef} className="mb-12">
-        <div className="flex items-center gap-3 mb-4" style={{ opacity: 0 }}>
+      <div ref={heroRef} className="mb-10 lg:mb-14 grid gap-7 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end">
+        <div style={{ opacity: 0 }}>
+        <div className="flex items-center gap-3 mb-4">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider"
             style={{
               background: "rgba(139,26,26,0.1)",
@@ -95,7 +96,7 @@ export default function DashboardPage() {
 
         <h1
           className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.1] mb-4"
-          style={{ fontFamily: "var(--font-heading)", opacity: 0 }}
+          style={{ fontFamily: "var(--font-heading)" }}
         >
           Nigeria Attack
           <br />
@@ -111,11 +112,21 @@ export default function DashboardPage() {
 
         <p
           className="text-lg max-w-2xl leading-relaxed"
-          style={{ color: "var(--text-secondary)", opacity: 0 }}
+          style={{ color: "var(--text-secondary)" }}
         >
           Real-time intelligence on terrorist and insurgent activities across Nigeria.
           Data sourced from verified news outlets, security reports, and field correspondents.
         </p>
+        </div>
+        <div className="glass-card rounded-2xl p-5 hidden lg:block" style={{ opacity: 0 }}>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] mb-3" style={{ color: "var(--text-muted)" }}>Research note</p>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Use source links in every report before sharing or citing an incident.
+          </p>
+          <Link href="/incidents" className="mt-5 inline-flex items-center gap-2 text-sm font-bold" style={{ color: "var(--accent)" }}>
+            Browse reports <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       {/* Time Since Last Attack */}
@@ -126,11 +137,11 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <section className="mb-12">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
             {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
           </div>
         ) : stats ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
             <StatCard
               label="Total Incidents"
               value={stats.overview.totalAttacks}
@@ -172,7 +183,7 @@ export default function DashboardPage() {
 
       {/* Secondary Stats */}
       {stats && !loading && (
-        <section className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-12">
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5 mb-12">
           <StatCard
             label="Attacks (Last 7 Days)"
             value={stats.overview.attacksLast7Days}
@@ -191,7 +202,7 @@ export default function DashboardPage() {
       )}
 
       {/* Charts */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5 mb-12">
         {loading ? (
           <>
             <ChartSkeleton />

@@ -33,11 +33,11 @@ export default function UpdateNotifier() {
   if (!updateAvailable) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 bg-amber-500 text-black px-4 py-3 rounded-lg shadow-lg text-sm font-medium">
-      <span>A new version is available.</span>
+    <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-md flex items-center gap-3 bg-amber-400 text-black px-4 py-3 rounded-2xl shadow-2xl text-sm font-medium">
+      <span className="flex-1">A new version is available.</span>
       <button
         onClick={() => window.location.reload()}
-        className="bg-black text-amber-400 px-3 py-1 rounded text-xs font-bold hover:bg-neutral-800 transition-colors"
+        className="bg-black text-amber-300 px-3 py-2 rounded-xl text-xs font-bold hover:bg-neutral-800 transition-colors"
       >
         Update now
       </button>

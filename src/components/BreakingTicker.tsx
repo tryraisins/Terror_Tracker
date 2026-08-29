@@ -42,7 +42,7 @@ export default function BreakingTicker() {
     const repeated = [...items, ...items];
 
     return (
-        <div className="fixed top-[5.5rem] left-1/2 -translate-x-1/2 z-40 w-[95%] max-w-6xl overflow-hidden rounded-xl"
+        <div className="fixed top-[5.65rem] sm:top-[6rem] left-1/2 -translate-x-1/2 z-40 w-[calc(100%-1.25rem)] max-w-[76rem] overflow-hidden rounded-xl border border-white/10"
             style={{
                 background: "linear-gradient(90deg, var(--color-blood), var(--color-ember))",
                 boxShadow: "0 4px 16px rgba(139,26,26,0.3)",
@@ -51,7 +51,7 @@ export default function BreakingTicker() {
             <div className="flex items-center">
                 {/* Static label */}
                 <div
-                    className="flex-shrink-0 px-4 py-2 text-xs font-bold tracking-widest uppercase text-white
+                    className="flex-shrink-0 px-3 sm:px-4 py-2 text-[10px] sm:text-xs font-bold tracking-widest uppercase text-white
           flex items-center gap-2 border-r border-white/20"
                 >
                     <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
@@ -62,7 +62,7 @@ export default function BreakingTicker() {
                 <div className="flex-1 overflow-hidden py-2">
                     <div className="ticker-scroll flex gap-12 whitespace-nowrap">
                         {repeated.map((item, i) => (
-                            <span key={i} className="text-sm font-medium text-white/90 flex items-center gap-2">
+                            <span key={i} className="text-xs sm:text-sm font-medium text-white/90 flex items-center gap-2">
                                 <span className="inline-block w-1 h-1 bg-white/60 rounded-full" />
                                 <span className="font-semibold">{item.location}:</span>
                                 {item.title}

@@ -5,10 +5,10 @@ import { ShieldExclamationIcon } from "@heroicons/react/24/outline";
 export default function Footer() {
     return (
         <footer
-            className="mt-20 border-t py-12 px-6"
+            className="mt-20 border-t px-4 sm:px-6 pt-12 pb-[max(3rem,calc(2rem+env(safe-area-inset-bottom)))]"
             style={{ borderColor: "var(--border-subtle)", background: "var(--bg-secondary)" }}
         >
-            <div className="max-w-6xl mx-auto">
+            <div className="max-w-[76rem] mx-auto">
                 <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                     {/* Brand */}
                     <div className="flex items-center gap-3">

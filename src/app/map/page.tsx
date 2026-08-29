@@ -149,7 +149,7 @@ export default function ThreatMapPage() {
         .slice(0, 37); // Show all states in list if needed, or stick to top 15
 
     return (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
             {/* Header */}
             <div className="mb-8 animate-fade-in-up">
                 <div className="flex items-center gap-2 mb-4">
@@ -176,12 +176,11 @@ export default function ThreatMapPage() {
                 </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
                 {/* Map Area */}
                 <div className="lg:col-span-2">
                     <div
-                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20 h-full"
-                        style={{ minHeight: "660px" }}
+                        className="glass-card rounded-2xl p-4 sm:p-6 relative overflow-hidden flex items-center justify-center bg-black/20 min-h-[420px] sm:min-h-[560px] lg:min-h-[660px]"
                     >
                         {loading ? (
                             <div className="flex items-center justify-center h-full w-full absolute inset-0 z-10 bg-black/10 backdrop-blur-sm">
@@ -297,7 +296,7 @@ export default function ThreatMapPage() {
                         </svg>
 
                         {/* Legend Overlay */}
-                        <div className="absolute bottom-4 left-4 p-3 rounded-xl glass border border-white/5 pointer-events-none">
+                        <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 p-2.5 sm:p-3 rounded-xl glass border border-white/5 pointer-events-none">
                             <div className="flex flex-col gap-2">
                                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted">Intensity</span>
                                 {[
@@ -318,7 +317,7 @@ export default function ThreatMapPage() {
                 {/* Sidebar */}
                 <div className="lg:col-span-1">
                     {/* Ranked States List */}
-                    <div className="glass-card rounded-2xl p-5 overflow-hidden flex flex-col" style={{ minHeight: "660px", maxHeight: "660px" }}>
+                    <div className="glass-card rounded-2xl p-4 sm:p-5 overflow-hidden flex flex-col" style={{ minHeight: "min(660px, 70vh)", maxHeight: "660px" }}>
                         <h3
                             className="text-sm font-bold uppercase tracking-wider mb-4 flex-shrink-0"
                             style={{

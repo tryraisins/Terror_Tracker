@@ -188,7 +188,7 @@ interface DuplicateCandidate {
 export class DuplicateCheckerService {
   private static DATE_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days (aligned with COMPARISON_WINDOW_MS)
   private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
-  private static SCORE_THRESHOLD = 0.4; // lowered from 0.5 — Gemini confirmation still gates merges
+  private static SCORE_THRESHOLD = 0.55;
 
   /**
    * Shared heuristic scoring logic used by both cron and manual paths.
@@ -345,6 +345,16 @@ export class DuplicateCheckerService {
       descScore +
       sourceOverlapScore +
       dateScore;
+
+    // Same-state events close in time are common. They are candidates for AI
+    // review only when there is a concrete link, not merely a generic group or
+    // unknown location. This prevents an incorrect merge from masking a real
+    // incident in sparse state coverage.
+    const hasAffirmativeLink =
+      sourceOverlapScore > 0 ||
+      (locationScore >= 0.4 && (titleScore > 0 || descScore > 0 || dateScore > 0)) ||
+      (locationScore >= 0.25 && titleScore > 0 && descScore > 0);
+    if (!hasAffirmativeLink) return null;
 
     const reason =
       `Score: ${score.toFixed(2)} (` +
@@ -522,7 +532,7 @@ export class DuplicateCheckerService {
    * Process a batch of duplicates using Gemini to confirm, then MERGE
    * instead of deleting. The primary (kept) record absorbs:
    *   - All unique sources from both reports
-   *   - The higher casualty count for each field
+   *   - Only agreed or otherwise non-conflicting casualty values
    *   - An AI-consolidated description
    */
   static async processDuplicates(
@@ -587,8 +597,15 @@ export class DuplicateCheckerService {
             },
           });
 
-          // Remove the secondary (its data is now preserved in primary)
-          await Attack.findByIdAndDelete(secondary._id);
+          // Preserve the absorbed source record for audit/recovery instead of
+          // permanently deleting it. The UI excludes soft-deleted records.
+          await Attack.findByIdAndUpdate(secondary._id, {
+            $set: {
+              _deleted: true,
+              _deletedReason: `Merged into ${String(primary._id)} after evidence-backed duplicate review.`,
+              updatedAt: new Date(),
+            },
+          });
           deletedIds.add(String(secondary._id));
 
           const log =

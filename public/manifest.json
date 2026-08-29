@@ -1,15 +1,23 @@
 {
   "name": "Nigeria Attack Tracker",
   "short_name": "NATracker",
+  "description": "Verified, continuously updated security incident intelligence across Nigeria.",
+  "id": "/",
+  "lang": "en-NG",
+  "dir": "ltr",
+  "orientation": "any",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "icons": [
     {
       "src": "icons/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ],
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#000000"
+  "background_color": "#101113",
+  "theme_color": "#8b1a1a",
+  "categories": ["news", "utilities"]
 }

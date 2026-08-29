@@ -17,16 +17,13 @@ const ThemeContext = createContext<ThemeContextType>({
 export function ThemeProvider({ children }: { children: ReactNode; }) {
     const [theme, setTheme] = useState<Theme>(() => {
         if (typeof window === "undefined") return "dark";
-        return (localStorage.getItem("nat-theme") as Theme) ?? "dark";
+        const savedTheme = localStorage.getItem("nat-theme") as Theme | null;
+        if (savedTheme === "light" || savedTheme === "dark") return savedTheme;
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     });
-    const [mounted, setMounted] = useState(false);
-
     useEffect(() => {
-        // Sync initial theme to the DOM, then reveal content
         document.documentElement.setAttribute("data-theme", theme);
-        setMounted(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [theme]);
 
     const toggleTheme = () => {
         const next = theme === "dark" ? "light" : "dark";
@@ -34,11 +31,6 @@ export function ThemeProvider({ children }: { children: ReactNode; }) {
         document.documentElement.setAttribute("data-theme", next);
         localStorage.setItem("nat-theme", next);
     };
-
-    // Prevent flash of wrong theme
-    if (!mounted) {
-        return <div style={{ visibility: "hidden" }}>{children}</div>;
-    }
 
     return (
         <ThemeContext.Provider value={{ theme, toggleTheme }}>

@@ -31,12 +31,22 @@ const FEEDS: Feed[] = [
   { publisher: "The Guardian Nigeria", url: "https://guardian.ng/feed/" },
   { publisher: "Daily Post", url: "https://dailypost.ng/feed/" },
   { publisher: "Sahara Reporters", url: "https://saharareporters.com/rss.xml" },
+  // These outlets add regional and security reporting that does not always
+  // reach the larger national feeds above.
+  { publisher: "Tribune Online", url: "https://tribuneonlineng.com/feed/" },
+  { publisher: "PRNigeria", url: "https://prnigeria.com/feed/" },
+  { publisher: "Daily Nigerian", url: "https://dailynigerian.com/feed/" },
+  { publisher: "News Central", url: "https://newscentral.africa/feed/" },
 ];
 
 const MAX_ARTICLE_AGE_HOURS = Number(process.env.FREE_SOURCE_MAX_ARTICLE_AGE_HOURS || 72);
 const MAX_INCIDENT_AGE_DAYS = Number(process.env.FREE_SOURCE_MAX_INCIDENT_AGE_DAYS || 3);
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
 const MAX_ITEMS_PER_FEED = Number(process.env.FREE_SOURCE_MAX_ITEMS_PER_FEED || 12);
+const configuredConcurrency = Number(process.env.FREE_SOURCE_CONCURRENCY || 4);
+const FEED_CONCURRENCY = Number.isFinite(configuredConcurrency)
+  ? Math.max(1, Math.min(Math.floor(configuredConcurrency), FEEDS.length))
+  : 4;
 
 const STATES = ["Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"];
 const STATE_PATTERN = new RegExp(`\\b(${[...STATES, "Abuja", "Federal Capital Territory"].map(escapeRegex).join("|")})(?:\\s+State)?\\b`, "i");
@@ -133,16 +143,44 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
 
 export async function collectFreeIncidents(): Promise<FreeCollectionResult> {
   const result: FreeCollectionResult = { inspected: 0, published: 0, merged: 0, references: 0, rejected: 0, errors: 0 };
-  for (const feed of FEEDS) {
+
+  // Fetch feeds concurrently, then keep article processing bounded. The former
+  // sequential loop could spend most of a 60-second function window waiting on
+  // feeds and never reach lower-priority outlets.
+  const discovered = await Promise.all(FEEDS.map(async (feed) => {
     try {
       const response = await fetch(feed.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { "user-agent": "NigeriaAttackTracker/1.0 (+source-led OSINT collector)" } });
       if (!response.ok) throw new Error(`Feed returned ${response.status}`);
-      for (const item of parseFeed(await response.text()).slice(0, MAX_ITEMS_PER_FEED)) {
-        if (await SourceArticle.exists({ url: item.url })) continue;
-        result.inspected++;
-        try { const outcome = await processItem(item, feed.publisher); if (outcome === "published") result.published++; else if (outcome === "merged") result.merged++; else if (outcome === "reference") result.references++; else result.rejected++; } catch (error) { result.errors++; console.error(`[Free Collector] Failed article ${item.url}:`, error); }
-      }
+      return parseFeed(await response.text())
+        .slice(0, MAX_ITEMS_PER_FEED)
+        .map((item) => ({ item, publisher: feed.publisher }));
     } catch (error) { result.errors++; console.error(`[Free Collector] Failed feed ${feed.publisher}:`, error); }
+    return [] as Array<{ item: FeedItem; publisher: string }>;
+  }));
+
+  const seenUrls = new Set<string>();
+  const articles = discovered.flat().filter(({ item }) => {
+    const url = item.url.replace(/\/$/, "");
+    if (seenUrls.has(url)) return false;
+    seenUrls.add(url);
+    return true;
+  });
+
+  for (let index = 0; index < articles.length; index += FEED_CONCURRENCY) {
+    await Promise.all(articles.slice(index, index + FEED_CONCURRENCY).map(async ({ item, publisher }) => {
+      if (await SourceArticle.exists({ url: item.url })) return;
+      result.inspected++;
+      try {
+        const outcome = await processItem(item, publisher);
+        if (outcome === "published") result.published++;
+        else if (outcome === "merged") result.merged++;
+        else if (outcome === "reference") result.references++;
+        else result.rejected++;
+      } catch (error) {
+        result.errors++;
+        console.error(`[Free Collector] Failed article ${item.url}:`, error);
+      }
+    }));
   }
   return result;
 }

@@ -3,6 +3,17 @@ import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
+const NIGERIA_TIMEZONE = "Africa/Lagos";
+
+function nigeriaCalendarPart(date: Date, part: "year" | "month"): number {
+  const value = new Intl.DateTimeFormat("en-GB", {
+    timeZone: NIGERIA_TIMEZONE,
+    [part]: "numeric",
+  }).formatToParts(date).find((item) => item.type === part)?.value;
+  if (!value) throw new Error(`Unable to determine Nigeria calendar ${part}.`);
+  return Number(value);
+}
+
 export async function GET(req: NextRequest) {
   const securityError = await applySecurityChecks(req, {
     rateLimit: 60,
@@ -14,7 +25,11 @@ export async function GET(req: NextRequest) {
     await connectDB();
 
     const now = new Date();
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const nigeriaYear = nigeriaCalendarPart(now, "year");
+    const nigeriaMonth = nigeriaCalendarPart(now, "month");
+    // Nigeria is UTC+1 year-round. This makes the dashboard's year filter use
+    // the same calendar boundary as its Nigeria-focused incident reporting.
+    const startOfYear = new Date(`${nigeriaYear}-01-01T00:00:00.000+01:00`);
     const thirtyDaysAgo = new Date(now);
     thirtyDaysAgo.setDate(now.getDate() - 30);
     const sevenDaysAgo = new Date(now);
@@ -83,7 +98,7 @@ export async function GET(req: NextRequest) {
         { $match: { ...active, date: { $gte: startOfYear } } },
         {
           $group: {
-            _id: { $month: "$date" },
+            _id: { $month: { date: "$date", timezone: NIGERIA_TIMEZONE } },
             count: { $sum: 1 },
             killed: { $sum: "$casualties.killed" },
             kidnapped: { $sum: "$casualties.kidnapped" },
@@ -108,7 +123,7 @@ export async function GET(req: NextRequest) {
         totalKidnapped: totalKidnapped[0]?.total || 0,
         attacksLast30Days,
         attacksLast7Days,
-        year: now.getFullYear(),
+        year: nigeriaYear,
       },
       byState: byState.map((s: { _id: string; count: number }) => ({
         state: s._id,
@@ -128,7 +143,7 @@ export async function GET(req: NextRequest) {
           monthMap.set(m._id, { count: m.count, killed: m.killed, kidnapped: m.kidnapped });
         });
         // Fill in all months from Jan to current month with zeros where no data exists
-        const currentMonth = now.getMonth() + 1; // 1-indexed
+        const currentMonth = nigeriaMonth; // 1-indexed, Africa/Lagos
         const allMonths = [];
         for (let i = 1; i <= currentMonth; i++) {
           const data = monthMap.get(i);

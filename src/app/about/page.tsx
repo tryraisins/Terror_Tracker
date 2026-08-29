@@ -109,7 +109,7 @@ export default function AboutPage() {
     }, []);
 
     return (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+        <div className="max-w-[76rem] mx-auto px-4 sm:px-6 lg:px-8 pb-14">
             {/* Hero */}
             <div className="mb-16 animate-fade-in-up">
                 <div className="flex items-center gap-2 mb-4">
