@@ -8,13 +8,13 @@ import PWARegistration from "@/components/PWARegistration";
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
   manifest: "/manifest.json",
-  title: { default: "NATracker — Nigeria incident record", template: "%s | NATracker" },
+  title: { default: "NATracker — Nigeria Security Incident Tracker", template: "%s | NATracker" },
   description: "A public-interest record of reported security incidents and human harm in Nigeria, with cited sources and visible uncertainty.",
   keywords: ["Nigeria security", "incident record", "terrorism Nigeria", "Boko Haram", "ISWAP", "banditry", "kidnapping"],
   authors: [{ name: "NATracker" }], creator: "NATracker", publisher: "NATracker",
   formatDetection: { email: false, address: false, telephone: false },
-  openGraph: { title: "NATracker — Nigeria incident record", description: "Reported incidents with sources and visible uncertainty.", url: "https://terrortracker.tryraisins.dev", siteName: "NATracker", locale: "en_NG", type: "website" },
-  twitter: { card: "summary_large_image", title: "NATracker — Nigeria incident record", description: "Reported incidents with sources and visible uncertainty.", creator: "@NATracker" },
+  openGraph: { title: "NATracker — Nigeria Security Incident Tracker", description: "Reported incidents with sources and visible uncertainty.", url: "https://terrortracker.tryraisins.dev", siteName: "NATracker", locale: "en_NG", type: "website" },
+  twitter: { card: "summary_large_image", title: "NATracker — Nigeria Security Incident Tracker", description: "Reported incidents with sources and visible uncertainty.", creator: "@NATracker" },
   robots: { index: true, follow: true }, alternates: { canonical: "/" },
 };
 

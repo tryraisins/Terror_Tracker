@@ -42,7 +42,7 @@ export default function DashboardPage() {
   const maxState = Math.max(...data.byState.map((item) => item.count), 1);
   return <div className="page-wrap">
     <header className="page-header page-header--simple">
-      <div><span className="eyebrow">{overview.year} data overview</span><h1>Nigeria incident record</h1><p className="lede">A public-interest record of reported attacks and human harm across Nigeria. Figures reflect published reports and remain subject to correction.</p></div>
+      <div><span className="eyebrow">{overview.year} data overview</span><h1>Nigeria Security Incident Tracker</h1><p className="lede">A public-interest record of reported attacks and human harm across Nigeria. Figures reflect published reports and remain subject to correction.</p></div>
     </header>
     {failed ? <div className="panel panel--notice" style={{ marginBottom: "1.25rem", padding: "1rem" }} role="status">Some dashboard information may be older than the latest request. <button className="text-link" type="button" onClick={load}>Retry</button></div> : null}
     <section className="metric-grid" aria-label="Reported figures">

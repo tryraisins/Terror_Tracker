@@ -22,7 +22,7 @@ export default function Navbar() {
   if (pathname.startsWith("/admin")) return <AdminHeader />;
   return <>
     <header className="site-header"><div className="site-header__inner">
-      <Link href="/" className="brand" aria-label="NATracker overview"><span className="brand__mark"><Logo className="h-6 w-6" /></span><span><span className="brand__wordmark">NATracker</span><span className="brand__strapline">Nigeria incident record</span></span></Link>
+      <Link href="/" className="brand" aria-label="NATracker overview"><span className="brand__mark"><Logo className="h-6 w-6" /></span><span><span className="brand__wordmark">NATracker</span><span className="brand__strapline">Nigeria security incident tracker</span></span></Link>
       <nav className="site-nav" aria-label="Primary navigation">{links.map(({ href, label }) => <Link key={href} href={href} className="site-nav__link" aria-current={active(pathname, href) ? "page" : undefined}>{label}</Link>)}</nav>
       <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Toggle colour theme" title="Toggle colour theme">
         <SunIcon className="theme-toggle__sun h-4 w-4" aria-hidden="true" /><MoonIcon className="theme-toggle__moon h-4 w-4" aria-hidden="true" /><span>Theme</span>
