@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/DataState";
+import BarChart from "@/components/BarChart";
 import { IncidentRecord, formatDateLong, impactParts } from "@/lib/incident-view";
 
 interface StatsData {
   overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; year: number };
   byState: { state: string; count: number }[];
   byGroup: { group: string; count: number }[];
-  byMonth: { month: number; count: number }[];
+  byMonth: { month: number; count: number; killed: number; kidnapped: number }[];
   recentAttacks: IncidentRecord[];
 }
 
@@ -38,7 +39,6 @@ export default function DashboardPage() {
 
   const { overview } = data;
   const months = data.byMonth;
-  const maxMonth = Math.max(...months.map((item) => item.count), 1);
   const maxState = Math.max(...data.byState.map((item) => item.count), 1);
   return <div className="page-wrap">
     <header className="page-header page-header--simple">
@@ -52,8 +52,8 @@ export default function DashboardPage() {
       <Metric label="People abducted" value={overview.totalKidnapped} detail="reported minimum" className="metric-card--evidence" />
     </section>
     <section className="dashboard-grid dashboard-grid--single">
-      <section className="panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">January through the latest month in the Nigerian reporting year</p></div></div>
-        <div className="bars" style={{ "--bar-count": months.length || 1 } as CSSProperties}>{months.length ? months.map((item, index) => <div className={`bar ${index === months.length - 1 ? "bar--current" : ""}`} key={item.month}><span className="bar__value">{item.count}</span><div className="bar__column" style={{ height: `${Math.max((item.count / maxMonth) * 100, item.count ? 5 : 0)}%` }} /><span className="bar__label">{monthName(item.month)}</span></div>) : <p className="supporting">No monthly records are available.</p>}</div>
+      <section className="panel chart-panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">January through the latest month in the Nigerian reporting year</p></div></div>
+        {months.length ? <BarChart title="" data={months.map((item) => ({ label: monthName(item.month), value: item.count, killed: item.killed, kidnapped: item.kidnapped }))} /> : <p className="supporting">No monthly records are available.</p>}
       </section>
     </section>
     <section className="dashboard-grid">
