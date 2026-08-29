@@ -20,6 +20,7 @@ type SearchableSelectProps = {
 const selectStyles: StylesConfig<SelectOption, false> = {
   control: (base, state) => ({
     ...base,
+    minWidth: 0,
     minHeight: "2.75rem",
     borderColor: state.isFocused ? "var(--ring)" : "var(--border)",
     borderRadius: ".55rem",
@@ -29,12 +30,12 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     transition: "border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
     ":hover": { borderColor: "var(--ring)" },
   }),
-  valueContainer: (base) => ({ ...base, padding: "0 .75rem" }),
-  singleValue: (base) => ({ ...base, color: "var(--ink)", fontWeight: 650 }),
+  valueContainer: (base) => ({ ...base, minWidth: 0, padding: "0 .75rem" }),
+  singleValue: (base) => ({ ...base, overflow: "hidden", color: "var(--ink)", fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" }),
   placeholder: (base) => ({ ...base, color: "var(--muted)" }),
   input: (base) => ({ ...base, color: "var(--ink)" }),
   indicatorSeparator: () => ({ display: "none" }),
-  dropdownIndicator: (base, state) => ({ ...base, color: state.isFocused ? "var(--accent)" : "var(--muted)", padding: ".45rem" }),
+  dropdownIndicator: (base, state) => ({ ...base, color: state.isFocused ? "var(--evidence)" : "var(--muted)", padding: ".45rem" }),
   menu: (base) => ({
     ...base,
     zIndex: 30,
@@ -45,6 +46,7 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     backgroundColor: "var(--surface-raised)",
     boxShadow: "0 18px 44px rgba(0, 0, 0, .32)",
   }),
+  menuPortal: (base) => ({ ...base, zIndex: 60 }),
   menuList: (base) => ({ ...base, maxHeight: "15rem", padding: ".35rem" }),
   option: (base, state) => ({
     ...base,
@@ -73,6 +75,7 @@ export default function SearchableSelect({ ariaLabel, inputId, options, value, o
     blurInputOnSelect
     onChange={(option) => onChange(option?.value ?? "")}
     noOptionsMessage={({ inputValue }) => inputValue ? `No matching options for “${inputValue}”` : "No options available"}
-    formatOptionLabel={(option) => <><span>{option.label}</span>{option.description ? <span className="search-select__description">{option.description}</span> : null}</>}
+    menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
+    formatOptionLabel={(option, meta) => meta.context === "menu" ? <><span>{option.label}</span>{option.description ? <span className="search-select__description">{option.description}</span> : null}</> : option.label}
   />;
 }
