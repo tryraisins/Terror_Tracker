@@ -7,6 +7,11 @@ import PWARegistration from "@/components/PWARegistration";
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
   manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/icons/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: { capable: true, title: "NATracker", statusBarStyle: "black-translucent" },
   title: { default: "NATracker — Nigeria Security Incident Tracker", template: "%s | NATracker" },
   description: "A public-interest record of reported security incidents and human harm in Nigeria, with cited sources and visible uncertainty.",
   keywords: ["Nigeria security", "incident record", "terrorism Nigeria", "Boko Haram", "ISWAP", "banditry", "kidnapping"],

@@ -1,14 +1,15 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background -->
-  <rect width="1024" height="1024" rx="256" fill="#D32F2F"></rect>
-
-  <!-- Shield -->
-  <path d="M512 256L704 384V640C704 768 624 864 512 912C400 864 320 768 320 640V384L512 256Z" fill="white"></path>
-
-  <!-- Alert Circle -->
-  <circle cx="512" cy="512" r="120" fill="#FF5722"></circle>
-
-  <!-- Exclamation Mark -->
-  <rect x="496" y="440" width="32" height="160" rx="16" fill="white"></rect>
-  <circle cx="512" cy="660" r="20" fill="white"></circle>
+  <defs>
+    <linearGradient id="signal-red" x1="164" y1="144" x2="856" y2="900" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F04732"/>
+      <stop offset="1" stop-color="#A82018"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="256" fill="#0B0C0F"/>
+  <rect x="88" y="88" width="848" height="848" rx="212" fill="url(#signal-red)"/>
+  <g transform="translate(176 176) scale(21)" fill="none">
+    <path d="M16 4.5A11.5 11.5 0 1 0 27.5 16M16 8.5A7.5 7.5 0 1 0 23.5 16M16 16l8.6-8.6" stroke="#FFF8F5" stroke-width="2.4" stroke-linecap="round"/>
+    <circle cx="16" cy="16" r="2.65" fill="#FFF8F5"/>
+    <circle cx="25.2" cy="6.8" r="1.9" fill="#FFF8F5"/>
+  </g>
 </svg>
