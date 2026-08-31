@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
+import { getTrendEligibility } from "@/lib/trend-eligibility";
 
 const NIGERIA_TIMEZONE = "Africa/Lagos";
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectDB();
+    const trendEligibility = await getTrendEligibility();
 
     const now = new Date();
     const nigeriaYear = nigeriaCalendarPart(now, "year");
@@ -84,12 +86,12 @@ export async function GET(req: NextRequest) {
       Attack.countDocuments({ ...active, date: { $gte: sevenDaysAgo } }),
 
       // Attacks by state (top 10)
-      Attack.aggregate([
+      trendEligibility.eligible ? Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: "$location.state", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
-      ]),
+      ]) : Promise.resolve([]),
 
       // Attacks by group
       Attack.aggregate([
@@ -100,7 +102,7 @@ export async function GET(req: NextRequest) {
       ]),
 
       // Attacks by month
-      Attack.aggregate([
+      trendEligibility.eligible ? Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         {
           $group: {
@@ -111,7 +113,7 @@ export async function GET(req: NextRequest) {
           },
         },
         { $sort: { _id: 1 } },
-      ]),
+      ]) : Promise.resolve([]),
 
       // 5 most recent attacks
       Attack.find(active)
@@ -145,6 +147,7 @@ export async function GET(req: NextRequest) {
         })
       ),
       byMonth: (() => {
+        if (!trendEligibility.eligible) return [];
         // Build a lookup from the aggregation results
         const monthMap = new Map<number, { count: number; killed: number; kidnapped: number }>();
         byMonth.forEach((m: { _id: number; count: number; killed: number; kidnapped: number }) => {
@@ -164,6 +167,7 @@ export async function GET(req: NextRequest) {
         }
         return allMonths;
       })(),
+      trendEligibility,
       recentAttacks,
     });
 

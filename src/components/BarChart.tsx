@@ -52,8 +52,8 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
   return <div className="bar-chart">
     {title ? <h3 className="bar-chart__title">{title}</h3> : null}
     <div className="bar-chart__plot">
-      <svg className="bar-chart__svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grouped monthly chart showing attacks, deaths, and kidnapped victims">
-        <title>Monthly attacks, deaths, and kidnapped victims</title>
+      <svg className="bar-chart__svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grouped monthly chart showing incident records and reported victim impacts">
+        <title>Monthly incident records and reported victim impacts</title>
         {Array.from({ length: gridLines + 1 }).map((_, index) => {
           const value = Math.round((maxValue / gridLines) * (gridLines - index));
           const y = padding.top + (chartHeight / gridLines) * index;

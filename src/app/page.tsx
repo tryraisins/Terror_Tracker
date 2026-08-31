@@ -11,6 +11,7 @@ interface StatsData {
   byState: { state: string; count: number }[];
   byGroup: { group: string; count: number }[];
   byMonth: { month: number; count: number; killed: number; kidnapped: number }[];
+  trendEligibility: { eligible: boolean; status: "PASS" | "BLOCKED" | "UNRESOLVED"; auditRunId: string | null; findings: string[] };
   recentAttacks: IncidentRecord[];
 }
 
@@ -46,18 +47,18 @@ export default function DashboardPage() {
     </header>
     {failed ? <div className="panel panel--notice" style={{ marginBottom: "1.25rem", padding: "1rem" }} role="status">Some dashboard information may be older than the latest request. <button className="text-link" type="button" onClick={load}>Retry</button></div> : null}
     <section className="metric-grid" aria-label="Reported figures">
-      <Metric label="Recorded incidents" value={overview.totalAttacks} detail={`${overview.attacksLast30Days} in the last 30 days`} />
+      <Metric label="Recorded incidents" value={overview.totalAttacks} detail={data.trendEligibility.eligible ? `${overview.attacksLast30Days} in the last 30 days` : "stored reporting-year records"} />
       <Metric label="People killed" value={overview.totalKilled} detail="reported minimum" className="metric-card--impact" />
       <Metric label="People injured" value={overview.totalInjured} detail="reported minimum" className="metric-card--caution" />
       <Metric label="People abducted" value={overview.totalKidnapped} detail="reported minimum" className="metric-card--evidence" />
     </section>
-    <section className="dashboard-grid dashboard-grid--single">
-      <section className="panel chart-panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">January through the latest month in the Nigerian reporting year</p></div></div>
+    {data.trendEligibility.eligible ? <section className="dashboard-grid dashboard-grid--single">
+      <section className="panel chart-panel"><div className="panel-heading"><div><h2>Monthly incident records</h2><p className="panel-subtitle">Comparisons passed the independent coverage gate</p></div></div>
         {months.length ? <BarChart title="" data={months.map((item) => ({ label: monthName(item.month), value: item.count, killed: item.killed, kidnapped: item.kidnapped }))} /> : <p className="supporting">No monthly records are available.</p>}
       </section>
-    </section>
+    </section> : <section className="panel panel--caution" style={{ marginBottom: "1.25rem" }} role="note"><span className="eyebrow">Comparative trends withheld · {data.trendEligibility.status}</span><h2>Record counts are not a national trend series.</h2><p className="supporting">{data.trendEligibility.findings[0] || "Monthly and regional comparisons remain unavailable until independent coverage checks pass."}</p></section>}
     <section className="dashboard-grid">
-      <section className="panel"><div className="panel-heading"><h2>Most recorded states</h2><Link href="/map" className="text-link">View map →</Link></div><div className="rank-list">{data.byState.slice(0, 5).map((item) => <div className="rank-row" key={item.state}><span>{item.state || "Unknown"}</span><span className="rank-row__track"><span className="rank-row__fill" style={{ width: `${(item.count / maxState) * 100}%` }} /></span><span>{item.count}</span></div>)}</div></section>
+      {data.trendEligibility.eligible ? <section className="panel"><div className="panel-heading"><h2>Most recorded states</h2><Link href="/map" className="text-link">View map →</Link></div><div className="rank-list">{data.byState.slice(0, 5).map((item) => <div className="rank-row" key={item.state}><span>{item.state || "Unknown"}</span><span className="rank-row__track"><span className="rank-row__fill" style={{ width: `${(item.count / maxState) * 100}%` }} /></span><span>{item.count}</span></div>)}</div></section> : <section className="panel"><div className="panel-heading"><div><h2>Geographic records</h2><p className="panel-subtitle">State rankings are withheld while coverage remains non-comparable.</p></div><Link href="/map" className="text-link">View recorded locations →</Link></div><p className="supporting">The map can be used to locate stored records, not to rank state risk or prevalence.</p></section>}
       <section className="panel"><div className="panel-heading"><div><h2>Reported actors</h2><p className="panel-subtitle">Attribution is recorded as reported</p></div></div>{data.byGroup.slice(0, 5).map((item) => <div className="actor-row" key={item.group}><span><i className="dot" />{item.group || "Unknown"}</span><span>{item.count}</span></div>)}</section>
     </section>
     <section><div className="section-heading"><h2>Recent incident records</h2><Link href="/incidents" className="text-link">Browse all {overview.totalAttacks} →</Link></div><div className="card table-card"><table className="records-table"><thead><tr><th>Date / place</th><th>Incident</th><th>Human impact</th><th>Evidence</th></tr></thead><tbody>{data.recentAttacks.map((incident) => <tr key={incident._id}><td><span className="records-table__date">{formatDateLong(incident.date)}</span><br /><strong>{incident.location.state || "Location unknown"}</strong></td><td><Link href={`/incidents/${incident._id}`} className="records-table__title">{incident.title}</Link></td><td className="record-card__impact">{impactParts(incident.casualties).join(" · ") || "Not reported"}</td><td><span className={`status status--${incident.status}`}>{incident.status}</span><br /><span className="evidence-count">{incident.sources?.length || 0} sources</span></td></tr>)}</tbody></table></div></section>

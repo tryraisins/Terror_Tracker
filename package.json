@@ -7,6 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "audit:crosswalk": "node scripts/crosswalk-2026.cjs --dry-run",
+    "audit:crosswalk:acled": "node scripts/crosswalk-2026.cjs --acled-explorer-summary --dry-run",
+    "audit:crosswalk:collect": "node scripts/crosswalk-2026.cjs --collect --dry-run",
+    "audit:crosswalk:execute": "node scripts/crosswalk-2026.cjs --execute",
+    "audit:crosswalk:verify": "node scripts/crosswalk-2026.cjs --verify-idempotency",
     "audit:duplicates": "node scripts/analyze-duplicates.js",
     "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute"
   },
