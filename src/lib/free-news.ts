@@ -1,15 +1,22 @@
 import crypto from "crypto";
 import Attack from "./models/Attack";
 import SourceArticle from "./models/SourceArticle";
+import {
+  type CasualtyCountMetadata,
+  type CasualtyMetadata,
+  type LocationPrecision,
+  normalizeCasualtyFields,
+} from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 
 export interface RawAttackData {
   title: string;
   description: string;
   date: string;
-  location: { state: string; lga: string; town: string };
+  location: { state: string; lga: string; town: string; precision?: LocationPrecision; notes?: string };
   group: string;
   casualties: { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
+  casualtyMeta?: CasualtyMetadata;
   sources: { url: string; title: string; publisher: string }[];
   civilianCasualties: boolean;
   status: "confirmed" | "unconfirmed" | "developing";
@@ -96,15 +103,94 @@ function extractTown(title: string, state: string): string | null {
   return /^(nigeria|community|village|state)$/i.test(town) ? null : town;
 }
 function extractGroup(text: string): string { if (/boko\s+haram/i.test(text)) return "Boko Haram"; if (/\biswap\b/i.test(text)) return "ISWAP"; if (/\bipob|\besn\b/i.test(text)) return "IPOB/ESN"; if (/\bbandits?\b/i.test(text)) return "Bandits"; if (/\bherdsmen\b/i.test(text)) return "Herdsmen"; if (/\bcultists?\b/i.test(text)) return "Cultists"; return "Unknown Gunmen"; }
-function extractCasualtyCount(text: string, terms: string): number | null {
-  const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|victims?)?";
-  const counted = text.match(new RegExp(`\\b(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
-  if (counted) return Number(counted[1]);
-  if (new RegExp(`\\b(?:no|zero|none|without(?:\\s+any)?)\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i").test(text)) return 0;
-  const impactWasReportedWithoutFigure = new RegExp(`\\b(?:${terms})\\b`, "i").test(text) || /\\b(?:casualties?|victims?)\\s+(?:were\\s+)?(?:unknown|unclear|not known|unconfirmed)\\b/i.test(text);
-  return impactWasReportedWithoutFigure ? null : 0;
+function hashFor(attack: RawAttackData): string {
+  const day = new Date(attack.date).toISOString().slice(0, 10);
+  const town = attack.location.town?.toLowerCase() || "";
+  const lga = attack.location.lga?.toLowerCase() || "";
+  const fallback = attack.title.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(token => token.length > 3).slice(0, 6).join("-");
+  const locationKey = town && town !== "unknown" ? town : lga && lga !== "unknown" ? lga : fallback || "unknown-location";
+  return crypto.createHash("sha256").update(`${day}|${attack.location.state.toLowerCase()}|${attack.location.precision || "exact"}|${locationKey}|${attack.group.toLowerCase()}`).digest("hex");
 }
-function hashFor(attack: RawAttackData): string { const day = new Date(attack.date).toISOString().slice(0, 10); return crypto.createHash("sha256").update(`${day}|${attack.location.state.toLowerCase()}|${attack.location.town.toLowerCase()}|${attack.group.toLowerCase()}`).digest("hex"); }
+
+function extractLga(text: string): string | null {
+  const match = text.match(/\b([A-Z][A-Za-z'’-]{2,}(?:\s+[A-Z][A-Za-z'’-]{2,}){0,2})\s+(?:Local Government Area|LGA|Local Govt\.?|Council Area)\b/);
+  const lga = match?.[1]?.trim();
+  return !lga || /^(the|a|an|in|of)$/i.test(lga) ? null : lga;
+}
+
+function extractLocation(title: string, text: string, state: string): RawAttackData["location"] {
+  const town = extractTown(title, state);
+  const lga = extractLga(text);
+  if (town) {
+    const near = /\bnear\b/i.test(title);
+    return {
+      state,
+      lga: lga || "Unknown",
+      town,
+      precision: near ? "surrounding_area" : "exact",
+      notes: near ? "Source describes the incident as near the named place." : "",
+    };
+  }
+  if (lga) {
+    return {
+      state,
+      lga,
+      town: "Unknown",
+      precision: "approximate_lga",
+      notes: "Source identifies the LGA but not the precise settlement.",
+    };
+  }
+  return {
+    state,
+    lga: "Unknown",
+    town: "Unknown",
+    precision: "approximate_state",
+    notes: "Source identifies the state but not the LGA or town.",
+  };
+}
+
+function extractCasualtyAssessment(text: string, terms: string): CasualtyCountMetadata {
+  const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|children|worshippers?|victims?)?";
+  const counted = text.match(new RegExp(`\\b(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+  if (counted) {
+    const value = Number(counted[2]);
+    const qualifier = counted[1]?.replace(/\s+/g, " ").toLowerCase();
+    if (qualifier) {
+      const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
+      const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+      return { precision: "estimate", min, max, estimate: value, sourceText: counted[0] };
+    }
+    return { precision: "exact", min: value, max: value, estimate: value, sourceText: counted[0] };
+  }
+  const verbFirst = text.match(new RegExp(`\\b(?:${terms})\\s+(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(\\d{1,4})\\s+${people}`, "i"));
+  if (verbFirst) {
+    const value = Number(verbFirst[2]);
+    const qualifier = verbFirst[1]?.replace(/\s+/g, " ").toLowerCase();
+    if (qualifier) {
+      const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
+      const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+      return { precision: "estimate", min, max, estimate: value, sourceText: verbFirst[0] };
+    }
+    return { precision: "exact", min: value, max: value, estimate: value, sourceText: verbFirst[0] };
+  }
+  const range = text.match(new RegExp(`\\b(\\d{1,4})\\s*(?:-|to)\\s*(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+  if (range) {
+    const first = Number(range[1]);
+    const second = Number(range[2]);
+    return { precision: "range", min: Math.min(first, second), max: Math.max(first, second), estimate: Math.round((first + second) / 2), sourceText: range[0] };
+  }
+  const vague = text.match(new RegExp(`\\b(hundreds|dozens|scores)\\s+of\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+  if (vague) {
+    const word = vague[1].toLowerCase();
+    const estimate = word === "hundreds" ? 200 : word === "scores" ? 40 : 24;
+    return { precision: "estimate", min: word === "hundreds" ? 100 : word === "scores" ? 20 : 12, max: null, estimate, sourceText: vague[0] };
+  }
+  if (new RegExp(`\\b(?:no|zero|none|without(?:\\s+any)?)\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i").test(text)) {
+    return { precision: "not_reported", min: 0, max: 0, estimate: 0 };
+  }
+  const impactWasReportedWithoutFigure = new RegExp(`\\b(?:${terms})\\b`, "i").test(text) || /\b(?:casualties?|victims?)\s+(?:were\s+)?(?:unknown|unclear|not known|unconfirmed)\b/i.test(text);
+  return impactWasReportedWithoutFigure ? { precision: "unknown" } : { precision: "not_reported", min: 0, max: 0, estimate: 0 };
+}
 
 async function record(item: FeedItem, publisher: string, outcome: "published" | "merged" | "reference" | "rejected", reason: string, incidentDate?: Date | null, attackId?: unknown): Promise<void> {
   await SourceArticle.updateOne({ url: item.url }, { $setOnInsert: { url: item.url, publisher, title: item.title, publishedAt: item.publishedAt, outcome, reason, incidentDate: incidentDate || null, attackId: attackId || null } }, { upsert: true });
@@ -140,12 +226,21 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
     if (!await addAsReference(item, publisher, state, incidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", incidentDate);
     return "reference";
   }
-  const town = extractTown(title, state);
-  if (!town) { await record(item, publisher, "rejected", "Precise town/LGA was not deterministically extractable, so article was not auto-published.", incidentDate); return "rejected"; }
-  const attack: RawAttackData = { title, description: (description || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location: { state, lga: "Unknown", town }, group, casualties: { killed: extractCasualtyCount(text, "killed"), injured: extractCasualtyCount(text, "injured|wounded"), kidnapped: extractCasualtyCount(text, "kidnapped|abducted"), displaced: extractCasualtyCount(text, "displaced|forced to flee") }, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: "unconfirmed", tags: ["source-led", group.toLowerCase().replace(/\W+/g, "-")] };
+  const location = extractLocation(title, text, state);
+  const casualtyMeta: CasualtyMetadata = {
+    killed: extractCasualtyAssessment(text, "killed"),
+    injured: extractCasualtyAssessment(text, "injured|wounded"),
+    kidnapped: extractCasualtyAssessment(text, "kidnapped|abducted"),
+    displaced: extractCasualtyAssessment(text, "displaced|forced to flee"),
+  };
+  const normalizedImpact = normalizeCasualtyFields({}, casualtyMeta);
+  const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];
+  if (location.precision && location.precision !== "exact") tags.push("approximate-location");
+  if (Object.values(casualtyMeta).some((meta) => meta?.precision === "estimate" || meta?.precision === "range")) tags.push("casualty-uncertainty");
+  const attack: RawAttackData = { title, description: (description || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) { if (!existing.sources.some((source: { url: string }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""))) await Attack.findByIdAndUpdate(existing._id, { $push: { sources: attack.sources[0] } }); await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id); return "merged"; }
-  const saved = await Attack.create({ ...attack, hash }); await record(item, publisher, "published", "Recent incident date, state, town, event language, and fresh source all passed.", incidentDate, saved._id); return "published";
+  const saved = await Attack.create({ ...attack, hash }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", incidentDate, saved._id); return "published";
 }
 
 export async function collectFreeIncidents(): Promise<FreeCollectionResult> {

@@ -1,4 +1,5 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
+import { CASUALTY_PRECISION_VALUES, LOCATION_PRECISION_VALUES } from "../incident-uncertainty";
 import {
   CANONICAL_NIGERIA_JURISDICTIONS,
   UNRESOLVED_REASON_CODES,
@@ -14,13 +15,19 @@ export interface ICredibleUnresolvedIncident extends Document {
   datePrecision: "exact_day" | "date_range" | "month_only" | "unknown";
   dateRange: { start: Date | null; end: Date | null };
   location: { state: string; lga: string; town: string };
-  locationPrecision: "exact_lga_or_town" | "state_only" | "unknown";
+  locationPrecision: "exact_lga_or_town" | "state_only" | "exact" | "surrounding_area" | "approximate_lga" | "approximate_state" | "unknown";
   group: string;
   casualties: {
     killed: number | null;
     injured: number | null;
     kidnapped: number | null;
     displaced: number | null;
+  };
+  casualtyMeta?: {
+    killed?: { precision: string; min?: number | null; max?: number | null; estimate?: number | null; sourceText?: string; note?: string };
+    injured?: { precision: string; min?: number | null; max?: number | null; estimate?: number | null; sourceText?: string; note?: string };
+    kidnapped?: { precision: string; min?: number | null; max?: number | null; estimate?: number | null; sourceText?: string; note?: string };
+    displaced?: { precision: string; min?: number | null; max?: number | null; estimate?: number | null; sourceText?: string; note?: string };
   };
   sources: {
     url: string;
@@ -82,7 +89,7 @@ const CredibleUnresolvedIncidentSchema = new Schema<ICredibleUnresolvedIncident>
     locationPrecision: {
       type: String,
       required: true,
-      enum: ["exact_lga_or_town", "state_only", "unknown"],
+      enum: ["exact_lga_or_town", "state_only", ...LOCATION_PRECISION_VALUES],
     },
     group: { type: String, required: true, default: "Unknown", trim: true },
     casualties: {
@@ -90,6 +97,40 @@ const CredibleUnresolvedIncidentSchema = new Schema<ICredibleUnresolvedIncident>
       injured: nullableCasualty,
       kidnapped: nullableCasualty,
       displaced: nullableCasualty,
+    },
+    casualtyMeta: {
+      killed: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: nullableCasualty,
+        max: nullableCasualty,
+        estimate: nullableCasualty,
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      injured: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: nullableCasualty,
+        max: nullableCasualty,
+        estimate: nullableCasualty,
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      kidnapped: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: nullableCasualty,
+        max: nullableCasualty,
+        estimate: nullableCasualty,
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      displaced: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: nullableCasualty,
+        max: nullableCasualty,
+        estimate: nullableCasualty,
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
     },
     sources: {
       type: [

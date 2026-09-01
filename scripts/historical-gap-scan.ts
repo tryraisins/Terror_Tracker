@@ -32,6 +32,7 @@ import {
   isUsableEvidenceUrl,
   mergeIncidentStrategies,
 } from "../src/lib/gemini";
+import { normalizeCasualtyFields } from "../src/lib/incident-uncertainty";
 import { normalizeStateName } from "../src/lib/normalize-state";
 
 // ─────────────────────────────────────────────
@@ -283,14 +284,27 @@ const OUTPUT_SCHEMA = `Return your response as a valid JSON array. Each element:
   "title": "string",
   "description": "string",
   "date": "ISO 8601 datetime string",
-  "location": { "state": "string", "lga": "string or Unknown", "town": "string or Unknown" },
+  "location": {
+    "state": "string",
+    "lga": "string or Unknown",
+    "town": "string or Unknown",
+    "precision": "exact"|"surrounding_area"|"approximate_lga"|"approximate_state"|"unknown",
+    "notes": "short explanation when precision is not exact"
+  },
   "group": "string",
   "casualties": { "killed": number|null, "injured": number|null, "kidnapped": number|null, "displaced": number|null },
+  "casualtyMeta": {
+    "killed": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "injured": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "kidnapped": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "displaced": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" }
+  },
   "civilianCasualties": true|false,
   "sources": [{ "url": "string", "title": "string", "publisher": "string" }],
   "status": "confirmed"|"unconfirmed"|"developing",
   "tags": ["string"]
 }
+Use exact casualty precision only for a specific non-conflicting victim count. Use range for credible conflicting counts, estimate for approximate language, unknown for impact without a defensible value, and not_reported for absent impact.
 RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.`;
 
 // ─────────────────────────────────────────────
@@ -364,7 +378,7 @@ ${SOURCE_TIERS_PROMPT}
 DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into ONE entry with all sources combined.
-- Never choose a higher conflicting casualty value. Preserve an agreed or only-known value; otherwise use null for that field and status "developing".
+- Do not silently choose the highest conflicting casualty value. Preserve an agreed exact value, or store credible disagreement as casualtyMeta range min/max/midpoint and status "developing".
 - A rescue, arrest, or military-operation update is not a standalone incident. Link it only when the article identifies the original attack date and location; otherwise omit it rather than using publication date as the incident date.
 
 ═══════════════════════════════════════════
@@ -380,9 +394,11 @@ DATA REQUIREMENTS
    Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State". Use "FCT" for Abuja.
+   Use a precise town/village when known. If the source only establishes a surrounding area, LGA or state, keep the incident with location.precision set to "surrounding_area", "approximate_lga" or "approximate_state" and explain the basis in location.notes.
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN",
    "Herdsmen", "Cultists", "Unidentified Armed Group"
-6. Casualties — count ONLY victims (civilians + security forces). NOT attackers. null if unknown.
+6. Casualties — count ONLY victims (civilians + security forces). NOT attackers.
+   Use exact for a specific non-conflicting victim count; range for credible conflicting reports; estimate for language such as about, over, more than, at least, scores or hundreds; null only when the impact is reported but no reliable value can be derived.
 7. "civilianCasualties": set TRUE whenever soldiers, officers, police, vigilantes, OR civilians
    were killed/injured/kidnapped/displaced. Set FALSE ONLY when the ONLY deaths were attackers.
    For incidents with no confirmed casualties, set TRUE if civilians or security forces were targeted.
@@ -534,6 +550,7 @@ async function ingest(rawAttacks: RawAttackData[], label: string) {
         continue;
       }
 
+      const normalizedImpact = normalizeCasualtyFields(raw.casualties, raw.casualtyMeta);
       const attack = new Attack({
         title: sanitize(raw.title),
         description: sanitize(raw.description),
@@ -542,14 +559,12 @@ async function ingest(rawAttacks: RawAttackData[], label: string) {
           state: normalizeStateName(sanitize(raw.location.state)),
           lga: sanitize(raw.location.lga || "Unknown"),
           town: sanitize(raw.location.town || "Unknown"),
+          precision: raw.location.precision || "exact",
+          notes: sanitize(raw.location.notes || ""),
         },
         group: sanitize(raw.group),
-        casualties: {
-          killed: raw.casualties?.killed ?? null,
-          injured: raw.casualties?.injured ?? null,
-          kidnapped: raw.casualties?.kidnapped ?? null,
-          displaced: raw.casualties?.displaced ?? null,
-        },
+        casualties: normalizedImpact.casualties,
+        casualtyMeta: normalizedImpact.casualtyMeta,
         sources: (raw.sources || []).map(s => ({
           url: sanitize(s.url),
           title: sanitize(s.title || ""),

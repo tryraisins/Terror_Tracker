@@ -23,6 +23,25 @@ export const UNRESOLVED_REASON_CODES = [
   "SOURCE_ACCESS_LIMITATION",
 ] as const;
 
+export const REVISED_2026_AUDIT_POLICY = {
+  location: [
+    "Use an exact town, village, ward, road, facility or coordinates when a direct source states it.",
+    "If the precise town is not available, use the best source-supported surrounding area or LGA within the canonical state.",
+    "If only the state is supported, keep the incident only when the source is event-specific and direct; mark the location as approximate_state.",
+    "Do not invent an LGA or town to make a record look precise.",
+  ],
+  casualties: [
+    "Count victims only: civilians, soldiers, police, vigilantes and other security personnel.",
+    "Never count attacker, terrorist, insurgent or bandit fatalities as victim casualties.",
+    "Use exact when credible direct sources agree on a specific victim count.",
+    "Use range when credible direct sources conflict; preserve min, max and a representative midpoint estimate.",
+    "Use estimate for source language such as about, over, more than, at least, scores or hundreds.",
+    "Use unknown only when the impact is reported but no defensible count, estimate or range can be derived.",
+  ],
+  trendLanguage:
+    "Post-April incident counts are not evidence of a decline while source collection rules, date/location strictness and unresolved evidence gaps differ across months.",
+} as const;
+
 export function stableAuditHash(value: unknown): string {
   const normalize = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(normalize);

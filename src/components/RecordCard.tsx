@@ -2,7 +2,7 @@ import Link from "next/link";
 import { IncidentRecord, formatDate, impactParts, locationLabel, statusLabel } from "@/lib/incident-view";
 
 export default function RecordCard({ incident, selectable, selected, onSelect }: { incident: IncidentRecord; selectable?: boolean; selected?: boolean; onSelect?: (checked: boolean) => void }) {
-  const impact = impactParts(incident.casualties);
+  const impact = impactParts(incident.casualties, incident.casualtyMeta);
   const statusClass = incident.status === "confirmed" ? "status--confirmed" : incident.status === "developing" ? "status--developing" : "";
   return <article className={`record-card record-card--${incident.status}`}>
     <div><div className="record-card__date">{formatDate(incident.date)}</div><div className="record-card__place">{locationLabel(incident.location, true)}</div></div>

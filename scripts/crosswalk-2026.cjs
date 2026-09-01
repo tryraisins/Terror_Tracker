@@ -26,6 +26,8 @@ const STATES = ["Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue
 const STATE_SET = new Set(STATES);
 const MONTHS = Array.from({ length: 8 }, (_, index) => `2026-${String(index + 1).padStart(2, "0")}`);
 const REASON_CODES = new Set(["DATE_CONFLICT","DATE_NOT_STATED","LOCATION_INSUFFICIENT","ORIGINAL_INCIDENT_UNCLEAR","POSSIBLE_DUPLICATE","SOURCE_ACCESS_LIMITATION"]);
+const LOCATION_PRECISION_CODES = new Set(["exact_lga_or_town","state_only","exact","surrounding_area","approximate_lga","approximate_state","unknown"]);
+const CASUALTY_PRECISION_CODES = new Set(["exact","estimate","range","unknown","not_reported"]);
 const EVENT_PATTERN = /\b(attack(?:ed|s|ing)?|ambush(?:ed|es)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|shot)|kill(?:ed|s|ing)?|kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing)?|clash(?:ed|es)?|gunmen|bandits?|terrorists?|insurgents?|herders?|communal|ied|explosion)\b/i;
 const NON_INCIDENT_PATTERN = /\b(arrest(?:ed|s)?|weapons? recover(?:y|ed)|clearance operation|courtesy visit|conference|training|anniversary|election deployment)\b/i;
 const DIRECT_URL = /^https?:\/\//i;
@@ -56,6 +58,21 @@ function inScope(value) { const date = asDate(value); return Boolean(date && dat
 function unknown(value) { return !value || /^(unknown|n\/a|unspecified)$/i.test(String(value).trim()); }
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 function safeCasualty(value) { return Number.isInteger(value) && value >= 0 ? value : null; }
+function casualtyAssessment(value, note) {
+  const safe = safeCasualty(value);
+  if (safe === null) return { value:null, meta:{ precision:"unknown", note } };
+  return { value:safe, meta:{ precision:safe === 0 ? "not_reported" : "estimate", min:safe, max:safe, estimate:safe, note } };
+}
+function candidateImpact(input = {}) {
+  const casualties = { killed:null, injured:null, kidnapped:null, displaced:null };
+  const casualtyMeta = {};
+  for (const field of Object.keys(casualties)) {
+    const assessment = casualtyAssessment(input?.[field], "Candidate extractor value retained for review; victim-only and event-specific status must be confirmed before production use.");
+    casualties[field] = assessment.value;
+    casualtyMeta[field] = assessment.meta;
+  }
+  return { casualties, casualtyMeta };
+}
 function incidentType(proposal) { const text = `${proposal.title || ""} ${(proposal.tags || []).join(" ")}`.toLowerCase(); if (/\b(ied|bomb|explosion|suicide bomb)/.test(text)) return "IED"; if (/\b(communal|farmer|herder|intercommunity|inter-community)/.test(text)) return "communal_violence"; if (/\b(kidnap|abduct)/.test(text)) return "abduction"; if (EVENT_PATTERN.test(text)) return "armed_attack"; return "other"; }
 function attackFingerprint(rows) { return fingerprint(rows.map((row) => ({ id: String(row._id), hash: row.hash || null, date: iso(row.date), deleted: row._deleted === true, updatedAt: iso(row.updatedAt) })).sort((a,b) => a.id.localeCompare(b.id))); }
 
@@ -276,13 +293,10 @@ function buildUnresolvedCandidates() {
     if (!reasonCodes.length) reasonCodes.push("ORIGINAL_INCIDENT_UNCLEAR");
     const sourceRows = (proposal.sources || []).filter((source) => DIRECT_URL.test(source.url || "")).map((source) => ({ url: source.url, title: source.title || proposal.title || "Untitled source", publisher: source.publisher || "Unknown publisher", publishedAt: source.publicationDate || null, sourceType: /(?:police\.gov\.ng|\.mil\.ng)/i.test(source.url) ? "official" : "trusted_media" }));
     if (!sourceRows.length) continue;
-    // These proposals were never manually approved. Keep every impact figure
-    // null until a reviewer confirms that it is victim-only, event-specific,
-    // and non-conflicting; extractor values can include attackers or follow-up
-    // rescue totals and must not become durable casualty claims.
-    const casualties = { killed:null, injured:null, kidnapped:null, displaced:null };
-    const required = reasonCodes.includes("DATE_CONFLICT") || reasonCodes.includes("DATE_NOT_STATED") ? "A direct contemporaneous source that states the original event date without relying on publication date." : reasonCodes.includes("LOCATION_INSUFFICIENT") ? `A direct source that identifies the LGA or town in ${state}.` : reasonCodes.includes("POSSIBLE_DUPLICATE") ? "Affirmative source language linking this report to, or distinguishing it from, the possible existing incident." : "An official release or independent contemporaneous source that establishes the original incident grain and production eligibility.";
-    candidates.push(candidateCore({ auditRunId:AUDIT_RUN_ID, headline:proposal.title || "Untitled unresolved report", description:proposal.description || adjudication.reason, incidentType:incidentType(proposal), eventDate:date.eventDate, datePrecision:date.datePrecision, dateRange:date.dateRange, location:{ state, lga, town }, locationPrecision:lga !== "Unknown" || town !== "Unknown" ? "exact_lga_or_town" : "state_only", group:proposal.group || "Unknown", casualties, sources:sourceRows, reasonCodes, requiredNextEvidence:required }));
+    const impact = candidateImpact(proposal.casualties);
+    const locationPrecision = town !== "Unknown" ? "exact" : lga !== "Unknown" ? "approximate_lga" : "approximate_state";
+    const required = reasonCodes.includes("DATE_CONFLICT") || reasonCodes.includes("DATE_NOT_STATED") ? "A direct contemporaneous source that states the original event date without relying on publication date." : reasonCodes.includes("LOCATION_INSUFFICIENT") ? `A direct source that supports at least the LGA, surrounding area or state-level event location in ${state}.` : reasonCodes.includes("POSSIBLE_DUPLICATE") ? "Affirmative source language linking this report to, or distinguishing it from, the possible existing incident." : "An official release or independent contemporaneous source that establishes the original incident grain and production eligibility.";
+    candidates.push(candidateCore({ auditRunId:AUDIT_RUN_ID, headline:proposal.title || "Untitled unresolved report", description:proposal.description || adjudication.reason, incidentType:incidentType(proposal), eventDate:date.eventDate, datePrecision:date.datePrecision, dateRange:date.dateRange, location:{ state, lga, town }, locationPrecision, group:proposal.group || "Unknown", casualties:impact.casualties, casualtyMeta:impact.casualtyMeta, sources:sourceRows, reasonCodes, requiredNextEvidence:required }));
   }
 
   const historicalRoot = path.resolve(process.cwd(), "audit-2026", "full-audit-2026-08-29");
@@ -295,7 +309,8 @@ function buildUnresolvedCandidates() {
       if (!STATE_SET.has(state) || !DIRECT_URL.test(url || "")) continue;
       const followUp = /FOLLOW_UP/i.test(row.audit_decision || row.verification_status || "");
       const locationText = typeof row.location === "string" ? row.location : row.location?.town;
-      candidates.push(candidateCore({ auditRunId:AUDIT_RUN_ID, headline:row.title || row.key || "Historical unresolved report", description:row.reason || row.description || "Historical candidate retained pending direct evidence.", incidentType:incidentType(row), eventDate:null, datePrecision:"unknown", dateRange:{start:null,end:null}, location:{state,lga:row.location?.lga || "Unknown",town:locationText || "Unknown"}, locationPrecision:locationText ? "exact_lga_or_town" : "state_only", group:row.group || "Unknown", casualties:{killed:null,injured:null,kidnapped:null,displaced:null}, sources:[{url,title:row.title || row.key || "Historical unresolved source",publisher:"Unknown publisher",publishedAt:null,sourceType:/(?:police\.gov\.ng|\.mil\.ng)/i.test(url)?"official":"trusted_media"}], reasonCodes:[followUp?"ORIGINAL_INCIDENT_UNCLEAR":"DATE_NOT_STATED"], requiredNextEvidence:row.next_verification_step || "A direct source that states the original event date and incident circumstances." }));
+      const impact = candidateImpact(row.casualties);
+      candidates.push(candidateCore({ auditRunId:AUDIT_RUN_ID, headline:row.title || row.key || "Historical unresolved report", description:row.reason || row.description || "Historical candidate retained pending direct evidence.", incidentType:incidentType(row), eventDate:null, datePrecision:"unknown", dateRange:{start:null,end:null}, location:{state,lga:row.location?.lga || "Unknown",town:locationText || "Unknown"}, locationPrecision:locationText ? "exact" : row.location?.lga ? "approximate_lga" : "approximate_state", group:row.group || "Unknown", casualties:impact.casualties, casualtyMeta:impact.casualtyMeta, sources:[{url,title:row.title || row.key || "Historical unresolved source",publisher:"Unknown publisher",publishedAt:null,sourceType:/(?:police\.gov\.ng|\.mil\.ng)/i.test(url)?"official":"trusted_media"}], reasonCodes:[followUp?"ORIGINAL_INCIDENT_UNCLEAR":"DATE_NOT_STATED"], requiredNextEvidence:row.next_verification_step || "A direct source that states the original event date and incident circumstances." }));
     }
   }
   const byHash = new Map();
@@ -386,10 +401,14 @@ function validate(candidates, evidence) {
   for (const row of candidates) {
     if (candidateHashes.has(row.candidateHash)) errors.push(`Duplicate candidate hash ${row.candidateHash}`); candidateHashes.add(row.candidateHash);
     if (!STATE_SET.has(row.location?.state)) errors.push(`Invalid candidate state ${row.location?.state}`);
+    if (!LOCATION_PRECISION_CODES.has(row.locationPrecision)) errors.push(`Candidate ${row.candidateHash} has invalid location precision`);
     if (row.productionWriteAllowed !== false) errors.push(`Candidate ${row.candidateHash} permits production write`);
     if (!row.sources?.length || row.sources.some((source) => !DIRECT_URL.test(source.url || ""))) errors.push(`Candidate ${row.candidateHash} has invalid sources`);
     if (!row.reasonCodes?.length || row.reasonCodes.some((code) => !REASON_CODES.has(code))) errors.push(`Candidate ${row.candidateHash} has invalid reason codes`);
     if (Object.values(row.casualties || {}).some((value) => value !== null && (!Number.isInteger(value) || value < 0))) errors.push(`Candidate ${row.candidateHash} has invalid casualties`);
+    for (const [field, meta] of Object.entries(row.casualtyMeta || {})) {
+      if (!CASUALTY_PRECISION_CODES.has(meta?.precision)) errors.push(`Candidate ${row.candidateHash} has invalid casualty precision for ${field}`);
+    }
   }
   const evidenceHashes = new Set();
   for (const row of evidence) { if(evidenceHashes.has(row.evidenceHash))errors.push(`Duplicate evidence hash ${row.evidenceHash}`);evidenceHashes.add(row.evidenceHash);if(row.jurisdiction!==null&&!STATE_SET.has(row.jurisdiction))errors.push(`Invalid evidence jurisdiction ${row.jurisdiction}`); }

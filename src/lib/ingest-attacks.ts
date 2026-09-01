@@ -1,5 +1,6 @@
 import Attack from "./models/Attack";
 import { RawAttackData, generateAttackHash, isUsableEvidenceUrl, mergeIncidentStrategies } from "./gemini";
+import { normalizeCasualtyFields } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 
 export interface IngestResult {
@@ -314,6 +315,7 @@ export async function ingestAttacks(
         continue;
       }
 
+      const normalizedImpact = normalizeCasualtyFields(rawAttack.casualties, rawAttack.casualtyMeta);
       const attack = new Attack({
         title: sanitizeString(rawAttack.title),
         description: sanitizeString(rawAttack.description),
@@ -322,14 +324,12 @@ export async function ingestAttacks(
           state: normalizeStateName(sanitizeString(rawAttack.location.state)),
           lga: sanitizeString(rawAttack.location.lga || "Unknown"),
           town: sanitizeString(rawAttack.location.town || "Unknown"),
+          precision: rawAttack.location.precision || "exact",
+          notes: sanitizeString(rawAttack.location.notes || ""),
         },
         group: sanitizeString(rawAttack.group),
-        casualties: {
-          killed: rawAttack.casualties?.killed ?? 0,
-          injured: rawAttack.casualties?.injured ?? 0,
-          kidnapped: rawAttack.casualties?.kidnapped ?? 0,
-          displaced: rawAttack.casualties?.displaced ?? 0,
-        },
+        casualties: normalizedImpact.casualties,
+        casualtyMeta: normalizedImpact.casualtyMeta,
         sources: (rawAttack.sources || []).map(s => ({
           url: sanitizeString(s.url),
           title: sanitizeString(s.title || ""),

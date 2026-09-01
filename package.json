@@ -12,6 +12,7 @@
     "audit:crosswalk:collect": "node scripts/crosswalk-2026.cjs --collect --dry-run",
     "audit:crosswalk:execute": "node scripts/crosswalk-2026.cjs --execute",
     "audit:crosswalk:verify": "node scripts/crosswalk-2026.cjs --verify-idempotency",
+    "audit:direct-web:2026": "npx tsx scripts/direct-web-audit-2026.ts",
     "audit:duplicates": "node scripts/analyze-duplicates.js",
     "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute"
   },

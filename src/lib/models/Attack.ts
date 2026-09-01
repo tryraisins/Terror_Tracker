@@ -1,4 +1,10 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import {
+  CASUALTY_PRECISION_VALUES,
+  LOCATION_PRECISION_VALUES,
+  type CasualtyMetadata,
+  type LocationPrecision,
+} from "../incident-uncertainty";
 
 export interface IAttack extends Document {
   title: string;
@@ -8,6 +14,8 @@ export interface IAttack extends Document {
     state: string;
     lga: string; // Local Government Area
     town: string;
+    precision?: LocationPrecision;
+    notes?: string;
     coordinates?: {
       lat: number;
       lng: number;
@@ -20,6 +28,7 @@ export interface IAttack extends Document {
     kidnapped: number | null;
     displaced: number | null;
   };
+  casualtyMeta?: CasualtyMetadata;
   sources: {
     url: string;
     title: string;
@@ -73,6 +82,17 @@ const AttackSchema = new Schema<IAttack>(
         default: "Unknown",
         trim: true,
       },
+      precision: {
+        type: String,
+        enum: LOCATION_PRECISION_VALUES,
+        default: "exact",
+      },
+      notes: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: 500,
+      },
       coordinates: {
         lat: { type: Number },
         lng: { type: Number },
@@ -89,6 +109,40 @@ const AttackSchema = new Schema<IAttack>(
       injured: { type: Number, default: null },
       kidnapped: { type: Number, default: null },
       displaced: { type: Number, default: null },
+    },
+    casualtyMeta: {
+      killed: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: { type: Number, default: null, min: 0 },
+        max: { type: Number, default: null, min: 0 },
+        estimate: { type: Number, default: null, min: 0 },
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      injured: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: { type: Number, default: null, min: 0 },
+        max: { type: Number, default: null, min: 0 },
+        estimate: { type: Number, default: null, min: 0 },
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      kidnapped: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: { type: Number, default: null, min: 0 },
+        max: { type: Number, default: null, min: 0 },
+        estimate: { type: Number, default: null, min: 0 },
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
+      displaced: {
+        precision: { type: String, enum: CASUALTY_PRECISION_VALUES },
+        min: { type: Number, default: null, min: 0 },
+        max: { type: Number, default: null, min: 0 },
+        estimate: { type: Number, default: null, min: 0 },
+        sourceText: { type: String, trim: true, maxlength: 300 },
+        note: { type: String, trim: true, maxlength: 500 },
+      },
     },
     sources: [
       {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Link from "next/link";
 import gsap from "gsap";
 import {
     MapPinIcon,
@@ -11,6 +10,8 @@ import {
     ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { format } from "date-fns";
+import { displayValue, locationLabel } from "@/lib/incident-view";
+import type { CasualtyCountMetadata, LocationPrecision } from "@/lib/incident-uncertainty";
 
 interface AttackCardProps {
     attack: {
@@ -22,6 +23,8 @@ interface AttackCardProps {
             state: string;
             lga: string;
             town: string;
+            precision?: LocationPrecision;
+            notes?: string;
         };
         group: string;
         casualties: {
@@ -29,6 +32,12 @@ interface AttackCardProps {
             injured: number | null;
             kidnapped: number | null;
             displaced: number | null;
+        };
+        casualtyMeta?: {
+            killed?: CasualtyCountMetadata;
+            injured?: CasualtyCountMetadata;
+            kidnapped?: CasualtyCountMetadata;
+            displaced?: CasualtyCountMetadata;
         };
         sources: {
             url: string;
@@ -72,13 +81,20 @@ export default function AttackCard({
     const totalCasualties =
         (attack.casualties.killed || 0) +
         (attack.casualties.injured || 0) +
-        (attack.casualties.kidnapped || 0);
+        (attack.casualties.kidnapped || 0) +
+        (attack.casualties.displaced || 0);
 
     const statusClasses: Record<string, string> = {
         confirmed: "badge-confirmed",
         unconfirmed: "badge-unconfirmed",
         developing: "badge-developing",
     };
+    const casualtyBadges = [
+        { field: "killed", label: "killed", icon: true, background: "rgba(255,65,54,0.1)", color: "var(--color-urgent)" },
+        { field: "injured", label: "injured", icon: false, background: "rgba(255,133,27,0.1)", color: "var(--color-caution)" },
+        { field: "kidnapped", label: "kidnapped", icon: false, background: "rgba(0,116,217,0.1)", color: "var(--color-verified)" },
+        { field: "displaced", label: "displaced", icon: false, background: "rgba(180,180,180,0.1)", color: "var(--text-secondary)" },
+    ] as const;
 
     return (
         <div
@@ -136,9 +152,7 @@ export default function AttackCard({
                 <div className="flex flex-wrap gap-3 mb-4 text-xs font-medium" style={{ color: "var(--text-muted)" }}>
                     <span className="flex items-center gap-1.5">
                         <MapPinIcon className="w-3.5 h-3.5" />
-                        {attack.location.town !== "Unknown" && `${attack.location.town}, `}
-                        {attack.location.lga !== "Unknown" && `${attack.location.lga}, `}
-                        {attack.location.state}
+                        {locationLabel(attack.location, true)}
                     </span>
                     <span className="flex items-center gap-1.5">
                         <CalendarDaysIcon className="w-3.5 h-3.5" />
@@ -153,37 +167,15 @@ export default function AttackCard({
                 {/* Casualties */}
                 {totalCasualties > 0 && (
                     <div className="flex flex-wrap gap-2 mb-4">
-                        {attack.casualties.killed !== null && attack.casualties.killed > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
-                                style={{
-                                    background: "rgba(255,65,54,0.1)",
-                                    color: "var(--color-urgent)",
-                                }}
-                            >
-                                <ExclamationTriangleIcon className="w-3 h-3" />
-                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.killed}</span> killed
-                            </span>
-                        )}
-                        {attack.casualties.injured !== null && attack.casualties.injured > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
-                                style={{
-                                    background: "rgba(255,133,27,0.1)",
-                                    color: "var(--color-caution)",
-                                }}
-                            >
-                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.injured}</span> injured
-                            </span>
-                        )}
-                        {attack.casualties.kidnapped !== null && attack.casualties.kidnapped > 0 && (
-                            <span className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg"
-                                style={{
-                                    background: "rgba(0,116,217,0.1)",
-                                    color: "var(--color-verified)",
-                                }}
-                            >
-                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{attack.casualties.kidnapped}</span> kidnapped
-                            </span>
-                        )}
+                        {casualtyBadges.map(({ field, label, icon, background, color }) => {
+                            const value = attack.casualties[field];
+                            const meta = attack.casualtyMeta?.[field];
+                            if (value == null || value <= 0) return null;
+                            return <span key={field} className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg" style={{ background, color }} title={meta?.precision ? `${meta.precision.replace("_", " ")} casualty figure` : undefined}>
+                                {icon ? <ExclamationTriangleIcon className="w-3 h-3" /> : null}
+                                <span className="tabular-nums" style={{ fontFamily: "var(--font-mono)" }}>{displayValue(value, undefined, meta)}</span> {label}
+                            </span>;
+                        })}
                     </div>
                 )}
 

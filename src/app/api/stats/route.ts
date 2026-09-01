@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
-import { getTrendEligibility } from "@/lib/trend-eligibility";
 
 const NIGERIA_TIMEZONE = "Africa/Lagos";
 
@@ -24,8 +23,6 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectDB();
-    const trendEligibility = await getTrendEligibility();
-
     const now = new Date();
     const nigeriaYear = nigeriaCalendarPart(now, "year");
     const nigeriaMonth = nigeriaCalendarPart(now, "month");
@@ -59,24 +56,24 @@ export async function GET(req: NextRequest) {
       // Total killed
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
-        { $group: { _id: null, total: { $sum: "$casualties.killed" } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.killed", 0] } } } },
       ]),
 
       // Total injured
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
-        { $group: { _id: null, total: { $sum: "$casualties.injured" } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.injured", 0] } } } },
       ]),
 
       // Total kidnapped
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
-        { $group: { _id: null, total: { $sum: "$casualties.kidnapped" } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } } } },
       ]),
 
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
-        { $group: { _id: null, total: { $sum: "$casualties.displaced" } } },
+        { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.displaced", 0] } } } },
       ]),
 
       // Attacks in last 30 days
@@ -86,40 +83,40 @@ export async function GET(req: NextRequest) {
       Attack.countDocuments({ ...active, date: { $gte: sevenDaysAgo } }),
 
       // Attacks by state (top 10)
-      trendEligibility.eligible ? Attack.aggregate([
+      Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: "$location.state", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
-      ]) : Promise.resolve([]),
+      ]),
 
       // Attacks by group
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
-        { $group: { _id: "$group", count: { $sum: 1 }, killed: { $sum: "$casualties.killed" } } },
+        { $group: { _id: "$group", count: { $sum: 1 }, killed: { $sum: { $ifNull: ["$casualties.killed", 0] } } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
       ]),
 
       // Attacks by month
-      trendEligibility.eligible ? Attack.aggregate([
+      Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         {
           $group: {
             _id: { $month: { date: "$date", timezone: NIGERIA_TIMEZONE } },
             count: { $sum: 1 },
-            killed: { $sum: "$casualties.killed" },
-            kidnapped: { $sum: "$casualties.kidnapped" },
+            killed: { $sum: { $ifNull: ["$casualties.killed", 0] } },
+            kidnapped: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } },
           },
         },
         { $sort: { _id: 1 } },
-      ]) : Promise.resolve([]),
+      ]),
 
       // 5 most recent attacks
       Attack.find(active)
         .sort({ date: -1 })
         .limit(5)
-        .select("title date location group casualties status sources")
+        .select("title date location group casualties casualtyMeta status sources")
         .lean(),
 
     ]);
@@ -147,7 +144,6 @@ export async function GET(req: NextRequest) {
         })
       ),
       byMonth: (() => {
-        if (!trendEligibility.eligible) return [];
         // Build a lookup from the aggregation results
         const monthMap = new Map<number, { count: number; killed: number; kidnapped: number }>();
         byMonth.forEach((m: { _id: number; count: number; killed: number; kidnapped: number }) => {
@@ -167,7 +163,6 @@ export async function GET(req: NextRequest) {
         }
         return allMonths;
       })(),
-      trendEligibility,
       recentAttacks,
     });
 

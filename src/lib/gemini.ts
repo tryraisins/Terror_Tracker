@@ -3,6 +3,12 @@ import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import {
+  type CasualtyMetadata,
+  type LocationPrecision,
+  mergeCasualtyAssessments,
+  normalizeCasualtyFields,
+} from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 
 // Write GOOGLE_APPLICATION_CREDENTIALS_JSON to a temp file so google-auth-library
@@ -35,6 +41,8 @@ export interface RawAttackData {
     state: string;
     lga: string;
     town: string;
+    precision?: LocationPrecision;
+    notes?: string;
   };
   group: string;
   casualties: {
@@ -43,6 +51,7 @@ export interface RawAttackData {
     kidnapped: number | null;
     displaced: number | null;
   };
+  casualtyMeta?: CasualtyMetadata;
   sources: {
     url: string;
     title: string;
@@ -53,24 +62,9 @@ export interface RawAttackData {
   tags: string[];
 }
 
-function normalizeReportedCasualties(casualties?: Partial<RawAttackData["casualties"]>): RawAttackData["casualties"] {
-  const normalize = (value: number | null | undefined): number | null => {
-    if (value === null) return null;
-    if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-    return Math.max(0, Math.trunc(value));
-  };
-
-  return {
-    killed: normalize(casualties?.killed),
-    injured: normalize(casualties?.injured),
-    kidnapped: normalize(casualties?.kidnapped),
-    displaced: normalize(casualties?.displaced),
-  };
-}
-
 /**
  * Generate a deduplication hash based on core attack identifiers.
- * Uses date (day-level), state, town, and group to create a unique hash.
+ * Uses date (day-level), state, location grain, and group to create a unique hash.
  * This prevents the same incident from being stored twice even if
  * described differently by different sources.
  */
@@ -79,16 +73,29 @@ export function generateAttackHash(attack: RawAttackData): string {
   const normalizedState = normalizeStateName(attack.location.state).toLowerCase();
   const normalizedGroup = attack.group.toLowerCase().trim();
 
-  // When town is unknown/unspecified, fall back to LGA so that two reports of the
-  // same incident — one with a specific LGA and one with "Unknown" town — produce
-  // the same hash and are blocked at the unique-index level.
+  // When town is approximate/unknown, fall back through LGA and title terms. This
+  // prevents state-only records from collapsing every same-day incident together.
   const rawTown = (attack.location.town || "").toLowerCase().trim();
-  const townIsUnknown = !rawTown || rawTown === "unknown" || rawTown.startsWith("unknown ");
+  const rawLga = (attack.location.lga || "").toLowerCase().trim();
+  const townIsUnknown = !rawTown || rawTown === "unknown" || rawTown.startsWith("unknown ") || rawTown === "surrounding area";
+  const lgaIsUnknown = !rawLga || rawLga === "unknown" || rawLga.startsWith("unknown ");
+  const fallbackTitle = attack.title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(token => token.length > 3)
+    .slice(0, 6)
+    .join("-");
   const normalizedTown = townIsUnknown
-    ? (attack.location.lga || "unknown").toLowerCase().trim()
+    ? (lgaIsUnknown ? fallbackTitle || "unknown-location" : rawLga)
     : rawTown;
+  const precision = attack.location.precision || (townIsUnknown
+    ? lgaIsUnknown ? "approximate_state" : "approximate_lga"
+    : "exact");
 
-  const hashInput = `${dateStr}|${normalizedState}|${normalizedTown}|${normalizedGroup}`;
+  const locationKey = `${precision}|${normalizedTown}`;
+
+  const hashInput = `${dateStr}|${normalizedState}|${locationKey}|${normalizedGroup}`;
   return crypto.createHash("sha256").update(hashInput).digest("hex");
 }
 
@@ -491,8 +498,8 @@ function scoreGroundingChunkMatch(
 }
 
 async function inspectSourceUrl(url: string): Promise<SourceInspection> {
-  if (!isUsableEvidenceUrl(url)) {
-    return { ok: false, finalUrl: url, finalTitle: "", publishedAt: null };
+    if (!isUsableEvidenceUrl(url)) {
+      return { ok: false, finalUrl: url, finalTitle: "", publishedAt: null };
   }
 
   try {
@@ -661,13 +668,21 @@ async function validateAndNormalize(
   const freshnessThreshold = new Date(options.windowEnd);
   freshnessThreshold.setUTCDate(freshnessThreshold.getUTCDate() - options.maxSourceAgeDays);
 
-  const inspected = await Promise.all(attacks
-    .map(attack => ({
-      ...attack,
-      casualties: normalizeReportedCasualties(attack.casualties),
-      sources: attack.sources.filter(isSourceTrusted),
-      location: { ...attack.location, state: normalizeStateName(attack.location.state) },
-    }))
+  const inspected: Array<RawAttackData | null> = await Promise.all(attacks
+    .map(attack => {
+      const { casualties, casualtyMeta } = normalizeCasualtyFields(attack.casualties, attack.casualtyMeta);
+      return {
+        ...attack,
+        casualties,
+        casualtyMeta,
+        sources: attack.sources.filter(isSourceTrusted),
+        location: {
+          ...attack.location,
+          state: normalizeStateName(attack.location.state),
+          precision: attack.location.precision || "exact",
+        },
+      };
+    })
     .filter(attack => attack.sources.length > 0)
     .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group)
     .map(async attack => {
@@ -762,7 +777,7 @@ async function validateAndNormalize(
         ...attack,
         date: attackDate.toISOString(),
         sources,
-      };
+      } satisfies RawAttackData;
     }));
 
   return inspected.filter((attack): attack is RawAttackData => Boolean(attack));
@@ -815,7 +830,9 @@ const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each e
   "location": {
     "state": "string (EXACT canonical state name from the list above, e.g. 'Borno' not 'Borno State', 'FCT' not 'Federal Capital Territory')",
     "lga": "string or 'Unknown'",
-    "town": "string or 'Unknown'"
+    "town": "string or 'Unknown'",
+    "precision": "exact" | "surrounding_area" | "approximate_lga" | "approximate_state" | "unknown",
+    "notes": "short explanation when precision is not exact"
   },
   "group": "string (standardized group name)",
   "casualties": {
@@ -823,6 +840,12 @@ const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each e
     "injured": number or null,
     "kidnapped": number or null,
     "displaced": number or null
+  },
+  "casualtyMeta": {
+    "killed": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "injured": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "kidnapped": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" },
+    "displaced": { "precision": "exact"|"estimate"|"range"|"unknown"|"not_reported", "min": number|null, "max": number|null, "estimate": number|null, "sourceText": "short source phrase", "note": "short explanation" }
   },
   "civilianCasualties": true or false,
   "sources": [
@@ -836,7 +859,18 @@ const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each e
   "tags": ["string"]
 }
 
-For every casualty field, use 0 when that impact was not reported or was explicitly absent. Use null only when the source reports that impact but does not give a reliable number.
+Location precision:
+- Use "exact" when the source names a town, village, road, ward or facility.
+- Use "surrounding_area" or "approximate_lga" when the source identifies the LGA or nearby communities but not the precise settlement.
+- Use "approximate_state" only for strong event-specific reports that identify the state but not the LGA/town.
+
+Casualty precision:
+- Count VICTIMS ONLY: civilians, soldiers, police, vigilantes and other security personnel. Never include attacker fatalities.
+- Use "exact" when a source gives a specific victim count and no credible source conflicts.
+- Use "range" when credible reports conflict; set min, max and a reasonable midpoint estimate, and mark status "developing".
+- Use "estimate" for wording such as "about", "over", "more than", "hundreds", "scores" or similar. Preserve the basis in sourceText/note.
+- Use "not_reported" with value 0 when that impact type was not reported or was explicitly absent.
+- Use "unknown" with value null only when an impact type is reported but no reliable count, estimate or bounded range can be derived.
 
 RESPOND ONLY WITH THE JSON ARRAY. No markdown, no explanation, no code fences.`;
 
@@ -880,8 +914,8 @@ DEDUPLICATION — CRITICAL
 ═══════════════════════════════════════════
 - If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
 - Do NOT create separate entries for the same attack just because different outlets covered it.
-- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA, on the same date, even if casualty numbers differ slightly.
-- Combine all source URLs, but never resolve conflicting casualty figures by choosing the higher number. Keep an agreed or only-known value; if credible sources disagree, use null for that field and status "developing".
+- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA or clearly related surrounding area, on the same date, even if casualty numbers differ.
+- Combine all source URLs. If credible casualty figures conflict, store a bounded range with min/max/midpoint estimate in casualtyMeta and mark status "developing"; do not silently choose only the highest value.
 - RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report belongs to an existing attack only when its narrative identifies the original attack date and location. Use that ORIGINAL attack date, not the article's publication date. If it does not identify the original incident well enough to match safely, do NOT create a standalone incident from the rescue report.
 - PAST-WINDOW EVENTS: If an article describes an event that clearly happened BEFORE the current search window (e.g. "On March 3, gunmen attacked…" appearing in an April article), do NOT include it as a new incident — it was already captured in earlier tracking. Only include incidents whose attack date falls within the search window.
 
@@ -900,7 +934,7 @@ For each incident found, provide:
    NEVER append "State" to the name (use "Borno" not "Borno State").
    Use "FCT" for Abuja/Federal Capital Territory.
    If an incident spans multiple states, use the state where the PRIMARY attack occurred.
-   Also provide the Local Government Area (LGA) and specific town/village.
+   Provide the Local Government Area (LGA) and specific town/village when known. If the precise settlement is not known, use the best supported LGA, nearby community, road, or state-level location and set location.precision/notes accordingly.
 5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
 6. Casualties — VICTIMS ONLY (civilians + security forces):
    - "killed": soldiers, police, vigilantes, or civilians killed — NOT attackers/terrorists/bandits/insurgents
@@ -910,7 +944,7 @@ For each incident found, provide:
    - EXAMPLE: "5 terrorists neutralised, 2 soldiers killed, 3 civilians injured" → killed=2, injured=3
    - EXAMPLE: "troops kill 10 ISWAP fighters, no casualties on government side" → killed=0, injured=0, kidnapped=0, displaced=0
    - EXAMPLE: "bandits kill 4 farmers, injure 6, abduct 12" → killed=4, injured=6, kidnapped=12
-   - Use 0 when a type of impact is not reported or is explicitly absent. Use null only when that type of impact is reported but its figure is unknown.
+   - Use exact numbers when supported. Use a range when credible reports conflict. Use an estimate for language like "about", "over", "more than", "scores", or "hundreds". Use null only when the impact is reported but no reliable count, range, or estimate can be derived.
 7. Source URLs — direct, working article or official-statement URLs. Each URL must support the incident date, location, and core event; search-result, homepage, category, and image URLs are not evidence.
 8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for an ongoing incident or unresolved credible disagreement.
 9. Tags (e.g., "boko-haram", "northeast", "kidnapping", "iswap", "banditry", "military-attack")
@@ -920,10 +954,10 @@ CRITICAL RULES
 ═══════════════════════════════════════════
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array [].
-- CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=0, injured=0, kidnapped=0, displaced=0. Use null only when the report identifies a victim impact but does not give its number.
+- CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=0, injured=0, kidnapped=0, displaced=0. Use casualtyMeta to label exact figures, estimates, ranges, unknowns, and not-reported impacts.
 - Include ALL attacks regardless of whether casualties are reported — a foiled attack, a raid, or a clash with unknown casualty numbers is still a valid security incident.
 - Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
-- Be specific about locations — always include state AND town/village name.
+- Be as specific about locations as the source permits. Do not drop a strong event-specific report merely because the precise town is missing; use approximate_lga, surrounding_area, or approximate_state with notes.
 - Distinguish carefully between different armed groups.
 
 ${OUTPUT_SCHEMA_PROMPT}
@@ -1027,7 +1061,7 @@ ${SOURCE_TIERS_PROMPT}
 DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into one entry with all source URLs combined.
-- Never choose a higher conflicting casualty value. Keep an agreed or only-known value; otherwise use null for that field and status "developing".
+- Do not silently choose the highest conflicting casualty value. Keep an agreed exact value, or store credible disagreement as a range with min/max/midpoint estimate in casualtyMeta and status "developing".
 - RESCUE/FOLLOW-UP ARTICLES: Treat a rescue or operational update as the original incident only when the narrative identifies the original attack date and location. Use that date, not the publication date. If the original incident cannot be identified, omit the rescue update rather than inventing a new dated incident.
 - PAST-WINDOW EVENTS: If an article describes an attack that clearly occurred BEFORE the current search window (e.g. a March attack described in an April press release), do NOT include it as a new incident — it has already been tracked. Only include incidents whose attack date falls within the ${lookbackStr}–${todayStr} search window.
 
@@ -1045,6 +1079,7 @@ For each incident found, provide:
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State". Use "FCT" for Abuja.
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
+   Provide town/village when known. If only the LGA, nearby area or state is supported, keep the record with location.precision set to "surrounding_area", "approximate_lga", or "approximate_state" and explain the basis in location.notes.
 6. Casualties — VICTIMS ONLY (civilians + security forces):
    - "killed": soldiers, police, vigilantes, or civilians killed — NOT attackers/terrorists/bandits
    - "injured": victims only — NOT attacker casualties
@@ -1052,7 +1087,7 @@ For each incident found, provide:
    - "displaced": number of people forced to flee
    - EXAMPLE: "12 bandits killed, 1 soldier killed, 2 farmers injured" → killed=1, injured=2
    - EXAMPLE: "troops neutralise 7 ISWAP, no friendly casualties" → killed=0, injured=0, kidnapped=0, displaced=0
-   - Use 0 when a type of impact is not reported or is explicitly absent. Use null only when that type of impact is reported but its figure is unknown.
+   - Use exact numbers when supported. Use a range when credible reports conflict. Use an estimate for "about", "over", "more than", "scores", "hundreds" or similar wording. Use null only when no reliable count/range/estimate is available.
 7. Source URLs (real, working direct article or official-statement links only; never a search result, home page, tag page, or image)
 8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for a credible conflict or ongoing event
 9. Tags (include "military-attack" for incidents targeting soldiers/army)
@@ -1213,8 +1248,8 @@ RESPOND WITH JSON ONLY:
 /**
  * Merge two incident reports (existing and new candidate).
  * Strategies:
- * - Casualties: Keep an agreed or only-known value; do not silently choose a
- *   higher conflicting value.
+ * - Casualties: Keep exact values when sources agree; preserve credible
+ *   disagreement as estimate/range metadata instead of dropping the figure.
  * - Sources: Combine unique sources.
  * - Description: Use AI to merge and update if new info is available.
  */
@@ -1225,22 +1260,16 @@ export async function mergeIncidentStrategies(
     const ai = createAI();
     const dedupModel = process.env.GEMINI_DEDUP_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
-    // 1. Merge casualties conservatively. A discrepancy between reports is
-    // evidence of uncertainty, not evidence that the larger figure is right.
-    const mergeCount = (a: number | null | undefined, b: number | null | undefined): number | null => {
-        if (a == null && b == null) return null;
-        if (a == null) return b ?? null;
-        if (b == null) return a;
-        return a === b ? a : null;
-    };
-    const mergedCasualties = {
-        killed: mergeCount(existing.casualties?.killed, candidate.casualties?.killed),
-        injured: mergeCount(existing.casualties?.injured, candidate.casualties?.injured),
-        kidnapped: mergeCount(existing.casualties?.kidnapped, candidate.casualties?.kidnapped),
-        displaced: mergeCount(existing.casualties?.displaced, candidate.casualties?.displaced),
-    };
-    const hasCasualtyConflict = (Object.keys(mergedCasualties) as Array<keyof typeof mergedCasualties>)
-        .some((field) => existing.casualties?.[field] != null && candidate.casualties?.[field] != null && existing.casualties[field] !== candidate.casualties[field]);
+    const {
+        casualties: mergedCasualties,
+        casualtyMeta: mergedCasualtyMeta,
+        hasConflict: hasCasualtyConflict,
+    } = mergeCasualtyAssessments(
+        existing.casualties,
+        existing.casualtyMeta,
+        candidate.casualties,
+        candidate.casualtyMeta,
+    );
 
     // 2. Merge Sources (Unique by URL)
     const sourceMap = new Map();
@@ -1285,9 +1314,10 @@ export async function mergeIncidentStrategies(
     return {
         description: mergedDescription,
         casualties: mergedCasualties,
+        casualtyMeta: mergedCasualtyMeta,
         sources: mergedSources,
-        // Conflicting casualty reports remain visible as a developing incident
-        // until a human verifies an authoritative figure.
+        // Conflicting casualty reports remain visible as range metadata until a
+        // human verifies an authoritative figure.
         status: hasCasualtyConflict ? "developing" : (candidate.status === "confirmed" ? "confirmed" : existing.status),
     };
 }

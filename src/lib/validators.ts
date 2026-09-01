@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CASUALTY_PRECISION_VALUES, LOCATION_PRECISION_VALUES } from "./incident-uncertainty";
 
 export const AttackQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -17,6 +18,15 @@ export const AttackQuerySchema = z.object({
 
 export type AttackQuery = z.infer<typeof AttackQuerySchema>;
 
+const CasualtyCountMetadataSchema = z.object({
+  precision: z.enum(CASUALTY_PRECISION_VALUES),
+  min: z.number().int().min(0).nullable().optional(),
+  max: z.number().int().min(0).nullable().optional(),
+  estimate: z.number().int().min(0).nullable().optional(),
+  sourceText: z.string().trim().max(300).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
 export const AttackInputSchema = z.object({
   title: z.string().trim().min(5).max(500),
   description: z.string().trim().min(10).max(5000),
@@ -25,6 +35,8 @@ export const AttackInputSchema = z.object({
     state: z.string().trim().min(1).max(100),
     lga: z.string().trim().max(100).default("Unknown"),
     town: z.string().trim().max(100).default("Unknown"),
+    precision: z.enum(LOCATION_PRECISION_VALUES).default("exact"),
+    notes: z.string().trim().max(500).optional(),
     coordinates: z
       .object({
         lat: z.number().min(-90).max(90),
@@ -39,6 +51,14 @@ export const AttackInputSchema = z.object({
     kidnapped: z.number().int().min(0).nullable().default(null),
     displaced: z.number().int().min(0).nullable().default(null),
   }),
+  casualtyMeta: z
+    .object({
+      killed: CasualtyCountMetadataSchema.optional(),
+      injured: CasualtyCountMetadataSchema.optional(),
+      kidnapped: CasualtyCountMetadataSchema.optional(),
+      displaced: CasualtyCountMetadataSchema.optional(),
+    })
+    .optional(),
   sources: z
     .array(
       z.object({
