@@ -10,6 +10,7 @@ import {
   normalizeCasualtyFields,
 } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
+import { screenIncidentCandidate } from "./incident-scope";
 
 // Write GOOGLE_APPLICATION_CREDENTIALS_JSON to a temp file so google-auth-library
 // can pick it up via the standard credential chain. Works locally and on Netlify (/tmp is writable).
@@ -279,29 +280,6 @@ function reconcileIncidentDate(attack: RawAttackData): Date {
   }
 
   return parsed;
-}
-
-function isLikelyOperationalUpdate(attack: RawAttackData): boolean {
-  const title = String(attack.title || "");
-  const description = String(attack.description || "");
-  const combined = `${title} ${description}`.toLowerCase();
-
-  const isSecurityOperation =
-    /\b(troops?|soldiers?|military|army|air\s*force|naf|joint\s*task\s*force|jtf|operation\s*hadin\s*kai|dhq|security\s*operatives?|police)\b/i.test(combined);
-
-  const operationalVerb =
-    /\b(rescue|rescued|arrest|arrested|foiled?|foil|recover|recovered|neutrali[sz]e|neutrali[sz]ed|eliminat(?:e|ed|ing)|raid(?:ed|ing)?)\b/i.test(combined);
-
-  const attackDrivenTitle =
-    /\b(boko\s*haram|iswap|bandits?|gunmen|terrorists?|insurgents?|militants?|unknown\s*gunmen)\s+(kill(?:ed|s|ing)?|abduct(?:ed|s|ing)?|attack(?:ed|s|ing)?|kidnap(?:ped|s|ping)?|storm(?:ed|s|ing)?|raid(?:ed|s|ing)?)\b/i.test(title);
-
-  const victimRolePresent =
-    /\b(civilians?|villagers?|residents?|farmers?|passengers?|worshippers?|students?|women|children|soldiers?|troops?|police|officers?|personnel|vigilantes?)\b/i.test(combined);
-  const harmVerbPresent =
-    /\b(killed|died|injured|wounded|kidnapped|abducted|attacked|ambushed|massacred|slaughtered)\b/i.test(combined);
-  const mentionsVictimHarm = victimRolePresent && harmVerbPresent;
-
-  return isSecurityOperation && operationalVerb && !mentionsVictimHarm && !attackDrivenTitle;
 }
 
 function normalizeText(text: string): string {
@@ -686,8 +664,9 @@ async function validateAndNormalize(
     .filter(attack => attack.sources.length > 0)
     .filter(attack => attack.title && attack.description && attack.date && attack.location?.state && attack.group)
     .map(async attack => {
-      if (isLikelyOperationalUpdate(attack)) {
-        console.log(`[${options.label}] Dropping likely operational update: ${attack.title}`);
+      const scopeRejection = screenIncidentCandidate(attack);
+      if (scopeRejection) {
+        console.log(`[${options.label}] Dropping non-incident candidate (${scopeRejection}): ${attack.title}`);
         return null;
       }
 
@@ -907,6 +886,8 @@ MILITARY ATTACK EMPHASIS: Nigerian army troops and officers are frequently targe
 
 Search methodically and do not infer an expected number of incidents. A quiet day or state may legitimately have no qualifying report. Search multiple independent outlets before concluding that an apparent event is a duplicate, follow-up, or out of scope.
 
+MANDATORY SCOPE GATE — do not return a record unless the article describes one specific original violent event with an event date, location, and victim/target context. Reject reports whose primary subject is a deployment, patrol, training, preparedness or clearance operation; threat or warning; negotiation, surrender or policy statement; political/government reaction; sports or travel; arrest, prosecution, sentencing or court proceedings; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; weapons recovery; attacker-only operational results; rescue/release/recovery/commendation follow-ups; or a general background/roundup. A headline containing words such as attack, gunmen, bandits, killed, rescue or incident is not sufficient. For rescue or operational follow-ups, recover the original attack only if the source provides enough original-event detail to identify it safely; otherwise return no candidate.
+
 ${SOURCE_TIERS_PROMPT}
 
 ═══════════════════════════════════════════
@@ -917,6 +898,7 @@ DEDUPLICATION — CRITICAL
 - Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA or clearly related surrounding area, on the same date, even if casualty numbers differ.
 - Combine all source URLs. If credible casualty figures conflict, store a bounded range with min/max/midpoint estimate in casualtyMeta and mark status "developing"; do not silently choose only the highest value.
 - RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report belongs to an existing attack only when its narrative identifies the original attack date and location. Use that ORIGINAL attack date, not the article's publication date. If it does not identify the original incident well enough to match safely, do NOT create a standalone incident from the rescue report.
+- One event / one candidate: cluster all articles about the same underlying attack, abduction or clash before producing JSON. Never create one record per article. A later rescue, release, government commendation, or attacker-death report is corroborating follow-up evidence, not a new incident. Multiple Kogi reports about the same kidnapping/rescue operation must produce at most one original-event candidate.
 - PAST-WINDOW EVENTS: If an article describes an event that clearly happened BEFORE the current search window (e.g. "On March 3, gunmen attacked…" appearing in an April article), do NOT include it as a new incident — it was already captured in earlier tracking. Only include incidents whose attack date falls within the search window.
 
 ═══════════════════════════════════════════
@@ -1055,6 +1037,8 @@ MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as i
 
 IMPORTANT: Do NOT rely only on general Nigeria-wide searches — they miss lower-profile states. Search the target state explicitly, including town/LGA names returned by early results. A quiet state is a valid outcome only after the specified search families have been checked.
 
+MANDATORY SCOPE GATE — do not return a record unless the article describes one specific original violent event with an event date, location, and victim/target context. Reject deployments, patrols, training, preparedness or clearance updates; threats, warnings, negotiation, surrender or policy statements; political/government reactions; sports/travel; arrests, prosecutions, sentencing or court stories without a new qualifying attack; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; weapons recovery; attacker-only operational results; rescue/release/recovery/commendation follow-ups; and background/roundup articles. Headline vocabulary alone never qualifies an incident. If a rescue or operational report cannot be safely reduced to the original attack date and location, omit it.
+
 ${SOURCE_TIERS_PROMPT}
 
 ═══════════════════════════════════════════
@@ -1063,6 +1047,7 @@ DEDUPLICATION
 - Consolidate multiple reports of the SAME incident into one entry with all source URLs combined.
 - Do not silently choose the highest conflicting casualty value. Keep an agreed exact value, or store credible disagreement as a range with min/max/midpoint estimate in casualtyMeta and status "developing".
 - RESCUE/FOLLOW-UP ARTICLES: Treat a rescue or operational update as the original incident only when the narrative identifies the original attack date and location. Use that date, not the publication date. If the original incident cannot be identified, omit the rescue update rather than inventing a new dated incident.
+- One event / one candidate: cluster corroborating articles before producing JSON. Never emit separate records for multiple reports about the same underlying event, including multiple reports about one Kogi kidnapping/rescue operation.
 - PAST-WINDOW EVENTS: If an article describes an attack that clearly occurred BEFORE the current search window (e.g. a March attack described in an April press release), do NOT include it as a new incident — it has already been tracked. Only include incidents whose attack date falls within the ${lookbackStr}–${todayStr} search window.
 
 ═══════════════════════════════════════════

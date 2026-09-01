@@ -2,6 +2,7 @@ import Attack from "./models/Attack";
 import { RawAttackData, generateAttackHash, isUsableEvidenceUrl, mergeIncidentStrategies } from "./gemini";
 import { normalizeCasualtyFields } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
+import { screenIncidentCandidate } from "./incident-scope";
 
 export interface IngestResult {
   saved: number;
@@ -42,6 +43,11 @@ export async function ingestAttacks(
     ...attack,
     sources: (attack.sources || []).filter(source => isUsableEvidenceUrl(source.url)),
   })).filter(attack => {
+    const scopeRejection = screenIncidentCandidate(attack);
+    if (scopeRejection) {
+      console.log(`[${label}] Skipping non-incident candidate (${scopeRejection}): ${attack.title}`);
+      return false;
+    }
     if (attack.sources.length === 0) {
       console.log(`[${label}] Skipping attack without a usable evidence URL: ${attack.title}`);
       return false;

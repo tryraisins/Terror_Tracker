@@ -8,6 +8,7 @@ import {
   normalizeCasualtyFields,
 } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
+import { screenIncidentCandidate } from "./incident-scope";
 
 export interface RawAttackData {
   title: string;
@@ -218,6 +219,8 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   const title = meta(html, "og:title") || item.title;
   const description = meta(html, "description") || meta(html, "og:description");
   const text = `${title}. ${description}. ${articleText(html)}`;
+  const scopeRejection = screenIncidentCandidate({ title, description: text, group: extractGroup(text) });
+  if (scopeRejection) { await record(item, publisher, "rejected", `Non-incident scope gate: ${scopeRejection}.`); return "rejected"; }
   if (!EVENT_PATTERN.test(text)) { await record(item, publisher, "rejected", "No security-incident language in article text."); return "rejected"; }
   const state = extractState(text); const incidentDate = dateFromText(text, item.publishedAt); const group = extractGroup(text);
   if (!state || !incidentDate) { await record(item, publisher, "rejected", "Missing an explicit incident date or Nigerian state; publication date is never used as the incident date.", incidentDate); return "rejected"; }
