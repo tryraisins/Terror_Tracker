@@ -869,24 +869,21 @@ export async function fetchRecentAttacks(): Promise<RawAttackData[]> {
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
 The current date and time is ${today.toISOString()}.
 
-YOUR PRIMARY MISSION: Search for ALL security incidents in Nigeria — terrorist attacks, insurgent attacks, bandit attacks, militant attacks, attacks by unknown gunmen, ambushes on military/police convoys, IED explosions on troops, attacks on army bases/barracks, soldiers killed in combat, kidnappings, communal clashes, and any incident where Nigerian security forces (army, police, DSS, vigilantes) or civilians came under attack or suffered casualties.
+YOUR PRIMARY MISSION: Search for qualifying original armed/security incidents in Nigeria — terrorist, insurgent, bandit, militant or unknown-gunmen attacks; kidnappings; communal armed clashes; and attacks on civilians or security personnel. Do not collect routine Nigerian Army/security-force work. Army-related reporting is in scope only when it explicitly documents rescuing or releasing kidnapping victims and identifies the original abduction/attack date and location.
 
 SEARCH STRATEGY — FOLLOW THIS ORDER:
-1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search using both civilian and military-focused keywords:
-   - "Nigeria attack today", "Nigeria soldiers killed today", "Nigeria military ambush today", "Nigeria army today"
+1. FIRST: Search for any qualifying attacks that happened TODAY (${todayStr}). Search using civilian-facing and narrowly targeted hostile-attack keywords:
+   - "Nigeria attack today", "Nigeria kidnapped today", "Nigeria bandits attack soldiers today", "Nigeria convoy attacked today"
    - Check headlines from Premium Times, Punch, Vanguard, Daily Trust, Channels TV, Sahara Reporters, Daily Post, The Cable, HumAngle, PRNigeria, and AP/Reuters for today.
    - Also check @BrantPhilip_ and @Sazedek on X (Twitter) for breaking reports.
-2. SECOND: Search for attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}) using same approach.
+2. SECOND: Search for qualifying attacks from YESTERDAY (${new Date(today.getTime() - 86400000).toISOString().split("T")[0]}) using the same approach.
 3. THIRD: Search for any remaining attacks from the past 4 days (${fourDaysAgo.toISOString().split("T")[0]} to ${todayStr}) that you haven't already found.
 
-MILITARY ATTACK EMPHASIS: Nigerian army troops and officers are frequently targeted — always search explicitly for:
-- "Nigerian soldiers killed", "troops killed Nigeria", "military convoy ambush Nigeria"
-- "army officers killed Nigeria", "barracks attack Nigeria", "Operation Hadin Kai"
-- "NAF airstrike" (after which ground forces may have casualties), "ISWAP ambush"
+ARMY/Security-force boundary: Do not search routine Army work such as deployments, patrols, raids on hideouts, clearance operations, arrests, weapons recovery, airstrikes, attacker-only kills or operational-result reports. Search Army-related reporting only for explicit kidnapping-victim rescues/releases, and recover the original abduction date and location from the narrative.
 
 Search methodically and do not infer an expected number of incidents. A quiet day or state may legitimately have no qualifying report. Search multiple independent outlets before concluding that an apparent event is a duplicate, follow-up, or out of scope.
 
-MANDATORY SCOPE GATE — do not return a record unless the article describes one specific original violent event with an event date, location, and victim/target context. Reject reports whose primary subject is a deployment, patrol, training, preparedness or clearance operation; threat or warning; negotiation, surrender or policy statement; political/government reaction; sports or travel; arrest, prosecution, sentencing or court proceedings; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; weapons recovery; attacker-only operational results; rescue/release/recovery/commendation follow-ups; or a general background/roundup. A headline containing words such as attack, gunmen, bandits, killed, rescue or incident is not sufficient. For rescue or operational follow-ups, recover the original attack only if the source provides enough original-event detail to identify it safely; otherwise return no candidate.
+MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original armed/security event or abduction with an incident date, source-supported Nigerian location, and civilian/security-force target or victim context. Reject routine Nigerian Army/security-force work (deployment, patrol, training, preparedness, raid/clearance operation, arrest, weapons recovery, airstrike, attacker-only kill or operational result); threat/warning; negotiation, surrender or policy statement; political/government reaction; sports or travel; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; prosecution, sentencing or court proceedings; and general background/roundup articles. A headline containing attack, gunmen, bandits, killed, rescue or incident is not sufficient. Permit an Army/security-force report only when it explicitly says kidnapping victims were rescued/released AND identifies the original abduction/attack date and location. Treat that rescue report as follow-up evidence, not a new incident.
 
 ${SOURCE_TIERS_PROMPT}
 
@@ -937,7 +934,7 @@ CRITICAL RULES
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
 - If you cannot find any recent attacks, return an empty array [].
 - CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=0, injured=0, kidnapped=0, displaced=0. Use casualtyMeta to label exact figures, estimates, ranges, unknowns, and not-reported impacts.
-- Include ALL attacks regardless of whether casualties are reported — a foiled attack, a raid, or a clash with unknown casualty numbers is still a valid security incident.
+- Include qualifying attacks regardless of whether casualties are reported — a foiled civilian attack or hostile attack on security personnel with unknown casualty numbers can be valid. A routine Army raid/operation is not valid merely because it has zero or unknown casualties.
 - Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
 - Be as specific about locations as the source permits. Do not drop a strong event-specific report merely because the precise town is missing; use approximate_lga, surrounding_area, or approximate_state with notes.
 - Distinguish carefully between different armed groups.
@@ -1019,7 +1016,7 @@ export async function fetchAttacksForStates(
 
   const stateList = states.join(", ");
   const stateSearchLines = states
-    .map(s => `  - "${s} attack ${year}" OR "${s} soldiers killed ${year}" OR "${s} military ambush ${year}" OR "${s} police attack ${year}" OR "${s} kidnapping ${year}" OR "${s} bandits ${year}" OR "${s} gunmen ${year}" OR "${s} IED ${year}" OR "${s} security incident ${year}"`)
+    .map(s => `  - "${s} attack ${year}" OR "${s} kidnapping ${year}" OR "${s} abducted ${year}" OR "${s} bandits attack soldiers ${year}" OR "${s} insurgents ambush police ${year}" OR "${s} IED attack soldiers ${year}" OR "${s} gunmen ${year}"`)
     .join("\n");
 
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
@@ -1028,16 +1025,16 @@ Search window: ${lookbackStr} to ${todayStr}
 
 TARGET STATES: ${stateList}
 
-YOUR MISSION: Find ALL security incidents — terrorist attacks, bandit attacks, kidnappings, communal clashes, militant activity, cult violence, IED explosions, attacks on military convoys/bases, soldiers/officers killed in ambushes, or attacks by unknown gunmen — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}.
+YOUR MISSION: Find ALL qualifying original armed/security incidents — terrorist, bandit, militant or unknown-gunmen attacks; kidnappings; communal armed clashes; and hostile attacks on civilians or security personnel — that occurred in ONLY these specific Nigerian states between ${lookbackStr} and ${todayStr}. Do not collect routine Nigerian Army/security-force work. Army-related reporting is in scope only for explicit kidnapping-victim rescues/releases that identify the original abduction/attack date and location.
 
 MANDATORY SEARCH — this request covers exactly the state named above. Complete every search family below before deciding that the state has no qualifying incident:
 ${stateSearchLines}
 
-MILITARY PRIORITY: Attacks on Nigerian army troops, officers, and bases are as important as civilian attacks. Always search for "[State] soldiers killed", "[State] military ambush", "[State] army casualties", "[State] troops killed", "Operation Hadin Kai [State]" when scanning Northeast states.
+ARMY/Security-force boundary: Do not search routine deployments, patrols, raids on hideouts, clearance operations, arrests, weapons recovery, airstrikes, attacker-only kills or operational-result reports. Search Army-related reporting only for explicit kidnapping-victim rescues/releases, then recover and record the original abduction/attack date and location.
 
 IMPORTANT: Do NOT rely only on general Nigeria-wide searches — they miss lower-profile states. Search the target state explicitly, including town/LGA names returned by early results. A quiet state is a valid outcome only after the specified search families have been checked.
 
-MANDATORY SCOPE GATE — do not return a record unless the article describes one specific original violent event with an event date, location, and victim/target context. Reject deployments, patrols, training, preparedness or clearance updates; threats, warnings, negotiation, surrender or policy statements; political/government reactions; sports/travel; arrests, prosecutions, sentencing or court stories without a new qualifying attack; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; weapons recovery; attacker-only operational results; rescue/release/recovery/commendation follow-ups; and background/roundup articles. Headline vocabulary alone never qualifies an incident. If a rescue or operational report cannot be safely reduced to the original attack date and location, omit it.
+MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original armed/security event or abduction with an incident date, source-supported Nigerian location, and civilian/security-force target or victim context. Reject routine Nigerian Army/security-force work (deployment, patrol, training, preparedness, raid/clearance operation, arrest, weapons recovery, airstrike, attacker-only kill or operational result); threats/warnings; negotiation, surrender or policy statements; political/government reactions; sports/travel; arrests, prosecutions, sentencing or court stories without a new qualifying attack; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; and background/roundup articles. Headline vocabulary alone never qualifies an incident. Permit an Army/security-force report only when it explicitly says kidnapping victims were rescued/released AND identifies the original abduction/attack date and location; otherwise omit it.
 
 ${SOURCE_TIERS_PROMPT}
 
@@ -1066,7 +1063,7 @@ For each incident found, provide:
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
    Provide town/village when known. If only the LGA, nearby area or state is supported, keep the record with location.precision set to "surrounding_area", "approximate_lga", or "approximate_state" and explain the basis in location.notes.
 6. Casualties — VICTIMS ONLY (civilians + security forces):
-   - "killed": soldiers, police, vigilantes, or civilians killed — NOT attackers/terrorists/bandits
+   - "killed": civilians or security-force victims killed — NOT attackers/terrorists/bandits
    - "injured": victims only — NOT attacker casualties
    - "kidnapped": number of people abducted
    - "displaced": number of people forced to flee
@@ -1077,7 +1074,7 @@ For each incident found, provide:
 8. Status: "confirmed" only with two independent trusted reports or an official statement plus a trusted report; "unconfirmed" for one trusted report; "developing" for a credible conflict or ongoing event
 9. Tags (include "military-attack" for incidents targeting soldiers/army)
 
-"civilianCasualties" field: set to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Set to false ONLY when the ONLY reported deaths were attackers/insurgents themselves. Include ALL attacks even if casualties are unknown or zero — a foiled raid or patrol clash with no confirmed deaths is still a valid incident.
+"civilianCasualties" field: set to TRUE whenever civilians or security-force victims were killed/injured/kidnapped/displaced, or were the target of a qualifying hostile attack. Set to false ONLY when the only reported deaths were attackers/insurgents themselves. Do not use this field to admit a routine Army operation.
 
 ONLY return incidents in the TARGET STATES listed above. Do not include incidents from other states.
 Do NOT fabricate incidents. If none found for a state, simply omit it.

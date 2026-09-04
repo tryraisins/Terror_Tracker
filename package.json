@@ -13,6 +13,12 @@
     "audit:crosswalk:execute": "node scripts/crosswalk-2026.cjs --execute",
     "audit:crosswalk:verify": "node scripts/crosswalk-2026.cjs --verify-idempotency",
     "audit:direct-web:2026": "npx tsx scripts/direct-web-audit-2026.ts",
+    "audit:resolve-google": "npx tsx scripts/resolve-google-news-leads.ts",
+    "audit:apply-google-resolution": "npx tsx scripts/apply-google-source-resolution.ts",
+    "audit:promote-unresolved:snapshot": "npx tsx scripts/promote-unresolved-candidates.ts --snapshot",
+    "audit:promote-unresolved:dry-run": "npx tsx scripts/promote-unresolved-candidates.ts --dry-run",
+    "audit:promote-unresolved:apply": "npx tsx scripts/promote-unresolved-candidates.ts --apply",
+    "audit:promote-unresolved:idempotency": "npx tsx scripts/promote-unresolved-candidates.ts --apply --idempotency-pass",
     "audit:duplicates": "node scripts/analyze-duplicates.js",
     "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute"
   },

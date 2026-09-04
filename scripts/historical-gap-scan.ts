@@ -3,9 +3,9 @@
  *
  * Back-fills the database with security incidents the regular cron missed,
  * focusing on:
- *   (a) Attacks on non-civilians (soldiers, police, army officers)
+ *   (a) Hostile attacks on civilians or security personnel
  *   (b) Attacks with no reported / unknown casualties
- *   (c) Any general attack that wasn't ingested (the no-casualty and
+ *   (c) Any general qualifying attack that wasn't ingested (the no-casualty and
  *       civilianCasualties filters were removed after these months ran)
  *
  * Covers: January, February, March, and April 2026.
@@ -34,6 +34,7 @@ import {
 } from "../src/lib/gemini";
 import { normalizeCasualtyFields } from "../src/lib/incident-uncertainty";
 import { normalizeStateName } from "../src/lib/normalize-state";
+import { screenIncidentCandidate } from "../src/lib/incident-scope";
 
 // ─────────────────────────────────────────────
 // Google Gen AI setup
@@ -328,7 +329,7 @@ async function fetchGapAttacks(
   const stateSearchLines = states.map(s => [
     `"${s} attack ${year}"`,
     `"${s} soldiers killed ${year}"`,
-    `"${s} military ambush ${year}"`,
+    `"${s} bandits attack soldiers ${year}"`,
     `"${s} kidnapping ${year}"`,
     `"${s} bandits ${year}"`,
     `"${s} gunmen ${year}"`,
@@ -342,14 +343,13 @@ You must find incidents that occurred between ${startStr} and ${endStr} (inclusi
 
 TARGET STATES: ${stateList}
 
-YOUR MISSION: Find ALL qualifying security incidents in the target state during ${startStr} – ${endStr}. Complete each search family before deciding the state has no report. Do not infer that a state is quiet from Nigeria-wide results.
+YOUR MISSION: Find ALL qualifying original armed/security incidents in the target state during ${startStr} – ${endStr}. Complete each search family before deciding the state has no report. Do not infer that a state is quiet from Nigeria-wide results. Do not collect routine Nigerian Army/security-force work; Army-related reporting is in scope only for explicit kidnapping-victim rescues/releases that identify the original abduction/attack date and location.
 
-1. ATTACKS ON SECURITY FORCES (non-civilian targets):
-   - ISWAP/Boko Haram ambushes on military convoys or bases
+1. HOSTILE ATTACKS ON SECURITY FORCES:
+   - ISWAP/Boko Haram/bandit attacks or ambushes on military/police personnel, convoys or bases
    - IED explosions targeting military vehicles or patrols
-   - Soldiers, army officers, or police killed/injured in combat
-   - Attacks on police stations or army barracks
-   - High-ranking officers killed in operations
+   - Soldiers, army officers or police killed/injured by a hostile armed group
+   - Exclude deployments, patrols, raids on hideouts, clearance operations, arrests, weapons recovery, airstrikes, attacker-only kills and operational-result reports
 
 2. ATTACKS WITH NO OR UNKNOWN CASUALTIES:
    - Raids or attacks where the casualty toll is unclear or unconfirmed
@@ -366,7 +366,7 @@ ${stateSearchLines}
 
 Also search:
   - "Nigeria soldiers killed ${monthStr}"
-  - "Nigerian army ambush ${monthStr}"
+  - "bandits attack soldiers ${monthStr}"
   - "Operation Hadin Kai ${monthStr}"
   - "ISWAP attack ${monthStr}"
   - "Boko Haram attack ${monthStr}"
@@ -379,7 +379,7 @@ DEDUPLICATION
 ═══════════════════════════════════════════
 - Consolidate multiple reports of the SAME incident into ONE entry with all sources combined.
 - Do not silently choose the highest conflicting casualty value. Preserve an agreed exact value, or store credible disagreement as casualtyMeta range min/max/midpoint and status "developing".
-- A rescue, arrest, or military-operation update is not a standalone incident. Link it only when the article identifies the original attack date and location; otherwise omit it rather than using publication date as the incident date.
+- A rescue, arrest, or military-operation update is not a standalone incident. Allow an Army/security-force report only for an explicit kidnapping-victim rescue/release that identifies the original attack date and location; link it to the original incident and never use publication date.
 
 ═══════════════════════════════════════════
 DATA REQUIREMENTS
@@ -434,6 +434,14 @@ ${OUTPUT_SCHEMA}`;
 
   // Basic field completeness
   raw = raw.filter(a => a.title && a.description && a.date && a.location?.state && a.group);
+
+  // This script has its own historical writer, so enforce the shared scope gate
+  // here as well; otherwise a future scan could bypass ingest-attacks.ts.
+  raw = raw.filter(a => {
+    const rejection = screenIncidentCandidate(a);
+    if (rejection) console.log(`[${startStr}–${endStr}] Dropping non-incident candidate (${rejection}): ${a.title}`);
+    return !rejection;
+  });
 
   // Normalize state names
   raw = raw.map(a => ({

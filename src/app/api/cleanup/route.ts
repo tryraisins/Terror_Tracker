@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
+import { isKidnappingVictimRescue, screenIncidentCandidate } from "@/lib/incident-scope";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 /**
@@ -46,6 +47,19 @@ export async function POST(req: NextRequest) {
       const description = ((attack as any).description || "").toLowerCase();
       const combined = `${title} ${description}`;
 
+      // Apply the same tightened scope used at ingestion. Keep the record and
+      // its evidence, but move it to review in live mode rather than hard-delete.
+      const scopeRejection = screenIncidentCandidate({
+        title: (attack as any).title,
+        description: (attack as any).description,
+        group: (attack as any).group,
+      });
+      if (scopeRejection) {
+        toRemove.push({ ...(attack as any), _cleanupReason: `Automated scope review: ${scopeRejection}.` });
+        console.log(`[CLEANUP] Flagged: "${(attack as any).title}" — ${scopeRejection}`);
+        continue;
+      }
+
       // Check if this is a military/security operation against terrorists
       const isSecurityOperation = /\b(troops?|soldiers?|military|army|air\s*force|naf|joint\s*task\s*force|jtf|operation\s*hadin\s*kai|ophk|operation\s*whirl\s*stroke|operation\s*safe\s*haven|defence\s*headquarters?|dhq|cjtf)\b/i.test(combined);
 
@@ -89,7 +103,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Also catch rescue-only operations (no attack on civilians)
-      if (isSecurityOperation && isRescueOperation && !mentionsCivilianHarm) {
+      if (isSecurityOperation && isRescueOperation && !mentionsCivilianHarm && !isKidnappingVictimRescue({ title, description })) {
         const cas = (attack as any).casualties || {};
         // If killed count seems to be attacker deaths (and no kidnapping/displacement of civilians)
         if ((cas.killed > 0 || cas.injured > 0) && !cas.kidnapped && !cas.displaced) {
@@ -131,6 +145,7 @@ export async function POST(req: NextRequest) {
             date: a.date,
             location: a.location?.state,
             casualties: a.casualties,
+            reason: a._cleanupReason || "Suspected attacker-only incident",
           })),
           tip: 'Send { "dryRun": false } in the request body to move them out of the public record for review',
         })
@@ -144,7 +159,7 @@ export async function POST(req: NextRequest) {
       {
         $set: {
           _deleted: true,
-          _deletedReason: "Automated cleanup review: suspected attacker-only incident; retained for audited review.",
+          _deletedReason: "Automated cleanup review: failed the tightened incident-scope gate or appeared attacker-only; retained for audited review.",
           _deletedAt: new Date(),
           _deletedBy: "automated-cleanup",
         },
@@ -160,6 +175,7 @@ export async function POST(req: NextRequest) {
           id: a._id,
           title: a.title,
           date: a.date,
+          reason: a._cleanupReason || "Suspected attacker-only incident",
         })),
       })
     );

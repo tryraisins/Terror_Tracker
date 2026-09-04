@@ -20,7 +20,8 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
 - **Free, Source-Led Collection**:
   - Polls RSS feeds from established Nigerian publishers; no AI API or paid web-search API is used.
   - Inspects only newly-seen article URLs and retains a receipt for every accepted, rejected, and retrospective article.
-  - Publishes only when the article itself contains a recent incident date, Nigerian state, precise town/LGA, and incident language. An article publication date is never treated as an incident date.
+  - Publishes only when the article itself describes one recent original armed/security incident or abduction with a source-supported Nigerian location and incident date. An article publication date is never treated as an incident date.
+  - Excludes routine Nigerian Army/security-force work such as patrols, hideout raids, arrests, weapons recovery, airstrikes, attacker-only kills and operational results. Army-related reporting is retained only for explicit kidnapping-victim rescues/releases that identify the original event.
   - Older/referenced events are recorded as evidence-only and cannot become new incidents merely because another publisher mentions them.
   - Monitors trusted publishers including:
     - Zagazola Makama (Counter-Insurgency Expert)
@@ -87,6 +88,8 @@ Follow these instructions to set up the project locally for development and test
     FREE_SOURCE_MAX_INCIDENT_AGE_DAYS=3
     FREE_SOURCE_MAX_ITEMS_PER_FEED=12
     FREE_SOURCE_CONCURRENCY=4
+    # Paused by default until the source-led admission gate is explicitly enabled.
+    FREE_SOURCE_INGEST_ENABLED=false
     # Used only by the deliberate Gemini state-recovery scan, not hourly RSS collection.
     STATE_SCAN_CONCURRENCY=3
     GAP_SCAN_CONCURRENCY=3
@@ -118,7 +121,30 @@ The system uses an API route (`src/app/api/cron/update/route.ts`) designed to be
     3.  Treats older/referenced events as evidence-only, never as a new incident.
     4.  Merges only an exact incident fingerprint; fuzzy matches are review-only and never delete records automatically.
 
-The hourly collector is intentionally source-led and does not certify that every state was searched. Use the deliberate one-state-per-request recovery scan for evidence-backed historical or coverage work; it has a configurable concurrency cap, and its sources and database changes should be reviewed before it is run.
+The source-led collector is paused by default. The Netlify hourly schedule is disabled, and the API route is a no-op unless `FREE_SOURCE_INGEST_ENABLED=true` is explicitly configured after review. It does not certify that every state was searched. Use the deliberate one-state-per-request recovery scan for evidence-backed historical or coverage work; it has a configurable concurrency cap, and its sources and database changes should be reviewed before it is run.
+
+### Google News lead resolution
+
+The historical audit may use Google News RSS for discovery, but Google URLs are never stored as incident evidence. The resolver deduplicates Google URLs, follows redirects with `GET`, checks canonical publisher metadata, fetches the direct article, and searches the identified publisher domain by headline in the focused recovery command. The resolver itself writes only local JSONL ledgers and never updates MongoDB:
+
+```bash
+npm run audit:resolve-google -- --input=audit-2026/<run>/unresolved-candidates.jsonl
+```
+
+Use `--no-title-search` for redirect/canonical/source-URL checks only, or set `--search-provider=brave` when `BRAVE_SEARCH_API_KEY` is configured. A resolved URL still requires incident-date, location, casualty, scope, and duplicate adjudication before insertion.
+
+To persist only the validated direct-source leads as unresolved review evidence and `reference` source articles, use the explicit PowerShell workflow below. It runs the resolver, captures a database fingerprint, creates a dry-run manifest, and only enables writes when `-Apply` is supplied. It never writes the public `attacks` collection; candidates without an independently established original event date remain outside public incident counts:
+
+```powershell
+.\scripts\run-google-resolution-and-apply.ps1 `
+  -InputPath "audit-2026\<run>\unresolved-candidates.jsonl" `
+  -RunId "google-resolution-20260903" `
+  -Concurrency 12 `
+  -SearchProvider duckduckgo `
+  -Apply
+```
+
+Omit `-Apply` to stop after the dry run. The apply step aborts if the input ledger or database snapshot changed, and the workflow runs a second idempotency pass after applying.
 
 ## 🧹 Data Integrity & Cleanup
 

@@ -9,13 +9,23 @@ import {
   stableAuditHash,
 } from "../src/lib/incident-audit-contract";
 import type { CasualtyMetadata, LocationPrecision } from "../src/lib/incident-uncertainty";
+import {
+  createNewsLeadResolver,
+  normalizeNewsUrl,
+  type NewsFetchStatus,
+  type NewsLead,
+  type NewsResolution,
+  type NewsResolutionMethod,
+  type NewsResolutionStatus,
+  type NewsSearchProvider,
+} from "../src/lib/news-source-resolver";
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local"), quiet: true });
 mongoose.set("bufferCommands", false);
 
-const AUDIT_RUN_ID = "direct-web-revised-2026-01-to-08";
-const DEFAULT_START = "2026-01-01";
-const DEFAULT_END = "2026-08-29";
+const AUDIT_RUN_ID = "direct-web-revised-2026-04-01-to-09-03";
+const DEFAULT_START = "2026-04-01";
+const DEFAULT_END = "2026-09-03";
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+direct source audit)";
 const EVENT_PATTERN = /\b(attack(?:ed|s|ing)?|ambush(?:ed|es)?|kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing)?|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|wound(?:ed|s|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|gunmen|bandits?|insurgents?|terrorists?|militants?|ied|explosion|clash(?:es|ed)?|massacre[ds]?|hostages?|captives?)\b/i;
 const NON_INCIDENT_PATTERN = /\b(opinion|editorial|analysis|anniversary|explainer|forecast|budget|football|celebrity|music|movie|stock market|election campaign)\b/i;
@@ -36,6 +46,10 @@ type Args = {
   skipDb: boolean;
   knownGapsOnly: boolean;
   executeKnownGaps: boolean;
+  resolveConcurrency: number;
+  resolveDelayMs: number;
+  resolveTitleSearch: boolean;
+  resolveSearchProvider: NewsSearchProvider;
 };
 
 type WeekWindow = {
@@ -85,6 +99,17 @@ type CandidateLedger = {
   publisher: string;
   sourceDomain: string | null;
   googleNewsUrl: string;
+  rssSourceUrl: string | null;
+  directUrl: string | null;
+  directUrlStatus: NewsResolutionStatus;
+  directFetchStatus: NewsFetchStatus;
+  resolutionStatus: NewsResolutionStatus;
+  resolutionMethod: NewsResolutionMethod;
+  resolutionReason: string;
+  directArticleTitle: string | null;
+  directArticlePublishedAt: string | null;
+  directContentDigest: string | null;
+  titleSimilarity: number;
   publishedAt: string | null;
   locationPrecision: LocationPrecision;
   lga: string | null;
@@ -95,6 +120,13 @@ type CandidateLedger = {
 };
 
 type Source = { url: string; title: string; publisher: string };
+type SearchScan = {
+  tasks: number;
+  ledgers: QueryLedger[];
+  candidates: number;
+  uniqueGoogleNewsUrls: number;
+  resolutions: NewsResolution[];
+};
 type KnownGapPlan = {
   key: string;
   status: "READY" | "NO_OP" | "BLOCKED";
@@ -135,6 +167,12 @@ function parseArgs(argv: string[]): Args {
     skipDb: false,
     knownGapsOnly: false,
     executeKnownGaps: false,
+    resolveConcurrency: 2,
+    resolveDelayMs: 350,
+    resolveTitleSearch: process.env.NEWS_RESOLVER_TITLE_SEARCH === "true",
+    resolveSearchProvider: ["auto", "duckduckgo", "brave", "none"].includes(process.env.NEWS_RESOLVER_SEARCH_PROVIDER || "")
+      ? process.env.NEWS_RESOLVER_SEARCH_PROVIDER as NewsSearchProvider
+      : "auto",
   };
 
   for (const arg of argv) {
@@ -156,9 +194,18 @@ function parseArgs(argv: string[]): Args {
     else if (arg === "--skip-db") args.skipDb = true;
     else if (arg === "--known-gaps-only") args.knownGapsOnly = true;
     else if (arg === "--execute-known-gaps") args.executeKnownGaps = true;
+    else if (arg.startsWith("--resolve-concurrency=")) args.resolveConcurrency = Math.max(1, Number(arg.slice("--resolve-concurrency=".length)) || args.resolveConcurrency);
+    else if (arg.startsWith("--resolve-delay-ms=")) args.resolveDelayMs = Math.max(0, Number(arg.slice("--resolve-delay-ms=".length)) || 0);
+    else if (arg === "--title-search") args.resolveTitleSearch = true;
+    else if (arg === "--no-title-search") args.resolveTitleSearch = false;
+    else if (arg.startsWith("--search-provider=")) {
+      const provider = arg.slice("--search-provider=".length);
+      if (["auto", "duckduckgo", "brave", "none"].includes(provider)) args.resolveSearchProvider = provider as NewsSearchProvider;
+    }
   }
 
   args.concurrency = Math.min(args.concurrency, 6);
+  args.resolveConcurrency = Math.min(args.resolveConcurrency, 6);
   args.outDir = path.resolve(process.cwd(), args.outDir);
   return args;
 }
@@ -214,7 +261,7 @@ function buildSearchTasks(args: Args): SearchTask[] {
 
   for (const jurisdiction of args.states) {
     for (const window of windows) {
-      const query = `${searchStateName(jurisdiction)} Nigeria attack killed kidnapped abducted gunmen bandits Boko Haram ISWAP herdsmen ambush raid after:${window.start} before:${window.before}`;
+      const query = `${searchStateName(jurisdiction)} Nigeria (attack OR ambush OR abducted OR kidnapped OR massacre OR bombing OR clash) -deployment -patrol -training -arrest -weapons -neutralized -airstrike after:${window.start} before:${window.before}`;
       const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-NG&gl=NG&ceid=NG:en`;
       tasks.push({
         hash: hash({ jurisdiction, window, query }),
@@ -348,6 +395,17 @@ function candidateFromItem(task: SearchTask, item: RssItem): CandidateLedger | n
     publisher: item.sourceName || sourceDomain || "Unknown publisher",
     sourceDomain,
     googleNewsUrl: item.url,
+    rssSourceUrl: item.sourceUrl,
+    directUrl: null,
+    directUrlStatus: "UNRESOLVED",
+    directFetchStatus: "NOT_ATTEMPTED",
+    resolutionStatus: "UNRESOLVED",
+    resolutionMethod: "NONE",
+    resolutionReason: "DIRECT_SOURCE_RESOLUTION_PENDING",
+    directArticleTitle: null,
+    directArticlePublishedAt: null,
+    directContentDigest: null,
+    titleSimilarity: 0,
     publishedAt: item.publishedAt,
     locationPrecision: location.precision,
     lga: location.lga,
@@ -361,6 +419,15 @@ function candidateFromItem(task: SearchTask, item: RssItem): CandidateLedger | n
 async function appendJsonl(file: string, rows: unknown[]): Promise<void> {
   if (!rows.length) return;
   await fs.appendFile(file, rows.map((row) => JSON.stringify(row)).join("\n") + "\n", "utf8");
+}
+
+async function writeJsonl(file: string, rows: unknown[]): Promise<void> {
+  await fs.writeFile(file, rows.length ? `${rows.map((row) => JSON.stringify(row)).join("\n")}\n` : "", "utf8");
+}
+
+async function readJsonl<T>(file: string): Promise<T[]> {
+  const text = await fs.readFile(file, "utf8");
+  return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as T);
 }
 
 async function writeJson(file: string, value: unknown): Promise<void> {
@@ -401,6 +468,37 @@ async function fetchText(url: string, timeoutMs: number): Promise<{ status: numb
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function candidateResolutionKey(candidate: CandidateLedger): string {
+  return normalizeNewsUrl(candidate.googleNewsUrl) || candidate.googleNewsUrl;
+}
+
+function leadFromCandidate(candidate: CandidateLedger): NewsLead {
+  return {
+    googleNewsUrl: candidate.googleNewsUrl,
+    sourceUrl: candidate.rssSourceUrl || candidate.directUrl,
+    sourceDomain: candidate.sourceDomain,
+    publisher: candidate.publisher,
+    headline: candidate.title,
+    publishedAt: candidate.publishedAt,
+  };
+}
+
+function applyResolution(candidate: CandidateLedger, resolution: NewsResolution): CandidateLedger {
+  return {
+    ...candidate,
+    directUrl: resolution.resolvedSourceUrl,
+    directUrlStatus: resolution.resolutionStatus,
+    directFetchStatus: resolution.directFetchStatus,
+    resolutionStatus: resolution.resolutionStatus,
+    resolutionMethod: resolution.resolutionMethod,
+    resolutionReason: resolution.reason,
+    directArticleTitle: resolution.articleTitle,
+    directArticlePublishedAt: resolution.articlePublishedAt,
+    directContentDigest: resolution.contentDigest,
+    titleSimilarity: resolution.titleSimilarity,
+  };
 }
 
 async function mapLimit<T, R>(
@@ -499,7 +597,7 @@ async function scanTask(task: SearchTask, args: Args, queryLedgerFile: string, c
   throw new Error(`Unreachable retry state for ${task.hash}`);
 }
 
-async function runSearchScan(args: Args): Promise<{ tasks: number; ledgers: QueryLedger[]; candidates: number }> {
+async function runSearchScan(args: Args): Promise<SearchScan> {
   const queryLedgerFile = path.join(args.outDir, "query-ledger.jsonl");
   const candidateFile = path.join(args.outDir, "candidate-ledger.jsonl");
   await fs.rm(queryLedgerFile, { force: true });
@@ -512,8 +610,8 @@ async function runSearchScan(args: Args): Promise<{ tasks: number; ledgers: Quer
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => JSON.parse(line) as QueryLedger);
-    const failed = new Set(priorRows.filter((row) => row.status !== "PASS").map((row) => row.queryHash));
-    tasks = tasks.filter((task) => failed.has(task.hash));
+    const priorByHash = new Map(priorRows.map((row) => [row.queryHash, row]));
+    tasks = tasks.filter((task) => priorByHash.get(task.hash)?.status !== "PASS");
   }
   if (args.queryLimit) tasks = tasks.slice(0, args.queryLimit);
   let lastProgress = 0;
@@ -524,20 +622,59 @@ async function runSearchScan(args: Args): Promise<{ tasks: number; ledgers: Quer
     }
   });
 
+  const rawCandidates: CandidateLedger[] = await readJsonl<CandidateLedger>(candidateFile).catch(() => [] as CandidateLedger[]);
+  const uniqueCandidates = [...new Map<string, CandidateLedger>(rawCandidates.map((candidate): [string, CandidateLedger] => [candidateResolutionKey(candidate), candidate])).values()];
+  const resolver = createNewsLeadResolver({
+    timeoutMs: args.timeoutMs,
+    titleSearch: args.resolveTitleSearch,
+    searchProvider: args.resolveSearchProvider,
+    searchDelayMs: args.resolveDelayMs,
+  });
+  let lastResolutionProgress = 0;
+  const resolutions = await mapLimit(
+    uniqueCandidates,
+    args.resolveConcurrency,
+    async (candidate) => resolver.resolve(leadFromCandidate(candidate)),
+    (completed, total) => {
+      if (completed === total || completed - lastResolutionProgress >= 50) {
+        lastResolutionProgress = completed;
+        console.log(JSON.stringify({ phase: "source-resolution", completed, total, titleSearch: args.resolveTitleSearch }));
+      }
+    },
+  );
+  const resolutionByUrl = new Map(resolutions.map((resolution) => [normalizeNewsUrl(resolution.googleNewsUrl) || resolution.googleNewsUrl, resolution]));
+  const enrichedCandidates = rawCandidates.map((candidate) => {
+    const resolution = resolutionByUrl.get(candidateResolutionKey(candidate));
+    return resolution ? applyResolution(candidate, resolution) : candidate;
+  });
+  await writeJsonl(candidateFile, enrichedCandidates);
+  await writeJsonl(path.join(args.outDir, "source-resolution-ledger.jsonl"), resolutions);
+
   const candidates = ledgers.reduce((sum, row) => sum + row.candidateCount, 0);
   const byStatus = Object.fromEntries(["PASS", "FAIL", "BLOCKED"].map((status) => [status, ledgers.filter((row) => row.status === status).length]));
   const byState = Object.fromEntries(args.states.map((state) => [state, ledgers.filter((row) => row.jurisdiction === state).reduce((sum, row) => sum + row.candidateCount, 0)]));
+  const resolutionStatus = Object.fromEntries(["PASS", "BLOCKED", "UNRESOLVED", "FAIL"].map((status) => [status, resolutions.filter((row) => row.resolutionStatus === status).length]));
+  const resolutionMethod = Object.fromEntries(["RSS_SOURCE_URL", "HTTP_REDIRECT", "CANONICAL_TAG", "PUBLISHER_SITE_SEARCH", "PUBLISHER_TITLE_SEARCH", "NONE"].map((method) => [method, resolutions.filter((row) => row.resolutionMethod === method).length]));
+  const directFetchStatus = Object.fromEntries(["PASS", "PARTIAL", "BLOCKED", "FAIL", "NOT_ATTEMPTED"].map((status) => [status, resolutions.filter((row) => row.directFetchStatus === status).length]));
   await writeJson(path.join(args.outDir, "direct-web-scan-summary.json"), {
     generatedAt: new Date().toISOString(),
     auditRunId: AUDIT_RUN_ID,
     scope: { start: args.start, endInclusive: args.end, states: args.states },
     queryCount: ledgers.length,
     candidateCount: candidates,
+    uniqueGoogleNewsUrlCount: uniqueCandidates.length,
     status: byStatus,
     candidateLeadsByState: byState,
+    sourceResolution: {
+      status: resolutionStatus,
+      method: resolutionMethod,
+      directFetchStatus,
+      titleSearchEnabled: args.resolveTitleSearch,
+      searchProvider: args.resolveSearchProvider,
+    },
     writePolicy: "Read-only search ledger. Candidate leads are not database records until direct publisher pages are opened and matched.",
   });
-  return { tasks: tasks.length, ledgers, candidates };
+  return { tasks: tasks.length, ledgers, candidates, uniqueGoogleNewsUrls: uniqueCandidates.length, resolutions };
 }
 
 function sourceAlreadyPresent(existing: unknown, url: string): boolean {
@@ -825,7 +962,7 @@ async function aggregateDbTotals(connection: mongoose.Connection, outDir: string
     {
       $match: {
         _deleted: { $ne: true },
-        date: { $gte: new Date(`${DEFAULT_START}T00:00:00.000Z`), $lt: new Date("2026-08-30T00:00:00.000Z") },
+        date: { $gte: new Date(`${DEFAULT_START}T00:00:00.000+01:00`), $lt: new Date("2026-09-04T00:00:00.000+01:00") },
       },
     },
     {
@@ -897,7 +1034,7 @@ async function runKnownGapDryRun(args: Args): Promise<{ plans: KnownGapPlan[]; a
   }
 }
 
-function reportMarkdown(args: Args, scan: { tasks: number; ledgers: QueryLedger[]; candidates: number } | null, known: { plans: KnownGapPlan[]; applyResults?: unknown[] } | null): string {
+function reportMarkdown(args: Args, scan: SearchScan | null, known: { plans: KnownGapPlan[]; applyResults?: unknown[] } | null): string {
   const lines = [
     `# Direct Web Audit ${AUDIT_RUN_ID}`,
     "",
@@ -923,6 +1060,10 @@ function reportMarkdown(args: Args, scan: { tasks: number; ledgers: QueryLedger[
     lines.push(`- FAIL: ${fail}`);
     lines.push(`- BLOCKED: ${blocked}`);
     lines.push(`- Lead candidates requiring direct-source confirmation: ${scan.candidates}`);
+    lines.push(`- Unique Google News URLs resolved: ${scan.uniqueGoogleNewsUrls}`);
+    lines.push(`- Direct-source resolution: ${JSON.stringify(Object.fromEntries(["PASS", "BLOCKED", "UNRESOLVED", "FAIL"].map((status) => [status, scan.resolutions.filter((row) => row.resolutionStatus === status).length])))}`);
+    lines.push(`- Resolution methods: ${JSON.stringify(Object.fromEntries(["RSS_SOURCE_URL", "HTTP_REDIRECT", "CANONICAL_TAG", "PUBLISHER_SITE_SEARCH", "PUBLISHER_TITLE_SEARCH", "NONE"].map((method) => [method, scan.resolutions.filter((row) => row.resolutionMethod === method).length])))}`);
+    lines.push(`- Title-search fallback: ${args.resolveTitleSearch ? `enabled (${args.resolveSearchProvider})` : "disabled; use --title-search for publisher-domain fallback"}`);
   } else {
     lines.push("- Search scan skipped by CLI option.");
   }

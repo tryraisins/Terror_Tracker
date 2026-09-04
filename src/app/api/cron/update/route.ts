@@ -1,6 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
-import { collectFreeIncidents } from "@/lib/free-news";
+import { collectFreeIncidents, isFreeSourceIngestionEnabled } from "@/lib/free-news";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 
 export const maxDuration = 60;
@@ -12,6 +12,15 @@ export async function POST(req: NextRequest) {
     requireCronSecret: true,
   });
   if (securityError) return securityError;
+
+  if (!isFreeSourceIngestionEnabled()) {
+    return setCORSHeaders(
+      NextResponse.json({
+        message: "Update skipped: source-led incident ingestion is paused.",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
 
   after(async () => {
     try {

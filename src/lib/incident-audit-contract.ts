@@ -24,6 +24,14 @@ export const UNRESOLVED_REASON_CODES = [
 ] as const;
 
 export const REVISED_2026_AUDIT_POLICY = {
+  scope: [
+    "Include one specific original armed/security incident or abduction that occurred on the stated incident date in Nigeria.",
+    "Include attacks on civilians or security personnel when the source describes the hostile event itself, even if casualties are zero or unknown.",
+    "Exclude routine Nigerian Army/security-force work: deployments, patrols, raids on hideouts, clearance operations, arrests, weapons recovery, attacker-only kills, airstrikes, commendations and operational-result reports.",
+    "Allow an Army/security-force report only when it explicitly documents the rescue or release of kidnapping victims and identifies the original abduction/attack date and location; the rescue report is corroborating evidence, not a second incident.",
+    "Exclude opinion, analysis, background, policy, threat/warning, protest, accident/disaster, ordinary crime, court and general roundup articles.",
+    "A headline keyword alone never qualifies a record. Require direct-source narrative evidence, source-supported location and an incident date; never substitute publication date.",
+  ],
   location: [
     "Use an exact town, village, ward, road, facility or coordinates when a direct source states it.",
     "If the precise town is not available, use the best source-supported surrounding area or LGA within the canonical state.",

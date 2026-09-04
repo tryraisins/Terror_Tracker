@@ -7,7 +7,7 @@ import {
   type LocationPrecision,
   normalizeCasualtyFields,
 } from "./incident-uncertainty";
-import { normalizeStateName } from "./normalize-state";
+import { normalizeStateName, VALID_STATE_NAMES } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 
 export interface RawAttackData {
@@ -26,7 +26,7 @@ export interface RawAttackData {
 
 type Feed = { publisher: string; url: string };
 type FeedItem = { title: string; url: string; publishedAt: Date };
-export type FreeCollectionResult = { inspected: number; published: number; merged: number; references: number; rejected: number; errors: number };
+export type FreeCollectionResult = { inspected: number; published: number; merged: number; references: number; rejected: number; errors: number; disabled: boolean };
 
 const FEEDS: Feed[] = [
   { publisher: "Premium Times", url: "https://www.premiumtimesng.com/feed" },
@@ -51,15 +51,26 @@ const MAX_ARTICLE_AGE_HOURS = Number(process.env.FREE_SOURCE_MAX_ARTICLE_AGE_HOU
 const MAX_INCIDENT_AGE_DAYS = Number(process.env.FREE_SOURCE_MAX_INCIDENT_AGE_DAYS || 3);
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
 const MAX_ITEMS_PER_FEED = Number(process.env.FREE_SOURCE_MAX_ITEMS_PER_FEED || 12);
+const FREE_SOURCE_INGEST_ENABLED = process.env.FREE_SOURCE_INGEST_ENABLED === "true";
 const configuredConcurrency = Number(process.env.FREE_SOURCE_CONCURRENCY || 4);
 const FEED_CONCURRENCY = Number.isFinite(configuredConcurrency)
   ? Math.max(1, Math.min(Math.floor(configuredConcurrency), FEEDS.length))
   : 4;
 
-const STATES = ["Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno", "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT", "Gombe", "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara"];
-const STATE_PATTERN = new RegExp(`\\b(${[...STATES, "Abuja", "Federal Capital Territory"].map(escapeRegex).join("|")})(?:\\s+State)?\\b`, "i");
-const EVENT_PATTERN = /\b(attack(?:ed|s|ing)?|ambush(?:ed|es)?|kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing)?|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|wound(?:ed|s|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|gunmen|bandits?|insurgents?|terrorists?|militants?|ied|explosion|clash(?:es|ed)?|massacre[ds]?)\b/i;
+const STATES = [...VALID_STATE_NAMES];
+const STATE_TERMS = [...STATES, "Abuja", "Federal Capital Territory"].sort((a, b) => b.length - a.length);
+const STATE_PATTERN = new RegExp(`\\b(${STATE_TERMS.map(escapeRegex).join("|")})(\\s+State)?\\b`, "gi");
+const AMBIGUOUS_STATE_NAMES = new Set(["Cross River", "Delta", "Niger", "Plateau", "Rivers"]);
+const SECURITY_INCIDENT_PATTERN = /\b(attack(?:ed|s|ing)?|ambush(?:ed|es)?|kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|gunmen|bandits?|insurgents?|terrorists?|militants?|boko\s+haram|iswap|ied|clash(?:es|ed)?|massacre[ds]?|herdsmen|cultists?)\b/i;
+const NON_SECURITY_DISASTER_PATTERN = /\b(floods?|landslides?|earthquakes?|storms?|typhoons?|hurricanes?|crash(?:es)?|accidents?|stampedes?|building collapses?|fire outbreaks?|disease outbreaks?|cholera)\b/i;
 const RETROSPECTIVE_PATTERN = /\b(anniversary|years? ago|in (?:19|20)\d{2}|remember(?:ing)?|recall(?:ed|ing)?|previously|historic(?:al)?|at the time|had been)\b/i;
+const NIGERIAN_LOCATION_CONTEXT_PATTERN = /\b(Nigeria|Nigerian|State|Police Command|LGA|Local Government Area|Local Govt\.?|Council Area|governor|residents?)\b/i;
+const ROUNDUP_HEADLINE_PATTERN = /\b(?:nigerian newspapers?|10 things? you need to know|top stories|morning headlines?|daily briefing|news roundup|latest news)\b/i;
+const DIRECT_EVENT_HEADLINE_PATTERN = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|shot|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|explod(?:ed|ing)|clash(?:ed|es|ing)?|massacre[ds]?|hostage|captive)\b/i;
+const VICTIM_OUTCOME_HEADLINE_PATTERN = /\b(?:killed|injured|wounded)\b[\s\S]{0,70}\b(?:civilian|villager|resident|farmer|soldier|troop|police|officer|people|victim|worshipper|student|child|driver|commuter)\b|\b(?:civilian|villager|resident|farmer|soldier|troop|police|officer|people|victim|worshipper|student|child|driver|commuter)\b[\s\S]{0,70}\b(?:killed|injured|wounded)\b/i;
+const SECURITY_OPERATION_HEADLINE_PATTERN = /^\s*(?:troops?|army|soldiers?|police|military|joint\s+task\s+force|jtf|operation\s+[A-Z]+)\b[\s\S]{0,120}\b(?:raid(?:ed|s|ing)?|ambush(?:ed|es|ing)?|overpower(?:ed|s|ing)?|kill(?:ed|s|ing)?|neutraliz(?:e|ed|es|ing)|recover(?:ed|s|ing)?|arrest(?:ed|s|ing)?|rescue(?:d|s|ing)?)\b/i;
+const HOSTILE_ATTACK_ON_SECURITY_HEADLINE_PATTERN = /\b(?:bandits?|terrorists?|gunmen|insurgents?|militants?)\b[\s\S]{0,80}\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|bomb(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|target(?:ed|s|ing)?)\b[\s\S]{0,80}\b(?:troops?|soldiers?|army|police|officers?|convoy|base|barracks?|station)\b/i;
+const ABSOLUTE_DATE_PATTERN = /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+20\d{2}\b|\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+20\d{2}\b/i;
 
 function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function decodeHtml(value: string): string { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/gi, "&").replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(); }
@@ -81,6 +92,36 @@ function meta(html: string, name: string): string {
   return decodeHtml(html.match(direct)?.[1] || html.match(reversed)?.[1] || "");
 }
 function articleText(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 18).join(" ").slice(0, 8000); }
+function articleLead(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 4).join(" ").slice(0, 2800); }
+
+function sourceLedAdmissionRejection(title: string, lead: string): string | null {
+  if (ROUNDUP_HEADLINE_PATTERN.test(title)) return "roundup or newspaper-summary headline, not a specific incident";
+
+  const hasEventHeadline = DIRECT_EVENT_HEADLINE_PATTERN.test(title) || VICTIM_OUTCOME_HEADLINE_PATTERN.test(title);
+  if (!hasEventHeadline) return "headline is not specific to an original armed/security incident";
+
+  // A rescue/release headline is follow-up evidence unless its lead supplies
+  // the original event date. Otherwise the feed publication date would create
+  // a false new incident.
+  if (/\b(?:rescue|rescued|release|released|freed|recovered|recovery)\b/i.test(title) && !ABSOLUTE_DATE_PATTERN.test(lead)) {
+    return "rescue or release headline does not identify the original incident date";
+  }
+
+  // A security-force operation is not itself a public incident. Keep it out
+  // unless the headline describes hostile harm to security personnel, or the
+  // rescue branch above has established that this is tied to an original event.
+  if (SECURITY_OPERATION_HEADLINE_PATTERN.test(title) &&
+      !VICTIM_OUTCOME_HEADLINE_PATTERN.test(title) &&
+      !HOSTILE_ATTACK_ON_SECURITY_HEADLINE_PATTERN.test(title)) {
+    return "security-force operation or operational result without a qualifying victim attack";
+  }
+
+  return null;
+}
+
+export function isFreeSourceIngestionEnabled(): boolean {
+  return FREE_SOURCE_INGEST_ENABLED;
+}
 
 function dateFromText(text: string, publishedAt: Date): Date | null {
   const absolute = text.match(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/i);
@@ -89,14 +130,36 @@ function dateFromText(text: string, publishedAt: Date): Date | null {
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   const relative = text.match(/\b(today|yesterday)\b/i);
-  if (relative && EVENT_PATTERN.test(text)) {
+  if (relative && hasSecurityIncidentSignal(text)) {
     const date = new Date(publishedAt);
     if (relative[1].toLowerCase() === "yesterday") date.setUTCDate(date.getUTCDate() - 1);
     return date;
   }
   return null;
 }
-function extractState(text: string): string | null { const match = text.match(STATE_PATTERN)?.[1]; return !match ? null : /abuja|federal capital/i.test(match) ? "FCT" : normalizeStateName(match); }
+function hasSecurityIncidentSignal(text: string): boolean {
+  if (!SECURITY_INCIDENT_PATTERN.test(text)) return false;
+  return !NON_SECURITY_DISASTER_PATTERN.test(text) || /\b(attack|ambush|kidnap|abduct|raid|shoot|gunmen|bandits?|insurgents?|terrorists?|militants?|boko\s+haram|iswap|ied|clash|massacre|herdsmen|cultists?)\b/i.test(text);
+}
+
+function extractState(text: string): string | null {
+  for (const match of text.matchAll(STATE_PATTERN)) {
+    const raw = match[1];
+    const normalized = /abuja|federal capital/i.test(raw) ? "FCT" : normalizeStateName(raw);
+    if (!STATES.includes(normalized as (typeof STATES)[number])) continue;
+    if (isSupportedStateMention(text, match.index ?? 0, raw, Boolean(match[2]), normalized)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function isSupportedStateMention(text: string, index: number, raw: string, hasStateSuffix: boolean, normalized: string): boolean {
+  if (normalized === "FCT" || hasStateSuffix || !AMBIGUOUS_STATE_NAMES.has(normalized)) return true;
+  if (raw !== normalized) return false;
+  const context = text.slice(Math.max(0, index - 80), index + raw.length + 80);
+  return NIGERIAN_LOCATION_CONTEXT_PATTERN.test(context);
+}
 function extractTown(title: string, state: string): string | null {
   const location = title.match(/\b(?:in|at|near)\s+([A-Z][A-Za-z'’-]{2,}(?:\s+[A-Z][A-Za-z'’-]{2,}){0,2})(?:,|\s+in)?/);
   const town = location?.[1]?.trim();
@@ -218,36 +281,44 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   const html = await response.text();
   const title = meta(html, "og:title") || item.title;
   const description = meta(html, "description") || meta(html, "og:description");
-  const text = `${title}. ${description}. ${articleText(html)}`;
-  const scopeRejection = screenIncidentCandidate({ title, description: text, group: extractGroup(text) });
+  const lead = `${title}. ${description}. ${articleLead(html)}`.slice(0, 6000);
+  const text = `${lead}. ${articleText(html)}`;
+  const headlineRejection = sourceLedAdmissionRejection(title, lead);
+  if (headlineRejection) { await record(item, publisher, "rejected", `Source-led admission gate: ${headlineRejection}.`); return "rejected"; }
+  if (!hasSecurityIncidentSignal(lead)) { await record(item, publisher, "rejected", "No armed/security-incident language in the article headline and lead."); return "rejected"; }
+  const scopeRejection = screenIncidentCandidate({ title, description: lead, group: extractGroup(lead) });
   if (scopeRejection) { await record(item, publisher, "rejected", `Non-incident scope gate: ${scopeRejection}.`); return "rejected"; }
-  if (!EVENT_PATTERN.test(text)) { await record(item, publisher, "rejected", "No security-incident language in article text."); return "rejected"; }
-  const state = extractState(text); const incidentDate = dateFromText(text, item.publishedAt); const group = extractGroup(text);
+  const state = extractState(lead); const incidentDate = dateFromText(lead, item.publishedAt); const group = extractGroup(lead);
   if (!state || !incidentDate) { await record(item, publisher, "rejected", "Missing an explicit incident date or Nigerian state; publication date is never used as the incident date.", incidentDate); return "rejected"; }
   const incidentAgeDays = (Date.now() - incidentDate.getTime()) / 86_400_000;
   if (incidentAgeDays > MAX_INCIDENT_AGE_DAYS || incidentAgeDays < -1 || RETROSPECTIVE_PATTERN.test(text)) {
     if (!await addAsReference(item, publisher, state, incidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", incidentDate);
     return "reference";
   }
-  const location = extractLocation(title, text, state);
+  const location = extractLocation(title, lead, state);
   const casualtyMeta: CasualtyMetadata = {
-    killed: extractCasualtyAssessment(text, "killed"),
-    injured: extractCasualtyAssessment(text, "injured|wounded"),
-    kidnapped: extractCasualtyAssessment(text, "kidnapped|abducted"),
-    displaced: extractCasualtyAssessment(text, "displaced|forced to flee"),
+    killed: extractCasualtyAssessment(lead, "killed"),
+    injured: extractCasualtyAssessment(lead, "injured|wounded"),
+    kidnapped: extractCasualtyAssessment(lead, "kidnapped|abducted"),
+    displaced: extractCasualtyAssessment(lead, "displaced|forced to flee"),
   };
   const normalizedImpact = normalizeCasualtyFields({}, casualtyMeta);
   const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];
   if (location.precision && location.precision !== "exact") tags.push("approximate-location");
   if (Object.values(casualtyMeta).some((meta) => meta?.precision === "estimate" || meta?.precision === "range")) tags.push("casualty-uncertainty");
-  const attack: RawAttackData = { title, description: (description || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
+  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) { if (!existing.sources.some((source: { url: string }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""))) await Attack.findByIdAndUpdate(existing._id, { $push: { sources: attack.sources[0] } }); await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id); return "merged"; }
   const saved = await Attack.create({ ...attack, hash }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", incidentDate, saved._id); return "published";
 }
 
 export async function collectFreeIncidents(): Promise<FreeCollectionResult> {
-  const result: FreeCollectionResult = { inspected: 0, published: 0, merged: 0, references: 0, rejected: 0, errors: 0 };
+  const result: FreeCollectionResult = { inspected: 0, published: 0, merged: 0, references: 0, rejected: 0, errors: 0, disabled: false };
+
+  if (!FREE_SOURCE_INGEST_ENABLED) {
+    console.warn("[Free Collector] Paused: set FREE_SOURCE_INGEST_ENABLED=true only after the source-led gate has been reviewed.");
+    return { ...result, disabled: true };
+  }
 
   // Fetch feeds concurrently, then keep article processing bounded. The former
   // sequential loop could spend most of a 60-second function window waiting on

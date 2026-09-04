@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 // Duplicate of required models and libs since tsx with relative imports is easiest.
 import Attack from "../src/lib/models/Attack";
 import { generateAttackHash, mergeIncidentStrategies } from "../src/lib/gemini";
+import { screenIncidentCandidate } from "../src/lib/incident-scope";
 import { normalizeStateName } from "../src/lib/normalize-state";
 
 // Setup mongoose connection locally in script:
@@ -125,7 +126,7 @@ async function fetchBackfillAttacks(targetDate: Date) {
   const prompt = `You are an intelligence analyst specializing in security incidents in Nigeria.
 The current simulated date and time is ${targetDate.toISOString()}.
 
-YOUR PRIMARY MISSION: Search for ALL terrorist attacks, insurgent attacks, bandit attacks, militant attacks, and attacks by unknown gunmen in Nigeria.
+YOUR PRIMARY MISSION: Search for qualifying original armed/security incidents in Nigeria: terrorist, insurgent, bandit, militant or unknown-gunmen attacks, kidnappings and communal armed clashes. Do not collect routine Nigerian Army/security-force work. Army-related reporting is in scope only for explicit kidnapping-victim rescues/releases that identify the original abduction/attack date and location.
 
 SEARCH STRATEGY — FOLLOW THIS ORDER:
 1. FIRST: Search for any attacks that happened TODAY (${todayStr}). Search each Tier 2 news site individually for today's articles.
@@ -198,7 +199,8 @@ For each incident found, provide:
 CRITICAL RULES
 ═══════════════════════════════════════════
 - ONLY include REAL, VERIFIED incidents. Do NOT fabricate or hallucinate any attacks.
-- If you cannot find any recent attacks, return an empty array [].
+- If you cannot find any recent qualifying attacks, return an empty array [].
+- Reject deployments, patrols, raids on hideouts, clearance operations, arrests, weapons recovery, airstrikes, attacker-only kills, operational results, opinions, background reports and rescue/release follow-ups that do not identify the original abduction/attack.
 - CASUALTY COUNTING: ONLY count dead/injured civilians and security forces. If an incident ONLY resulted in attacker deaths (e.g., "30 terrorists killed"), DO NOT include it.
 - Set "civilianCasualties" to true only if civilians or security forces were killed/injured/kidnapped/displaced.
 - Be specific about locations — always include state AND town/village name.
@@ -317,6 +319,11 @@ async function runBackfill() {
       if (rawAttacks.length === 0) continue;
 
       const filteredAttacks = rawAttacks.filter((attack: any) => {
+        const scopeRejection = screenIncidentCandidate(attack);
+        if (scopeRejection) {
+          console.log(`[BACKFILL] Skipping non-incident candidate (${scopeRejection}): ${attack.title}`);
+          return false;
+        }
         if (attack.civilianCasualties === false) return false;
         const { killed, injured, kidnapped, displaced } = attack.casualties || {};
         const hasCasualties = (killed && killed > 0) || (injured && injured > 0) || 
