@@ -1,6 +1,7 @@
 import type { BackgroundHandler } from "@netlify/functions";
 import connectDB from "../../src/lib/db";
 import { collectFreeIncidents, isFreeSourceIngestionEnabled } from "../../src/lib/free-news";
+import { assertActiveAttackDateIntegrity } from "../../src/lib/attack-data-integrity";
 
 const handler: BackgroundHandler = async () => {
   try {
@@ -10,11 +11,15 @@ const handler: BackgroundHandler = async () => {
     }
 
     await connectDB();
+    await assertActiveAttackDateIntegrity("Scheduled Update preflight");
 
     console.log("[Scheduled Update] Starting free source-led collection...");
-    console.log("[Scheduled Update] Complete", await collectFreeIncidents());
+    const result = await collectFreeIncidents();
+    await assertActiveAttackDateIntegrity("Scheduled Update postflight");
+    console.log("[Scheduled Update] Complete", result);
   } catch (error) {
     console.error("[Scheduled Update] Fatal error:", error);
+    throw error;
   }
 };
 

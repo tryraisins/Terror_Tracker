@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
+import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
 
 const NIGERIA_TIMEZONE = "Africa/Lagos";
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectDB();
+    await assertActiveAttackDateIntegrity("GET /api/stats");
     const now = new Date();
     const nigeriaYear = nigeriaCalendarPart(now, "year");
     const nigeriaMonth = nigeriaCalendarPart(now, "month");

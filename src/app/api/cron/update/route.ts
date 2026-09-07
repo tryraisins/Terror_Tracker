@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import { collectFreeIncidents, isFreeSourceIngestionEnabled } from "@/lib/free-news";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
+import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
 
 export const maxDuration = 60;
 
@@ -25,11 +26,15 @@ export async function POST(req: NextRequest) {
   after(async () => {
     try {
       await connectDB();
+      await assertActiveAttackDateIntegrity("CRON Update preflight");
 
       console.log("[CRON] Starting free source-led collection...");
-      console.log("[CRON] Update complete", await collectFreeIncidents());
+      const result = await collectFreeIncidents();
+      await assertActiveAttackDateIntegrity("CRON Update postflight");
+      console.log("[CRON] Update complete", result);
     } catch (error) {
       console.error("[CRON] Fatal error:", error);
+      throw error;
     }
   });
 

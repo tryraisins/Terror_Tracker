@@ -4,6 +4,7 @@ import Attack from "@/lib/models/Attack";
 import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 import { normalizeStateName } from "@/lib/normalize-state";
 import { AttackQuerySchema } from "@/lib/validators";
+import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
 
 export async function GET(req: NextRequest) {
   // Security checks: rate limit 100 req/min for reads
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
       parseResult.data;
 
     await connectDB();
+    await assertActiveAttackDateIntegrity("GET /api/attacks");
 
     // Build MongoDB filter — exclude soft-deleted records
     const filter: Record<string, unknown> = { _deleted: { $ne: true } };

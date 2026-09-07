@@ -75,7 +75,10 @@ export function screenIncidentCandidate(input: IncidentScopeInput): string | nul
     return "security deployment, preparedness, patrol, or operational-result report";
   }
 
-  if (ARMY_ACTIVITY.test(combined) && ARMY_OPERATION.test(combined) && !permittedRescue && !HOSTILE_ATTACK_ON_SECURITY.test(combined) && !DIRECT_SECURITY_HARM.test(combined)) {
+  // A qualifying incident is often described by police or military sources.
+  // Do not treat that attribution as a routine security operation when the
+  // candidate headline itself records the original civilian attack.
+  if (ARMY_ACTIVITY.test(combined) && ARMY_OPERATION.test(combined) && !originalEventInTitle && !permittedRescue && !HOSTILE_ATTACK_ON_SECURITY.test(combined) && !DIRECT_SECURITY_HARM.test(combined)) {
     return "routine Nigerian Army/security operation; only kidnapping-victim rescues are in scope";
   }
 

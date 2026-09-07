@@ -3,6 +3,7 @@ import { RawAttackData, generateAttackHash, isUsableEvidenceUrl, mergeIncidentSt
 import { normalizeCasualtyFields } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
+import { parseIncidentDate, assertActiveAttackDateIntegrity } from "./attack-data-integrity";
 
 export interface IngestResult {
   saved: number;
@@ -23,13 +24,6 @@ function normalizeUrl(url: string): string {
   return String(url || "").trim().toLowerCase().replace(/\/$/, "");
 }
 
-const TITLE_STOPWORDS = new Set([
-  "attack", "attacks", "kill", "kills", "killed", "gunmen", "armed",
-  "village", "bandits", "dead", "soldiers", "police", "troops",
-  "people", "residents", "suspected", "abducted", "kidnapped",
-  "shooting", "open", "fire", "shot", "farmers", "worshippers",
-]);
-
 /**
  * Save or merge a batch of raw attack incidents into the database.
  * Handles deduplication by hash and fuzzy location/title matching.
@@ -39,6 +33,7 @@ export async function ingestAttacks(
   rawAttacks: RawAttackData[],
   label = "Ingest",
 ): Promise<IngestResult> {
+  await assertActiveAttackDateIntegrity(`${label} preflight`);
   const filteredAttacks = rawAttacks.map(attack => ({
     ...attack,
     sources: (attack.sources || []).filter(source => isUsableEvidenceUrl(source.url)),
@@ -59,24 +54,17 @@ export async function ingestAttacks(
 
   for (const rawAttack of filteredAttacks) {
     try {
+      const attackDate = parseIncidentDate(rawAttack.date, `${label}: ${rawAttack.title}`);
       const hash = generateAttackHash(rawAttack);
       let existing = await Attack.findOne({ hash });
 
       if (!existing) {
-        const attackDate = new Date(rawAttack.date);
         const windowStart = new Date(attackDate);
         windowStart.setDate(windowStart.getDate() - 2);
         windowStart.setHours(0, 0, 0, 0);
         const windowEnd = new Date(attackDate);
         windowEnd.setDate(windowEnd.getDate() + 2);
         windowEnd.setHours(23, 59, 59, 999);
-
-        const titleWords = rawAttack.title
-          .toLowerCase()
-          .replace(/[^a-z0-9\s]/g, " ")
-          .split(/\s+/)
-          .filter((w: string) => w.length > 3 && !TITLE_STOPWORDS.has(w))
-          .slice(0, 5);
 
         const townWords = (rawAttack.location.town || "")
           .toLowerCase()
@@ -106,15 +94,6 @@ export async function ingestAttacks(
                 $gte: Math.floor(rawAttack.casualties.killed * 0.5),
                 $lte: Math.ceil(rawAttack.casualties.killed * 1.5),
               },
-            }] : []),
-            ...(titleWords.length >= 2 ? [{
-              title: {
-                $regex: new RegExp(
-                  titleWords.slice(0, 3).map(w => `(?=.*${escapeRegex(w)})`).join(""),
-                  "i",
-                ),
-              },
-              group: { $regex: new RegExp(`^${escapeRegex(rawAttack.group)}$`, "i") },
             }] : []),
             // Fallback: same state + same group + exact casualties (catches Unknown-LGA records
             // that share the same incident but were stored with different LGA precision).
@@ -311,11 +290,29 @@ export async function ingestAttacks(
 
       if (existing) {
         console.log(`[${label}] Duplicate found: "${rawAttack.title}" — merging with "${existing.title}"`);
+        if (existing.hash === hash) {
+          const existingUrls = new Set(
+            (existing.sources || []).map((source) => normalizeUrl(source.url)).filter(Boolean),
+          );
+          const newSources = (rawAttack.sources || []).filter((source) => {
+            const normalized = normalizeUrl(source.url);
+            return normalized && !existingUrls.has(normalized);
+          });
+          if (newSources.length > 0) {
+            await Attack.findByIdAndUpdate(existing._id, {
+              $push: { sources: { $each: newSources } },
+              $set: { updatedAt: new Date() },
+            });
+          }
+          merged++;
+          continue;
+        }
         try {
           const mergedUpdates = await mergeIncidentStrategies(existing.toObject(), rawAttack);
           await Attack.findByIdAndUpdate(existing._id, mergedUpdates);
           merged++;
         } catch (mergeErr) {
+          errors++;
           console.error(`[${label}] Merge failed for ${existing._id}:`, mergeErr);
         }
         continue;
@@ -325,7 +322,7 @@ export async function ingestAttacks(
       const attack = new Attack({
         title: sanitizeString(rawAttack.title),
         description: sanitizeString(rawAttack.description),
-        date: new Date(rawAttack.date),
+        date: attackDate,
         location: {
           state: normalizeStateName(sanitizeString(rawAttack.location.state)),
           lga: sanitizeString(rawAttack.location.lga || "Unknown"),
@@ -360,5 +357,6 @@ export async function ingestAttacks(
     }
   }
 
+  await assertActiveAttackDateIntegrity(`${label} postflight`);
   return { saved, merged, errors };
 }

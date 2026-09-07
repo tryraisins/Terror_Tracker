@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isSuppressedSourceHost } from "./news-source-registry";
 
 export type NewsLead = {
   googleNewsUrl: string;
@@ -739,6 +740,13 @@ async function resolveUncached(
     || domainFromNewsUrl(lead.sourceUrl)
     || publisherDomainHint(lead.publisher);
   const base = emptyResolution(lead, expectedDomain, "NO_DIRECT_SOURCE_ATTEMPTED");
+  if (expectedDomain && isSuppressedSourceHost(expectedDomain)) {
+    return {
+      ...base,
+      resolutionStatus: "BLOCKED",
+      reason: "SOURCE_HOST_SUPPRESSED_AFTER_ACCESS_FAILURE_OR_INCOMPLETE_COVERAGE",
+    };
+  }
   const attempts: NewsResolutionAttempt[] = [];
   const bestState: { current: { method: NewsResolutionMethod; assessment: PageAssessment } | null } = { current: null };
 

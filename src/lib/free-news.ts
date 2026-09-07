@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import Attack from "./models/Attack";
 import SourceArticle from "./models/SourceArticle";
+import SourceHealth from "./models/SourceHealth";
 import {
   type CasualtyCountMetadata,
   type CasualtyMetadata,
@@ -9,6 +10,8 @@ import {
 } from "./incident-uncertainty";
 import { normalizeStateName, VALID_STATE_NAMES } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
+import { assertActiveAttackDateIntegrity, parseIncidentDate } from "./attack-data-integrity";
+import { getVerifiedNewsFeeds, type RegisteredNewsFeed } from "./news-source-registry";
 
 export interface RawAttackData {
   title: string;
@@ -24,28 +27,19 @@ export interface RawAttackData {
   tags: string[];
 }
 
-type Feed = { publisher: string; url: string };
 type FeedItem = { title: string; url: string; publishedAt: Date };
-export type FreeCollectionResult = { inspected: number; published: number; merged: number; references: number; rejected: number; errors: number; disabled: boolean };
-
-const FEEDS: Feed[] = [
-  { publisher: "Premium Times", url: "https://www.premiumtimesng.com/feed" },
-  { publisher: "The Cable", url: "https://www.thecable.ng/feed/" },
-  { publisher: "Channels TV", url: "https://www.channelstv.com/feed/" },
-  { publisher: "Punch", url: "https://punchng.com/feed/" },
-  { publisher: "Vanguard", url: "https://www.vanguardngr.com/feed/" },
-  { publisher: "Daily Trust", url: "https://dailytrust.com/feed/" },
-  { publisher: "HumAngle", url: "https://humanglemedia.com/feed/" },
-  { publisher: "The Guardian Nigeria", url: "https://guardian.ng/feed/" },
-  { publisher: "Daily Post", url: "https://dailypost.ng/feed/" },
-  { publisher: "Sahara Reporters", url: "https://saharareporters.com/rss.xml" },
-  // These outlets add regional and security reporting that does not always
-  // reach the larger national feeds above.
-  { publisher: "Tribune Online", url: "https://tribuneonlineng.com/feed/" },
-  { publisher: "PRNigeria", url: "https://prnigeria.com/feed/" },
-  { publisher: "Daily Nigerian", url: "https://dailynigerian.com/feed/" },
-  { publisher: "News Central", url: "https://newscentral.africa/feed/" },
-];
+export type FreeCollectionResult = {
+  inspected: number;
+  published: number;
+  merged: number;
+  references: number;
+  rejected: number;
+  errors: number;
+  sourcesChecked: number;
+  sourcesSkipped: number;
+  sourceFailures: number;
+  disabled: boolean;
+};
 
 const MAX_ARTICLE_AGE_HOURS = Number(process.env.FREE_SOURCE_MAX_ARTICLE_AGE_HOURS || 72);
 const MAX_INCIDENT_AGE_DAYS = Number(process.env.FREE_SOURCE_MAX_INCIDENT_AGE_DAYS || 3);
@@ -54,7 +48,7 @@ const MAX_ITEMS_PER_FEED = Number(process.env.FREE_SOURCE_MAX_ITEMS_PER_FEED || 
 const FREE_SOURCE_INGEST_ENABLED = process.env.FREE_SOURCE_INGEST_ENABLED === "true";
 const configuredConcurrency = Number(process.env.FREE_SOURCE_CONCURRENCY || 4);
 const FEED_CONCURRENCY = Number.isFinite(configuredConcurrency)
-  ? Math.max(1, Math.min(Math.floor(configuredConcurrency), FEEDS.length))
+  ? Math.max(1, Math.min(Math.floor(configuredConcurrency), getVerifiedNewsFeeds().length))
   : 4;
 
 const STATES = [...VALID_STATE_NAMES];
@@ -290,9 +284,10 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   if (scopeRejection) { await record(item, publisher, "rejected", `Non-incident scope gate: ${scopeRejection}.`); return "rejected"; }
   const state = extractState(lead); const incidentDate = dateFromText(lead, item.publishedAt); const group = extractGroup(lead);
   if (!state || !incidentDate) { await record(item, publisher, "rejected", "Missing an explicit incident date or Nigerian state; publication date is never used as the incident date.", incidentDate); return "rejected"; }
-  const incidentAgeDays = (Date.now() - incidentDate.getTime()) / 86_400_000;
+  const validatedIncidentDate = parseIncidentDate(incidentDate, `Free Collector: ${title}`);
+  const incidentAgeDays = (Date.now() - validatedIncidentDate.getTime()) / 86_400_000;
   if (incidentAgeDays > MAX_INCIDENT_AGE_DAYS || incidentAgeDays < -1 || RETROSPECTIVE_PATTERN.test(text)) {
-    if (!await addAsReference(item, publisher, state, incidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", incidentDate);
+    if (!await addAsReference(item, publisher, state, validatedIncidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", validatedIncidentDate);
     return "reference";
   }
   const location = extractLocation(title, lead, state);
@@ -306,33 +301,76 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];
   if (location.precision && location.precision !== "exact") tags.push("approximate-location");
   if (Object.values(casualtyMeta).some((meta) => meta?.precision === "estimate" || meta?.precision === "range")) tags.push("casualty-uncertainty");
-  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: incidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
+  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: validatedIncidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) { if (!existing.sources.some((source: { url: string }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""))) await Attack.findByIdAndUpdate(existing._id, { $push: { sources: attack.sources[0] } }); await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id); return "merged"; }
-  const saved = await Attack.create({ ...attack, hash }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", incidentDate, saved._id); return "published";
+  const saved = await Attack.create({ ...attack, hash, date: validatedIncidentDate }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", validatedIncidentDate, saved._id); return "published";
 }
 
 export async function collectFreeIncidents(): Promise<FreeCollectionResult> {
-  const result: FreeCollectionResult = { inspected: 0, published: 0, merged: 0, references: 0, rejected: 0, errors: 0, disabled: false };
+  const result: FreeCollectionResult = {
+    inspected: 0,
+    published: 0,
+    merged: 0,
+    references: 0,
+    rejected: 0,
+    errors: 0,
+    sourcesChecked: 0,
+    sourcesSkipped: 0,
+    sourceFailures: 0,
+    disabled: false,
+  };
 
   if (!FREE_SOURCE_INGEST_ENABLED) {
     console.warn("[Free Collector] Paused: set FREE_SOURCE_INGEST_ENABLED=true only after the source-led gate has been reviewed.");
     return { ...result, disabled: true };
   }
 
-  // Fetch feeds concurrently, then keep article processing bounded. The former
-  // sequential loop could spend most of a 60-second function window waiting on
-  // feeds and never reach lower-priority outlets.
-  const discovered = await Promise.all(FEEDS.map(async (feed) => {
-    try {
-      const response = await fetch(feed.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { "user-agent": "NigeriaAttackTracker/1.0 (+source-led OSINT collector)" } });
-      if (!response.ok) throw new Error(`Feed returned ${response.status}`);
-      return parseFeed(await response.text())
-        .slice(0, MAX_ITEMS_PER_FEED)
-        .map((item) => ({ item, publisher: feed.publisher }));
-    } catch (error) { result.errors++; console.error(`[Free Collector] Failed feed ${feed.publisher}:`, error); }
-    return [] as Array<{ item: FeedItem; publisher: string }>;
-  }));
+  await assertActiveAttackDateIntegrity("Free Collector preflight");
+
+  const feeds = getVerifiedNewsFeeds();
+  const healthRows = await SourceHealth.find({ feedUrl: { $in: feeds.map((feed) => feed.url) } }).lean();
+  const pausedUrls = new Set(healthRows.filter((row) => row.status === "PAUSED").map((row) => row.feedUrl));
+  const eligibleFeeds = feeds.filter((feed) => !pausedUrls.has(feed.url));
+  result.sourcesSkipped = feeds.length - eligibleFeeds.length;
+
+  // Keep source checks bounded and do not retry a failed feed in this run.
+  // Persistent failures are recorded in SourceHealth and excluded next time.
+  const discovered: Array<Array<{ item: FeedItem; publisher: string }>> = [];
+  for (let index = 0; index < eligibleFeeds.length; index += FEED_CONCURRENCY) {
+    const batch = eligibleFeeds.slice(index, index + FEED_CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(async (feed: RegisteredNewsFeed) => {
+      result.sourcesChecked++;
+      const checkedAt = new Date();
+      let responseStatus: number | null = null;
+      try {
+        const response = await fetch(feed.url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { "user-agent": "NigeriaAttackTracker/1.0 (+source-led OSINT collector)" } });
+        responseStatus = response.status;
+        if (!response.ok) throw new Error(`Feed returned ${response.status}`);
+        const items = parseFeed(await response.text())
+          .slice(0, MAX_ITEMS_PER_FEED)
+          .map((item) => ({ item, publisher: feed.publisher }));
+        await SourceHealth.updateOne(
+          { feedUrl: feed.url },
+          { $set: { publisher: feed.publisher, host: feed.host, status: "PASS", lastHttpStatus: response.status, lastCheckedAt: checkedAt, pausedAt: null, lastReason: "DIRECT_FEED_ACCESS_OK", consecutiveFailures: 0 } },
+          { upsert: true },
+        );
+        return items;
+      } catch (error) {
+        result.errors++;
+        result.sourceFailures++;
+        const reason = error instanceof Error ? error.message : "FEED_FETCH_FAILED";
+        await SourceHealth.updateOne(
+          { feedUrl: feed.url },
+          { $set: { publisher: feed.publisher, host: feed.host, status: "PAUSED", lastHttpStatus: responseStatus, lastCheckedAt: checkedAt, pausedAt: checkedAt, lastReason: reason, consecutiveFailures: 1 } },
+          { upsert: true },
+        );
+        console.error(`[Free Collector] Paused feed ${feed.publisher}:`, reason);
+        return [] as Array<{ item: FeedItem; publisher: string }>;
+      }
+    }));
+    discovered.push(...batchResults);
+  }
 
   const seenUrls = new Set<string>();
   const articles = discovered.flat().filter(({ item }) => {
@@ -358,5 +396,6 @@ export async function collectFreeIncidents(): Promise<FreeCollectionResult> {
       }
     }));
   }
+  await assertActiveAttackDateIntegrity("Free Collector postflight");
   return result;
 }

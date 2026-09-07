@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import { mergeCasualtyAssessments, normalizeCasualtyFields, type CasualtyMetadata, type CasualtyValues, type LocationPrecision } from "../src/lib/incident-uncertainty";
 import { normalizeStateName } from "../src/lib/normalize-state";
+import { INVALID_ACTIVE_ATTACK_DATE_FILTER } from "../src/lib/attack-data-integrity";
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local"), quiet: true });
 
@@ -138,7 +139,7 @@ type ManifestSummary = {
 };
 
 type DatabaseSummary = {
-  attacks: { total: number; active: number; softDeleted: number; missingDeletedFlag: number };
+  attacks: { total: number; active: number; softDeleted: number; missingDeletedFlag: number; invalidDateType: number };
   credibleUnresolvedIncidents: { total: number; open: number; resolvedToAttack: number; rejected: number; mergedReference: number };
   incidentCrosswalkEvidence: { total: number; matchedAttack: number; matchedUnresolved: number };
   sourceArticles: { total: number; published: number; merged: number; reference: number; rejected: number };
@@ -746,6 +747,7 @@ async function databaseSummary(db: mongoose.mongo.Db): Promise<DatabaseSummary> 
     attackTotal,
     attackSoftDeleted,
     attackMissingDeleted,
+    attackInvalidDateType,
     unresolvedTotal,
     unresolvedOpen,
     unresolvedResolved,
@@ -763,6 +765,7 @@ async function databaseSummary(db: mongoose.mongo.Db): Promise<DatabaseSummary> 
     attacks.countDocuments({}),
     attacks.countDocuments({ _deleted: true }),
     attacks.countDocuments({ _deleted: { $exists: false } }),
+    attacks.countDocuments(INVALID_ACTIVE_ATTACK_DATE_FILTER),
     unresolved.countDocuments({}),
     unresolved.countDocuments({ reviewStatus: "open" }),
     unresolved.countDocuments({ reviewStatus: "resolved_to_attack" }),
@@ -783,6 +786,7 @@ async function databaseSummary(db: mongoose.mongo.Db): Promise<DatabaseSummary> 
       active: attackTotal - attackSoftDeleted,
       softDeleted: attackSoftDeleted,
       missingDeletedFlag: attackMissingDeleted,
+      invalidDateType: attackInvalidDateType,
     },
     credibleUnresolvedIncidents: {
       total: unresolvedTotal,
@@ -804,6 +808,15 @@ async function databaseSummary(db: mongoose.mongo.Db): Promise<DatabaseSummary> 
       rejected: sourceArticleRejected,
     },
   };
+}
+
+async function assertAttackDateIntegrity(db: mongoose.mongo.Db, context: string): Promise<void> {
+  const invalidDateType = await db.collection("attacks").countDocuments(INVALID_ACTIVE_ATTACK_DATE_FILTER);
+  if (invalidDateType > 0) {
+    throw new Error(
+      `[${context}] BLOCKED: ${invalidDateType} active incident record(s) do not have a BSON Date in the date field.`,
+    );
+  }
 }
 
 async function writeJson(filePath: string, data: unknown) {
@@ -832,6 +845,7 @@ async function snapshot(db: mongoose.mongo.Db, runId: string) {
 }
 
 async function buildManifest(db: mongoose.mongo.Db, runId: string, fetchConcurrency: number, timeoutMs: number): Promise<Manifest> {
+  await assertAttackDateIntegrity(db, "Promotion dry-run");
   const startDay = argValue("--start", DEFAULT_START)!;
   const endDay = argValue("--end", DEFAULT_END)!;
   const { start, endExclusive } = scopeFilter(startDay, endDay);
@@ -1191,8 +1205,10 @@ async function main() {
 
     if (args.has("--apply")) {
       const manifest = await readManifest(manifestPath);
+      await assertAttackDateIntegrity(db, "Promotion apply preflight");
       const before = await databaseSummary(db);
       const result = await applyManifest(db, manifest, false);
+      await assertAttackDateIntegrity(db, "Promotion apply postflight");
       const after = await databaseSummary(db);
       const applyPath = path.join(path.dirname(manifestPath), args.has("--idempotency-pass") ? "apply-idempotency-result.json" : "apply-result.json");
       await writeJson(applyPath, { runId: manifest.runId, generatedAt: new Date().toISOString(), before, after, ...result });
