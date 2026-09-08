@@ -11,6 +11,7 @@ import {
 } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
+import { incidentDateKey, incidentDateIntervalsOverlap, normalizeIncidentDate, type IncidentDatePrecision } from "./incident-date";
 
 // Write GOOGLE_APPLICATION_CREDENTIALS_JSON to a temp file so google-auth-library
 // can pick it up via the standard credential chain. Works locally and on Netlify (/tmp is writable).
@@ -38,6 +39,8 @@ export interface RawAttackData {
   title: string;
   description: string;
   date: string;
+  datePrecision?: IncidentDatePrecision;
+  dateRange?: { start: string | null; end: string | null };
   location: {
     state: string;
     lga: string;
@@ -65,12 +68,12 @@ export interface RawAttackData {
 
 /**
  * Generate a deduplication hash based on core attack identifiers.
- * Uses date (day-level), state, location grain, and group to create a unique hash.
+ * Uses the supported date interval, state, location grain, and group to create a unique hash.
  * This prevents the same incident from being stored twice even if
  * described differently by different sources.
  */
 export function generateAttackHash(attack: RawAttackData): string {
-  const dateStr = new Date(attack.date).toISOString().split("T")[0]; // Day-level
+  const dateStr = incidentDateKey(attack);
   const normalizedState = normalizeStateName(attack.location.state).toLowerCase();
   const normalizedGroup = attack.group.toLowerCase().trim();
 
@@ -670,9 +673,11 @@ async function validateAndNormalize(
         return null;
       }
 
-      const attackDate = reconcileIncidentDate(attack);
-      if (Number.isNaN(attackDate.getTime())) return null;
-      if (attackDate < options.windowStart || attackDate > options.windowEnd) return null;
+      const reconciledDate = (attack.datePrecision || "exact_day") === "exact_day" ? reconcileIncidentDate(attack) : new Date(attack.date);
+      const dateEvidence = normalizeIncidentDate({ ...attack, date: reconciledDate });
+      if (!dateEvidence) return null;
+      const searchWindow = { interval: { start: options.windowStart, end: options.windowEnd } };
+      if (!incidentDateIntervalsOverlap(dateEvidence, searchWindow)) return null;
 
       const dedupedSources = attack.sources.filter((source, index, allSources) => {
         const key = `${source.url}|${source.title}|${source.publisher}`.toLowerCase();
@@ -754,7 +759,14 @@ async function validateAndNormalize(
 
       return {
         ...attack,
-        date: attackDate.toISOString(),
+        date: dateEvidence.date.toISOString(),
+        datePrecision: dateEvidence.datePrecision,
+        dateRange: dateEvidence.dateRange ? {
+          start: dateEvidence.dateRange.start.toISOString(),
+          end: dateEvidence.dateRange.end.toISOString(),
+        } : undefined,
+        status: dateEvidence.datePrecision === "exact_day" ? attack.status : "developing",
+        tags: dateEvidence.datePrecision === "exact_day" ? attack.tags : Array.from(new Set([...(attack.tags || []), "date-uncertainty"])),
         sources,
       } satisfies RawAttackData;
     }));
@@ -806,6 +818,8 @@ const OUTPUT_SCHEMA_PROMPT = `Return your response as a valid JSON array. Each e
   "title": "string",
   "description": "string",
   "date": "ISO 8601 datetime string",
+  "datePrecision": "exact_day" | "date_range" | "month_only",
+  "dateRange": { "start": "ISO 8601 datetime string or null", "end": "ISO 8601 datetime string or null" },
   "location": {
     "state": "string (EXACT canonical state name from the list above, e.g. 'Borno' not 'Borno State', 'FCT' not 'Federal Capital Territory')",
     "lga": "string or 'Unknown'",
@@ -842,6 +856,13 @@ Location precision:
 - Use "exact" when the source names a town, village, road, ward or facility.
 - Use "surrounding_area" or "approximate_lga" when the source identifies the LGA or nearby communities but not the precise settlement.
 - Use "approximate_state" only for strong event-specific reports that identify the state but not the LGA/town.
+- For a border incident, select one primary state using the best-supported attack location. Record the alternative/border state in location.notes and add a "border-location" tag; never emit the event twice.
+
+Date precision:
+- Use "exact_day" only when the event day is supported; date is that day and dateRange may be null.
+- Use "date_range" when the event occurred within a supported period of days; date is the range start and dateRange contains both bounds.
+- Use "month_only" when the month is supported but no narrower period is; date is the first day of that month and dateRange spans the month.
+- Never use publication date as event date. Mark date_range/month_only records "developing" and add "date-uncertainty".
 
 Casualty precision:
 - Count VICTIMS ONLY: civilians, soldiers, police, vigilantes and other security personnel. Never include attacker fatalities.
@@ -883,16 +904,16 @@ ARMY/Security-force boundary: Do not search routine Army work such as deployment
 
 Search methodically and do not infer an expected number of incidents. A quiet day or state may legitimately have no qualifying report. Search multiple independent outlets before concluding that an apparent event is a duplicate, follow-up, or out of scope.
 
-MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original armed/security event or abduction with an incident date, source-supported Nigerian location, and civilian/security-force target or victim context. Reject routine Nigerian Army/security-force work (deployment, patrol, training, preparedness, raid/clearance operation, arrest, weapons recovery, airstrike, attacker-only kill or operational result); threat/warning; negotiation, surrender or policy statement; political/government reaction; sports or travel; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; prosecution, sentencing or court proceedings; and general background/roundup articles. A headline containing attack, gunmen, bandits, killed, rescue or incident is not sufficient. Permit an Army/security-force report only when it explicitly says kidnapping victims were rescued/released AND identifies the original abduction/attack date and location. Treat that rescue report as follow-up evidence, not a new incident.
+MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original organized violent/security event, abduction, political attack/thuggery event, or premeditated/coordinated property attack by a group, with a supported event month and Nigerian state. Human casualties are not required for qualifying property harm. Reject routine Nigerian Army/security-force work (deployment, patrol, training, preparedness, raid/clearance operation, arrest, weapons recovery, airstrike, attacker-only kill or operational result); threats or political rhetoric without a completed event; negotiation, surrender or policy statements; sports or travel; isolated ordinary crime or vandalism without organized group action; prosecution, sentencing or court proceedings; and general background/roundup articles. A headline containing attack, gunmen, bandits, killed, rescue or incident is not sufficient. Permit an Army/security-force report only when it identifies a qualifying original event; treat rescue reports as follow-up evidence, not a new incident.
 
 ${SOURCE_TIERS_PROMPT}
 
 ═══════════════════════════════════════════
 DEDUPLICATION — CRITICAL
 ═══════════════════════════════════════════
-- If multiple news outlets report the SAME incident (same attack, same location, same date), consolidate them into ONE entry with multiple sources.
+- If multiple news outlets report the SAME incident (same attack, same location, and overlapping exact/range/month date evidence), consolidate them into ONE entry with multiple sources.
 - Do NOT create separate entries for the same attack just because different outlets covered it.
-- Two reports are the SAME incident if they describe the same type of attack, in the same town/LGA or clearly related surrounding area, on the same date, even if casualty numbers differ.
+- Two reports can be the SAME incident when they describe the same type of attack in the same or related location and their supported date intervals overlap, even if casualty numbers differ.
 - Combine all source URLs. If credible casualty figures conflict, store a bounded range with min/max/midpoint estimate in casualtyMeta and mark status "developing"; do not silently choose only the highest value.
 - RESCUE/FOLLOW-UP ARTICLES: A military rescue announcement, security press release, or follow-up report belongs to an existing attack only when its narrative identifies the original attack date and location. Use that ORIGINAL attack date, not the article's publication date. If it does not identify the original incident well enough to match safely, do NOT create a standalone incident from the rescue report.
 - One event / one candidate: cluster all articles about the same underlying attack, abduction or clash before producing JSON. Never create one record per article. A later rescue, release, government commendation, or attacker-death report is corroborating follow-up evidence, not a new incident. Multiple Kogi reports about the same kidnapping/rescue operation must produce at most one original-event candidate.
@@ -904,7 +925,7 @@ DATA REQUIREMENTS
 For each incident found, provide:
 1. A clear, concise title (format: "[Attack type] in [Town], [State]")
 2. Detailed description of what happened. Where known, include the name and rank/title of any notable individuals (officers, politicians, community leaders) killed or kidnapped.
-3. Exact date (ISO 8601 format, e.g., "2026-02-12T00:00:00.000Z"). If only the date is known, use midnight.
+3. Event date evidence. Prefer an exact day, but accept a bounded period of days or a supported month. Populate datePrecision/dateRange exactly as specified below; the month must be supported and publication date is never a substitute.
 4. Location: Nigerian state name — use EXACTLY one of these canonical names:
    Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
    Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
@@ -912,7 +933,7 @@ For each incident found, provide:
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State" to the name (use "Borno" not "Borno State").
    Use "FCT" for Abuja/Federal Capital Territory.
-   If an incident spans multiple states, use the state where the PRIMARY attack occurred.
+   If an incident is at or across a state border, choose one primary state using the best-supported attack location, record the other state in location.notes, and add "border-location". Never create one record per state.
    Provide the Local Government Area (LGA) and specific town/village when known. If the precise settlement is not known, use the best supported LGA, nearby community, road, or state-level location and set location.precision/notes accordingly.
 5. Armed group responsible. Use standardized names: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
 6. Casualties — VICTIMS ONLY (civilians + security forces):
@@ -935,6 +956,7 @@ CRITICAL RULES
 - If you cannot find any recent attacks, return an empty array [].
 - CASUALTY COUNTING: The "killed", "injured", "kidnapped", "displaced" fields track VICTIMS ONLY — civilians and security forces (soldiers, officers, police, vigilantes). NEVER include attacker/terrorist/bandit/insurgent fatalities in these counts. If a report says "10 insurgents killed, 3 soldiers killed" → killed=3. If a report says "troops kill 8 bandits, no government casualties" → killed=0, injured=0, kidnapped=0, displaced=0. Use casualtyMeta to label exact figures, estimates, ranges, unknowns, and not-reported impacts.
 - Include qualifying attacks regardless of whether casualties are reported — a foiled civilian attack or hostile attack on security personnel with unknown casualty numbers can be valid. A routine Army raid/operation is not valid merely because it has zero or unknown casualties.
+- Include a completed political attack or organized thuggery event when the direct source supports violence, coercive intimidation, arson or destruction. Include property-only harm only when the source supports premeditated or coordinated action by a group; exclude accidents and isolated vandalism.
 - Set "civilianCasualties" to TRUE whenever soldiers, army officers, police, vigilantes, or civilians were killed/injured/kidnapped/displaced — even if NO non-combatants were harmed. Military personnel ARE victim casualties. Set "civilianCasualties" to false ONLY when the ONLY reported deaths were attackers/insurgents themselves.
 - Be as specific about locations as the source permits. Do not drop a strong event-specific report merely because the precise town is missing; use approximate_lga, surrounding_area, or approximate_state with notes.
 - Distinguish carefully between different armed groups.
@@ -1034,7 +1056,7 @@ ARMY/Security-force boundary: Do not search routine deployments, patrols, raids 
 
 IMPORTANT: Do NOT rely only on general Nigeria-wide searches — they miss lower-profile states. Search the target state explicitly, including town/LGA names returned by early results. A quiet state is a valid outcome only after the specified search families have been checked.
 
-MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original armed/security event or abduction with an incident date, source-supported Nigerian location, and civilian/security-force target or victim context. Reject routine Nigerian Army/security-force work (deployment, patrol, training, preparedness, raid/clearance operation, arrest, weapons recovery, airstrike, attacker-only kill or operational result); threats/warnings; negotiation, surrender or policy statements; political/government reactions; sports/travel; arrests, prosecutions, sentencing or court stories without a new qualifying attack; ordinary phone theft, stabbing, robbery or mob assault without organized armed activity; and background/roundup articles. Headline vocabulary alone never qualifies an incident. Permit an Army/security-force report only when it explicitly says kidnapping victims were rescued/released AND identifies the original abduction/attack date and location; otherwise omit it.
+MANDATORY SCOPE GATE — do not return a record unless the direct article narrative describes one specific original organized violent/security event, abduction, political attack/thuggery event, or premeditated/coordinated property attack by a group, with a supported event month and Nigerian state. Human casualties are not required for qualifying property harm. Reject routine Nigerian Army/security-force work; threats or political rhetoric without a completed event; negotiation, surrender or policy statements; sports/travel; isolated ordinary crime or vandalism without organized group action; arrests, prosecutions, sentencing or court stories without a new qualifying event; and background/roundup articles. Headline vocabulary alone never qualifies an incident.
 
 ${SOURCE_TIERS_PROMPT}
 
@@ -1053,13 +1075,14 @@ DATA REQUIREMENTS
 For each incident found, provide:
 1. Title: "[Attack type] in [Town], [State]"
 2. Detailed description. Where known, include the name and rank/title of any notable individuals (officers, politicians, community leaders) killed or kidnapped.
-3. Date (ISO 8601). Use midnight if only date is known.
+3. Event date evidence: exact day, bounded period of days, or supported month. Populate date, datePrecision and dateRange; never substitute publication date.
 4. Location: use EXACTLY one of the 37 canonical Nigerian state names:
    Abia, Adamawa, Akwa Ibom, Anambra, Bauchi, Bayelsa, Benue, Borno, Cross River,
    Delta, Ebonyi, Edo, Ekiti, Enugu, FCT, Gombe, Imo, Jigawa, Kaduna, Kano,
    Katsina, Kebbi, Kogi, Kwara, Lagos, Nasarawa, Niger, Ogun, Ondo, Osun, Oyo,
    Plateau, Rivers, Sokoto, Taraba, Yobe, Zamfara
    NEVER append "State". Use "FCT" for Abuja.
+   A state-level location is sufficient. At a state border choose one primary state, note the alternative state in location.notes, tag "border-location", and emit one record only.
 5. Armed group: "Boko Haram", "ISWAP", "Bandits", "Unknown Gunmen", "IPOB/ESN", "Herdsmen", "Cultists", "Unidentified Armed Group"
    Provide town/village when known. If only the LGA, nearby area or state is supported, keep the record with location.precision set to "surrounding_area", "approximate_lga", or "approximate_state" and explain the basis in location.notes.
 6. Casualties — VICTIMS ONLY (civilians + security forces):
@@ -1075,6 +1098,8 @@ For each incident found, provide:
 9. Tags (include "military-attack" for incidents targeting soldiers/army)
 
 "civilianCasualties" field: set to TRUE whenever civilians or security-force victims were killed/injured/kidnapped/displaced, or were the target of a qualifying hostile attack. Set to false ONLY when the only reported deaths were attackers/insurgents themselves. Do not use this field to admit a routine Army operation.
+
+Include completed political attacks and organized thuggery when violence, coercive intimidation, arson or destruction is supported. Include property-only harm only when direct evidence supports premeditated or coordinated group action; exclude accidents and isolated vandalism.
 
 ONLY return incidents in the TARGET STATES listed above. Do not include incidents from other states.
 Do NOT fabricate incidents. If none found for a state, simply omit it.

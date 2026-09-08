@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CASUALTY_PRECISION_VALUES, LOCATION_PRECISION_VALUES } from "./incident-uncertainty";
+import { INCIDENT_DATE_PRECISION_VALUES, normalizeIncidentDate } from "./incident-date";
 
 export const AttackQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -31,6 +32,11 @@ export const AttackInputSchema = z.object({
   title: z.string().trim().min(5).max(500),
   description: z.string().trim().min(10).max(5000),
   date: z.string().datetime(),
+  datePrecision: z.enum(INCIDENT_DATE_PRECISION_VALUES).default("exact_day"),
+  dateRange: z.object({
+    start: z.string().datetime().nullable(),
+    end: z.string().datetime().nullable(),
+  }).optional(),
   location: z.object({
     state: z.string().trim().min(1).max(100),
     lga: z.string().trim().max(100).default("Unknown"),
@@ -71,6 +77,11 @@ export const AttackInputSchema = z.object({
     .max(20),
   status: z.enum(["confirmed", "unconfirmed", "developing"]).default("unconfirmed"),
   tags: z.array(z.string().trim().max(50)).max(20).default([]),
+}).superRefine((value, context) => {
+  const normalized = normalizeIncidentDate({ date: value.date, datePrecision: value.datePrecision, dateRange: value.dateRange });
+  if (!normalized) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["dateRange"], message: "Date evidence must be an exact day, a valid bounded range, or an identifiable month." });
+  }
 });
 
 export type AttackInput = z.infer<typeof AttackInputSchema>;

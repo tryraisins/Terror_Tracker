@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import { mergeCasualtyAssessments, normalizeCasualtyFields, type CasualtyMetadata, type CasualtyValues, type LocationPrecision } from "../src/lib/incident-uncertainty";
 import { normalizeStateName } from "../src/lib/normalize-state";
 import { INVALID_ACTIVE_ATTACK_DATE_FILTER } from "../src/lib/attack-data-integrity";
+import { incidentDateIntervalsOverlap, incidentDateKey, normalizeIncidentDate, type IncidentDatePrecision } from "../src/lib/incident-date";
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local"), quiet: true });
 
@@ -59,12 +60,15 @@ type AttackDoc = {
   title: string;
   description?: string;
   date: Date;
+  datePrecision?: IncidentDatePrecision;
+  dateRange?: { start?: Date | null; end?: Date | null };
   location?: { state?: string; lga?: string; town?: string; precision?: LocationPrecision; notes?: string };
   group?: string;
   casualties?: Partial<CasualtyValues>;
   casualtyMeta?: CasualtyMetadata;
   sources?: SourceRef[];
   status?: string;
+  tags?: string[];
   hash?: string;
   _deleted?: boolean;
 };
@@ -98,6 +102,8 @@ type PlannedAttack = {
   title: string;
   description: string;
   date: string;
+  datePrecision: IncidentDatePrecision;
+  dateRange?: { start: string; end: string };
   location: { state: string; lga: string; town: string; precision: LocationPrecision; notes: string };
   group: string;
   casualties: CasualtyValues;
@@ -252,11 +258,6 @@ function dateKey(value: Date | string) {
   return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
 }
 
-function dayStart(value: Date | string) {
-  const d = new Date(value);
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
 function titleTokens(value: string) {
   const stop = new Set(["the", "and", "with", "over", "from", "after", "again", "fresh", "update", "nigeria", "nigerian", "state"]);
   return clean(value)
@@ -292,8 +293,11 @@ function looksLikeNonProductionIncident(candidate: Candidate) {
   const text = `${candidate.headline} ${candidate.description}`.toLowerCase();
   const reasons: string[] = [];
   const noVictimImpact = CASUALTY_FIELDS.every((field) => candidate.casualties?.[field] == null || candidate.casualties?.[field] === 0);
+  const organizedActor = /\b(group|gang|mob|militia|cultists?|hoodlums?|thugs?|political thugs?|party (?:supporters?|members?|youths?)|armed men|gunmen|bandits?|attackers?|assailants?)\b/.test(text);
+  const propertyAttack = organizedActor && /\b(property|properties|homes?|houses?|shops?|markets?|offices?|secretariat|vehicles?|cars?|buses?|schools?|churches?|mosques?|farms?|warehouses?|infrastructure|pipelines?|billboards?)\b/.test(text) && /\b(arson|set .* ablaze|burn(?:ed|t|ing)?|torch(?:ed|es|ing)?|destroy(?:ed|s|ing)?|vandaliz(?:ed|es|ing)?|vandalis(?:ed|es|ing)?|sabotag(?:ed|es|ing)?|raz(?:ed|es|ing)?|smash(?:ed|es|ing)?|damage(?:d|s|ing)?)\b/.test(text) && /\b(premeditated|pre-planned|planned|coordinated|organised|organized|mobilised|mobilized|targeted|stormed|invaded|raided|attacked|arson|set .* ablaze)\b/.test(text);
+  const politicalAttack = organizedActor && /\b(political|election|electoral|campaign|rally|polling unit|inec|party|pdp|apc|lp|nnpp|adc|app|ypp|candidate|secretariat)\b/.test(text) && /\b(attack(?:ed|s|ing)?|assault(?:ed|s|ing)?|beat(?:en|ing)?|shoot(?:ing|s)?|shot|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|raid(?:ed|s|ing)?|clash(?:ed|es|ing)?|intimidat(?:ed|es|ing)?|burn(?:ed|t|ing)?|destroy(?:ed|s|ing)?|vandaliz(?:ed|es|ing)?)\b/.test(text);
 
-  if (candidate.incidentType === "other") reasons.push("NON_ATTACK_INCIDENT_TYPE");
+  if (candidate.incidentType === "other" && !propertyAttack && !politicalAttack) reasons.push("NON_ATTACK_INCIDENT_TYPE");
   if (/\b(strike|lawsuit|threaten(?:ed)? lawsuit|condemn|seeks stronger cooperation|seasonal clashes|awareness|summit|demands? action|dangerous signal|must not become|obsession with|tackling kidnapping|embedded in society|the shame of a country|governor'?s action|unique style|branch seeks|casts? shadow|mother wants officers killed|demands urgent rescue|amnesty demands rescue|orders security forces|hunt for hundreds|shuts? .*market)\b/.test(text)) {
     reasons.push("FOLLOW_UP_OR_NON_ATTACK_STORY");
   }
@@ -306,7 +310,7 @@ function looksLikeNonProductionIncident(candidate: Candidate) {
   if (/\b(charges? on .*kidnap suspects?|sentences?|death sentence|survivors still|laid to rest|list of kidnapped|parents detail|inside nigeria's growing kidnapping crisis|report:|records highest|announces rescue|frees \d+|rescue(?:s|d)? kidnapped|released?|nab(?:s|bed)? .*suspects?|arrest(?:s|ed)? .*suspects?|captives face forced marriage|execution threat|ransom to free|demand .*ransom to free|displaced persons in fresh .*attack)\b/.test(text)) {
     reasons.push("FOLLOW_UP_WITHOUT_ORIGINAL_EVENT_GRAIN");
   }
-  if (/\b(cattle|livestock|rustle livestock|stolen cattle)\b/.test(text) && !/\b(kill(?:ed|s)?|injur(?:ed|es)?|abduct(?:ed|s)?|kidnap(?:ped|s)?)\s+(?:people|persons|residents|farmers|travellers|travelers|students|women|children|soldiers|policemen|officers|vigilantes|worshippers|passengers)\b/.test(text)) {
+  if (/\b(cattle|livestock|rustle livestock|stolen cattle)\b/.test(text) && !propertyAttack && !/\b(kill(?:ed|s)?|injur(?:ed|es)?|abduct(?:ed|s)?|kidnap(?:ped|s)?)\s+(?:people|persons|residents|farmers|travellers|travelers|students|women|children|soldiers|policemen|officers|vigilantes|worshippers|passengers)\b/.test(text)) {
     reasons.push("ANIMAL_OR_PROPERTY_ONLY_HARM");
   }
   if (/\b(npfl opener|shooting stars beat|inter lagos)\b/.test(text)) {
@@ -315,7 +319,7 @@ function looksLikeNonProductionIncident(candidate: Candidate) {
   if (/\b(niamey|presidential palace|attempted coup|niger authorities tok)\b/.test(text)) {
     reasons.push("NOT_NIGERIA_INCIDENT");
   }
-  if (/\b(pdp|apc|app|ypp|inec|nurtw|nuj|adc member|governor's aide|political thugs|party chairman|secretariat|billboards?|pvcs?)\b/.test(text) && !/\b(kill(?:ed|s)?|injur(?:ed|es)?|abduct(?:ed|s)?|kidnap(?:ped|s)?)\s+(?:people|persons|residents|farmers|travellers|travelers|students|women|children|soldiers|policemen|officers|vigilantes|worshippers|passengers)\b/.test(text)) {
+  if (/\b(pdp|apc|app|ypp|inec|nurtw|nuj|adc member|governor's aide|political thugs|party chairman|secretariat|billboards?|pvcs?)\b/.test(text) && !politicalAttack && !propertyAttack && !/\b(kill(?:ed|s)?|injur(?:ed|es)?|abduct(?:ed|s)?|kidnap(?:ped|s)?)\s+(?:people|persons|residents|farmers|travellers|travelers|students|women|children|soldiers|policemen|officers|vigilantes|worshippers|passengers)\b/.test(text)) {
     reasons.push("POLITICAL_OR_CIVIL_VIOLENCE_OUTSIDE_TERROR_SCOPE");
   }
   if (/\b(how (?:my|kano)|escaped mob attack|mother wants officers killed|cultist.*killed|cult clash|bomb makers killed|iswap bomb makers killed|vigilantes kill brother of notorious bandit|bandits killed after|several bandits feared killed|several bandits feared dead|police repel kidnap attempt|troops foil attack|kill kidnap kingpin|brother of notorious bandit leader)\b/.test(text)) {
@@ -332,9 +336,9 @@ function looksLikeNonProductionIncident(candidate: Candidate) {
 
 function hasEventSpecificAttackSignal(candidate: Candidate) {
   const text = `${candidate.headline} ${candidate.description} ${candidate.sources.map((source) => source.title).join(" ")}`.toLowerCase();
-  const actor = /\b(bandits?|terrorists?|gunmen|herdsmen|militia|iswap|boko haram|insurgents?|kidnappers?|cultists?|hoodlums|armed men|suspected fulani militants|unknown assailants?)\b/.test(text);
-  const action = /\b(kill(?:ed|s)?|dead|slain|injur(?:e|ed|es)|abduct(?:ed|s)?|kidnap(?:ped|s)?|ambush(?:ed|es)?|attack(?:ed|s)?|invad(?:e|ed|es)|raid(?:ed|s)?|hostage|ied|bomb|explosion|machete attack|set ablaze|flee as)\b/.test(text);
-  const victimSignal = /\b(civilians?|residents?|farmers?|travellers?|travelers?|passengers?|worshippers?|students?|women|girls|children|soldiers?|policemen|officers?|vigilantes?|hunters?|pastor|seminarian|headmaster|lecturer|mother|child|toddler|communities?|village|school|church|mosque|market|road|highway)\b/.test(text);
+  const actor = /\b(bandits?|terrorists?|gunmen|herdsmen|militia|iswap|boko haram|insurgents?|kidnappers?|cultists?|hoodlums?|thugs?|political thugs?|party supporters?|party youths?|gang|mob|armed men|suspected fulani militants|unknown assailants?)\b/.test(text);
+  const action = /\b(kill(?:ed|s)?|dead|slain|injur(?:e|ed|es)|abduct(?:ed|s)?|kidnap(?:ped|s)?|ambush(?:ed|es)?|attack(?:ed|s)?|assault(?:ed|s)?|beat(?:en|ing)?|invad(?:e|ed|es)|raid(?:ed|s)?|hostage|ied|bomb|explosion|machete attack|set ablaze|burn(?:ed|t)?|torch(?:ed)?|destroy(?:ed)?|vandaliz(?:ed)?|vandalis(?:ed)?|sabotag(?:ed)?|intimidat(?:ed)?|flee as)\b/.test(text);
+  const victimSignal = /\b(civilians?|residents?|farmers?|travellers?|travelers?|passengers?|worshippers?|students?|women|girls|children|soldiers?|policemen|officers?|vigilantes?|hunters?|pastor|seminarian|headmaster|lecturer|mother|child|toddler|communities?|village|school|church|mosque|market|road|highway|property|homes?|shops?|offices?|secretariat|vehicles?|infrastructure|billboards?)\b/.test(text);
   return (actor && action) || (action && victimSignal);
 }
 
@@ -627,16 +631,24 @@ function buildCasualties(candidate: Candidate) {
 function buildPlannedAttack(candidate: Candidate): PlannedAttack {
   const precision = normalizeLocationPrecision(candidate.locationPrecision);
   const impact = buildCasualties(candidate);
-  const date = candidate.eventDate ? dayStart(candidate.eventDate).toISOString() : "";
+  const dateEvidence = normalizeIncidentDate(candidate);
+  if (!dateEvidence) throw new Error(`Invalid date evidence for candidate ${candidate.candidateHash}`);
+  const date = dateEvidence.date.toISOString();
   const state = normalizeStateName(candidate.location.state);
   const lga = clean(candidate.location.lga, "Unknown") || "Unknown";
   const town = clean(candidate.location.town, "Unknown") || "Unknown";
   const sourceUrls = cleanSources(candidate.sources).map((source) => source.url).sort();
-  const hash = sha256({ date: dateKey(date), state, lga: lga.toLowerCase(), town: town.toLowerCase(), precision, headline: candidate.headline.toLowerCase(), sourceUrls });
+  const hash = sha256({ date: incidentDateKey(candidate), state, lga: lga.toLowerCase(), town: town.toLowerCase(), precision, headline: candidate.headline.toLowerCase(), sourceUrls });
+  const tags = ["promoted-unresolved", `candidate:${candidate.candidateHash}`, `incident-type:${candidate.incidentType}`];
+  if (dateEvidence.datePrecision !== "exact_day") tags.push("date-uncertainty");
+  if (precision !== "exact") tags.push("approximate-location");
+  if (/\bborder\b/i.test(`${candidate.description} ${candidate.requiredNextEvidence || ""}`)) tags.push("border-location");
   return {
     title: shortText(candidate.headline, 500),
     description: shortText(candidate.description || candidate.headline, 5000),
     date,
+    datePrecision: dateEvidence.datePrecision,
+    dateRange: dateEvidence.dateRange ? { start: dateEvidence.dateRange.start.toISOString(), end: dateEvidence.dateRange.end.toISOString() } : undefined,
     location: {
       state,
       lga,
@@ -648,8 +660,8 @@ function buildPlannedAttack(candidate: Candidate): PlannedAttack {
     casualties: impact.casualties,
     casualtyMeta: impact.casualtyMeta,
     sources: cleanSources(candidate.sources),
-    status: "unconfirmed",
-    tags: ["promoted-unresolved", `candidate:${candidate.candidateHash}`, `incident-type:${candidate.incidentType}`],
+    status: dateEvidence.datePrecision !== "exact_day" || precision !== "exact" ? "developing" : "unconfirmed",
+    tags,
     hash,
   };
 }
@@ -660,12 +672,12 @@ function sourceOverlap(a: SourceRef[] = [], b: SourceRef[] = []) {
 }
 
 function duplicateScore(candidate: Candidate, planned: PlannedAttack, attack: AttackDoc) {
-  const attackDate = attack.date ? dayStart(attack.date).getTime() : 0;
-  const candidateDate = dayStart(planned.date).getTime();
-  if (!attackDate || Math.abs(attackDate - candidateDate) > DATE_WINDOW_MS) return 0;
+  const attackDate = normalizeIncidentDate(attack);
+  const candidateDate = normalizeIncidentDate(planned);
+  if (!attackDate || !candidateDate || !incidentDateIntervalsOverlap(attackDate, candidateDate, DATE_WINDOW_MS)) return 0;
+  if (sourceOverlap(attack.sources, planned.sources)) return 1;
   const attackState = normalizeStateName(attack.location?.state || "");
   if (attackState !== planned.location.state) return 0;
-  if (sourceOverlap(attack.sources, planned.sources)) return 1;
 
   let score = 0.35;
   const location = attack.location || {};
@@ -700,10 +712,19 @@ function mergeAttackPlan(existing: AttackDoc, planned: PlannedAttack): { merged:
   const mergedSources = cleanSources([...(existing.sources || []), ...planned.sources]);
   const existingPrecision = existing.location?.precision || "unknown";
   const useIncomingLocation = precisionRank(planned.location.precision) > precisionRank(existingPrecision);
+  const existingDate = normalizeIncidentDate(existing);
+  const plannedDate = normalizeIncidentDate(planned);
+  const datePrecisionRank = (value?: IncidentDatePrecision) => value === "exact_day" ? 3 : value === "date_range" ? 2 : 1;
+  const useIncomingDate = !existingDate || Boolean(plannedDate && datePrecisionRank(plannedDate.datePrecision) > datePrecisionRank(existingDate.datePrecision));
   const merged: PlannedAttack = {
     ...planned,
     title: existing.title || planned.title,
     description: existing.description || planned.description,
+    date: useIncomingDate ? planned.date : existingDate!.date.toISOString(),
+    datePrecision: useIncomingDate ? planned.datePrecision : existingDate!.datePrecision,
+    dateRange: useIncomingDate
+      ? planned.dateRange
+      : existingDate!.dateRange ? { start: existingDate!.dateRange.start.toISOString(), end: existingDate!.dateRange.end.toISOString() } : undefined,
     location: useIncomingLocation ? planned.location : {
       state: normalizeStateName(existing.location?.state || planned.location.state),
       lga: existing.location?.lga || planned.location.lga,
@@ -714,13 +735,16 @@ function mergeAttackPlan(existing: AttackDoc, planned: PlannedAttack): { merged:
     casualties: mergedImpact.casualties,
     casualtyMeta: mergedImpact.casualtyMeta,
     sources: mergedSources,
-    status: mergedImpact.hasConflict ? "developing" : (existing.status === "confirmed" ? "confirmed" : "unconfirmed"),
+    status: mergedImpact.hasConflict || (useIncomingDate ? planned.datePrecision : existingDate?.datePrecision) !== "exact_day" ? "developing" : (existing.status === "confirmed" ? "confirmed" : "unconfirmed"),
     tags: Array.from(new Set([...(Array.isArray((existing as any).tags) ? (existing as any).tags : []), ...planned.tags])),
     hash: existing.hash || planned.hash,
   };
 
   const changed = stableStringify({
     location: merged.location,
+    date: merged.date,
+    datePrecision: merged.datePrecision,
+    dateRange: merged.dateRange,
     casualties: merged.casualties,
     casualtyMeta: merged.casualtyMeta,
     sources: merged.sources,
@@ -728,6 +752,9 @@ function mergeAttackPlan(existing: AttackDoc, planned: PlannedAttack): { merged:
     status: merged.status,
   }) !== stableStringify({
     location: existing.location,
+    date: existingDate?.date.toISOString(),
+    datePrecision: existingDate?.datePrecision,
+    dateRange: existingDate?.dateRange ? { start: existingDate.dateRange.start.toISOString(), end: existingDate.dateRange.end.toISOString() } : undefined,
     casualties: normalizeCasualtyFields(existing.casualties, existing.casualtyMeta).casualties,
     casualtyMeta: normalizeCasualtyFields(existing.casualties, existing.casualtyMeta).casualtyMeta,
     sources: cleanSources(existing.sources || []),
@@ -849,13 +876,20 @@ async function buildManifest(db: mongoose.mongo.Db, runId: string, fetchConcurre
   const startDay = argValue("--start", DEFAULT_START)!;
   const endDay = argValue("--end", DEFAULT_END)!;
   const { start, endExclusive } = scopeFilter(startDay, endDay);
+  const candidateHash = argValue("--candidate-hash");
   const candidates = (await db.collection<Candidate>("credible_unresolved_incidents")
-    .find({ reviewStatus: "open" })
+    .find({ reviewStatus: "open", ...(candidateHash ? { candidateHash } : {}) })
     .sort({ eventDate: 1, candidateHash: 1 })
     .toArray())
     .filter((candidate) => candidateInScope(candidate, start, endExclusive));
   const attacks = await db.collection<AttackDoc>("attacks")
-    .find({ _deleted: { $ne: true }, date: { $gte: start, $lt: endExclusive } })
+    .find({
+      _deleted: { $ne: true },
+      $or: [
+        { date: { $gte: start, $lt: endExclusive } },
+        { "dateRange.start": { $lt: endExclusive }, "dateRange.end": { $gte: start } },
+      ],
+    })
     .sort({ date: 1, _id: 1 })
     .toArray();
 
@@ -879,7 +913,9 @@ async function buildManifest(db: mongoose.mongo.Db, runId: string, fetchConcurre
     sourcePolicy: [
       "No Vertex, Gemini, or model-generated discovery was used.",
       "Lead-only/search-result URLs are blocked from production promotion.",
-      "Production inserts require exact incident date, supported location precision, and at least direct event-specific source metadata or fetched page match.",
+      "Production inserts require a supported event month (exact day, bounded date range, or month-only), a Nigerian state, and direct event-specific source evidence.",
+      "State-level and border locations are allowed; border incidents receive one primary state and are not duplicated across states.",
+      "Completed political attacks/thuggery and premeditated or coordinated group property attacks are eligible; rhetoric, accidents, and isolated vandalism remain excluded.",
       "Attacker-only/security-operation casualties are not counted as victim casualties.",
       "Conflicting casualty values are represented through casualtyMeta ranges via mergeCasualtyAssessments.",
     ],
@@ -890,7 +926,10 @@ async function buildManifest(db: mongoose.mongo.Db, runId: string, fetchConcurre
 }
 
 function sameDateState(a: PlannedAttack, b: PlannedAttack) {
-  return dateKey(a.date) === dateKey(b.date) && normalizeStateName(a.location.state) === normalizeStateName(b.location.state);
+  const left = normalizeIncidentDate(a);
+  const right = normalizeIncidentDate(b);
+  return Boolean(left && right && incidentDateIntervalsOverlap(left, right, DATE_WINDOW_MS))
+    && normalizeStateName(a.location.state) === normalizeStateName(b.location.state);
 }
 
 function isSamePlannedIncident(a: PlannedAttack, b: PlannedAttack) {
@@ -943,7 +982,7 @@ function reviewCandidate(candidate: Candidate, attacks: AttackDoc[], sourceCheck
   const nonProductionReasons = looksLikeNonProductionIncident(candidate);
   const precision = normalizeLocationPrecision(candidate.locationPrecision);
 
-  if (candidate.datePrecision !== "exact_day" || !candidate.eventDate) reasons.push("ORIGINAL_INCIDENT_DATE_NOT_EXACT_DAY");
+  if (!normalizeIncidentDate(candidate)) reasons.push("INCIDENT_MONTH_OR_DATE_RANGE_NOT_SUPPORTED");
   if (!["exact", "surrounding_area", "approximate_lga", "approximate_state"].includes(precision)) reasons.push("LOCATION_PRECISION_NOT_SUPPORTED");
   if (!directSources.length) reasons.push("NO_DIRECT_SOURCE_URL");
   if (!sourceOk) reasons.push("DIRECT_SOURCE_NOT_CHECKED_OR_NOT_EVENT_SPECIFIC");
@@ -1065,6 +1104,8 @@ function updatePayload(planned: PlannedAttack) {
     title: planned.title,
     description: planned.description,
     date: new Date(planned.date),
+    datePrecision: planned.datePrecision,
+    dateRange: planned.dateRange ? { start: new Date(planned.dateRange.start), end: new Date(planned.dateRange.end) } : undefined,
     location: planned.location,
     group: planned.group,
     casualties: planned.casualties,
@@ -1084,6 +1125,8 @@ function comparableExistingAttack(doc: any) {
     title: doc.title,
     description: doc.description,
     date: new Date(doc.date).toISOString(),
+    datePrecision: doc.datePrecision || "exact_day",
+    dateRange: doc.dateRange?.start && doc.dateRange?.end ? { start: new Date(doc.dateRange.start).toISOString(), end: new Date(doc.dateRange.end).toISOString() } : undefined,
     location: doc.location,
     group: doc.group,
     casualties: normalizedImpact.casualties,
@@ -1102,6 +1145,8 @@ function comparablePlannedAttack(planned: PlannedAttack) {
     title: planned.title,
     description: planned.description,
     date: new Date(planned.date).toISOString(),
+    datePrecision: planned.datePrecision,
+    dateRange: planned.dateRange,
     location: planned.location,
     group: planned.group,
     casualties: normalizedImpact.casualties,

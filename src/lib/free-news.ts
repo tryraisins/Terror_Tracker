@@ -12,11 +12,14 @@ import { normalizeStateName, VALID_STATE_NAMES } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 import { assertActiveAttackDateIntegrity, parseIncidentDate } from "./attack-data-integrity";
 import { getVerifiedNewsFeeds, type RegisteredNewsFeed } from "./news-source-registry";
+import type { IncidentDatePrecision } from "./incident-date";
 
 export interface RawAttackData {
   title: string;
   description: string;
   date: string;
+  datePrecision?: IncidentDatePrecision;
+  dateRange?: { start: string | null; end: string | null };
   location: { state: string; lga: string; town: string; precision?: LocationPrecision; notes?: string };
   group: string;
   casualties: { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
@@ -301,10 +304,17 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];
   if (location.precision && location.precision !== "exact") tags.push("approximate-location");
   if (Object.values(casualtyMeta).some((meta) => meta?.precision === "estimate" || meta?.precision === "range")) tags.push("casualty-uncertainty");
-  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: validatedIncidentDate.toISOString(), location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
+  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: validatedIncidentDate.toISOString(), datePrecision: "exact_day", location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) { if (!existing.sources.some((source: { url: string }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""))) await Attack.findByIdAndUpdate(existing._id, { $push: { sources: attack.sources[0] } }); await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id); return "merged"; }
-  const saved = await Attack.create({ ...attack, hash, date: validatedIncidentDate }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", validatedIncidentDate, saved._id); return "published";
+  const saved = await Attack.create({
+    ...attack,
+    hash,
+    date: validatedIncidentDate,
+    dateRange: attack.dateRange?.start && attack.dateRange?.end
+      ? { start: new Date(attack.dateRange.start), end: new Date(attack.dateRange.end) }
+      : undefined,
+  }); await record(item, publisher, "published", "Recent incident date, state or LGA/location evidence, event language, and fresh source all passed.", validatedIncidentDate, saved._id); return "published";
 }
 
 export async function collectFreeIncidents(): Promise<FreeCollectionResult> {

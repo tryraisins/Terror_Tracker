@@ -1,5 +1,5 @@
 /**
- * Conservative article-to-event screening shared by model and feed ingestion.
+ * Evidence-bound article-to-event screening shared by model and feed ingestion.
  * A source headline can contain incident vocabulary without describing a new
  * qualifying incident, so this runs before any record is written. Routine
  * Nigerian Army/security-force work is intentionally outside the public scope;
@@ -13,8 +13,8 @@ export interface IncidentScopeInput {
   group?: string;
 }
 
-const ORIGINAL_EVENT_VERB = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|wound(?:ed|s|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|explod(?:ed|ing)|clash(?:ed|es|ing)?|massacre[ds]?|storm(?:ed|s|ing)?)\b/i;
-const QUALIFYING_EVENT_NOUN = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|open(?:s)?\s+fire|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|ied|explod(?:ed|ing)|clash(?:es|ed|ing)?|massacre[ds]?|hostage|captive)\b/i;
+const ORIGINAL_EVENT_VERB = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|wound(?:ed|s|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|explod(?:ed|ing)|clash(?:ed|es|ing)?|massacre[ds]?|storm(?:ed|s|ing)?|burn(?:ed|t|ing)?|torch(?:ed|es|ing)?|destroy(?:ed|s|ing)?|vandaliz(?:ed|es|ing)?|vandalis(?:ed|es|ing)?|sabotag(?:ed|es|ing)?|raz(?:ed|es|ing)?)\b/i;
+const QUALIFYING_EVENT_NOUN = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|open(?:s)?\s+fire|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|ied|explod(?:ed|ing)|clash(?:es|ed|ing)?|massacre[ds]?|hostage|captive|arson|sabotage|destruction|vandalism)\b/i;
 const ARMED_CONTEXT = /\b(?:armed|gunmen|bandits?|insurgents?|terrorists?|militants?|boko\s+haram|iswap|ied|explos(?:ion|ive)|cultists?|cult[- ]related|herdsmen|ipob|esn|kidnap(?:pers?|ping)?|abduct(?:ors?|ion)?)\b/i;
 const FOLLOW_UP_WORDS = /\b(?:rescue|rescued|release|released|freed|recovered|recovery|aftercare|commend(?:ed|s)?|hails?\s+(?:the\s+)?rescue|gunned\s+down\s+during\s+rescue)\b/i;
 const OPERATION_WORDS = /\b(?:deploy(?:ed|s|ment)?|patrol(?:led|s|ling)?|training|preparedness|clearance operation|security briefing|boost(?:ing)?\s+security|beef(?:ed|s|ing)?\s+up\s+security|operation\s+result|security forces?\s+(?:kill|killed|neutraliz|recover|rescue|arrest)|raid(?:ed|s|ing)?\s+(?:a|the)?\s*(?:bandit|terrorist|insurgent|gunmen)|ambush(?:ed|es|ing)?\s+(?:bandit|terrorist|insurgent|gunmen))\b/i;
@@ -28,6 +28,12 @@ const ARREST_OR_LEGAL_RESULT = /\b(?:arrest(?:ed|s)?|detain(?:ed|s)?|charg(?:ed|
 const RESCUE_KIDNAP_VICTIMS = /\b(?:rescu(?:e|ed|ing)|fre(?:e|ed|eing)|liberat(?:e|ed|ing))\b[\s\S]{0,100}\b(?:kidnap(?:ped|ping)?|abduct(?:ed|ion|ing)?|hostage|captive|victim)/i;
 const HOSTILE_ATTACK_ON_SECURITY = /\b(?:boko\s+haram|iswap|bandits?|gunmen|terrorists?|insurgents?|militants?|ipob|esn|herdsmen|cultists?)\b[\s\S]{0,100}\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|kill(?:ed|s|ing)?|shoot(?:s|ing)?|shot|bomb(?:ed|s|ing)?|raid(?:ed|s|ing)?|clash(?:ed|es|ing)?|abduct(?:ed|ing)?|kidnap(?:ped|ping)?)\b[\s\S]{0,100}\b(?:soldiers?|troops?|army|police|officers?|convoy|patrol|base|barracks?|station)\b/i;
 const DIRECT_SECURITY_HARM = /\b(?:soldiers?|troops?|army|police|officers?|personnel|convoy|patrol|base|barracks?|station|security\s+forces?)\b[\s\S]{0,100}\b(?:(?:was|were|have\s+been|had\s+been|got)\s+(?:ambushed|attacked|bombed|targeted|killed|injured|wounded)|(?:ambushed|attacked|bombed|targeted)\s+by|(?:killed|injured|wounded)\s+(?:in|during|by|after|following|when|while)|came\s+under\s+attack|under\s+attack|suffered\s+(?:casualties|losses))\b/i;
+const ORGANIZED_GROUP = /\b(?:group|gang|mob|crowd|militia|cultists?|hoodlums?|thugs?|political\s+thugs?|party\s+(?:supporters?|members?|youths?)|armed\s+men|gunmen|bandits?|terrorists?|insurgents?|militants?|attackers?|assailants?)\b/i;
+const PROPERTY_TARGET = /\b(?:property|properties|home|house|houses|shop|shops|market|markets|office|offices|secretariat|campaign\s+office|party\s+office|vehicle|vehicles|car|cars|bus|buses|school|church|mosque|farm|farms|warehouse|infrastructure|pipeline|power\s+facility|billboards?)\b/i;
+const PROPERTY_DESTRUCTION = /\b(?:arson|set\s+(?:it|them|the\s+\w+)\s+ablaze|burn(?:ed|t|ing)?|torch(?:ed|es|ing)?|destroy(?:ed|s|ing)?|vandaliz(?:ed|es|ing)?|vandalis(?:ed|es|ing)?|sabotag(?:ed|es|ing)?|raz(?:ed|es|ing)?|smash(?:ed|es|ing)?|damage(?:d|s|ing)?)\b/i;
+const PREMEDITATED_OR_COORDINATED = /\b(?:premeditated|pre-planned|planned|coordinated|organised|organized|mobilised|mobilized|targeted|stormed|invaded|raided|attacked|arson|set\s+(?:it|them|the\s+\w+)\s+ablaze)\b/i;
+const POLITICAL_CONTEXT = /\b(?:political|politics|election|electoral|campaign|rally|polling\s+unit|inec|party|pdp|apc|lp|nnpp|adc|app|ypp|candidate|governor(?:ship)?|chairmanship|secretariat)\b/i;
+const VIOLENT_OR_COERCIVE_ACTION = /\b(?:attack(?:ed|s|ing)?|assault(?:ed|s|ing)?|beat(?:en|ing)?|shoot(?:ing|s)?|shot|kill(?:ed|s|ing)?|injur(?:ed|es|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|raid(?:ed|s|ing)?|clash(?:ed|es|ing)?|threaten(?:ed|s|ing)?|intimidat(?:ed|es|ing)?|disrupt(?:ed|s|ing)?|burn(?:ed|t|ing)?|torch(?:ed|es|ing)?|destroy(?:ed|s|ing)?|vandaliz(?:ed|es|ing)?|vandalis(?:ed|es|ing)?|sabotag(?:ed|es|ing)?)\b/i;
 
 export function isKidnappingVictimRescue(input: IncidentScopeInput): boolean {
   const text = `${input.title || ""} ${input.description || ""}`;
@@ -47,13 +53,16 @@ export function screenIncidentCandidate(input: IncidentScopeInput): string | nul
   const qualifyingEventNoun = QUALIFYING_EVENT_NOUN.test(combined);
   const armedContext = ARMED_CONTEXT.test(combined);
   const permittedRescue = isKidnappingVictimRescue({ title, description });
+  const organizedPropertyAttack = ORGANIZED_GROUP.test(combined) && PROPERTY_TARGET.test(combined) && PROPERTY_DESTRUCTION.test(combined) && PREMEDITATED_OR_COORDINATED.test(combined);
+  const organizedPoliticalAttack = POLITICAL_CONTEXT.test(combined) && ORGANIZED_GROUP.test(combined) && VIOLENT_OR_COERCIVE_ACTION.test(combined);
+  const relaxedQualifyingEvent = organizedPropertyAttack || organizedPoliticalAttack;
 
-  if (!originalEventInText && !permittedRescue) {
+  if (!originalEventInText && !permittedRescue && !relaxedQualifyingEvent) {
     return "no specific violent incident or abduction event in the source narrative";
   }
 
   const hasVictimOrTargetContext = /\b(?:civilian|villager|resident|farmer|herder|travell?er|passenger|worshipper|student|woman|child|teacher|lecturer|professor|doctor|nurse|driver|commuter|pastor|imam|cleric|monarch|youth|trader|marketer|soldier|troops?|police|officer|personnel|vigilante|hunter|community|village|market|convoy|base|barracks?|station|position|road|killed|injur(?:ed|y)?|wound(?:ed|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing)?)\b/i.test(combined);
-  if (!armedContext && !permittedRescue && !(qualifyingEventNoun && hasVictimOrTargetContext)) {
+  if (!armedContext && !permittedRescue && !relaxedQualifyingEvent && !(qualifyingEventNoun && hasVictimOrTargetContext)) {
     return "no organized armed/security-incident context";
   }
 
@@ -94,11 +103,11 @@ export function screenIncidentCandidate(input: IncidentScopeInput): string | nul
     return "sports or travel report rather than a security incident";
   }
 
-  if (MOB_ASSAULT.test(combined) && !armedContext) {
+  if (MOB_ASSAULT.test(combined) && !armedContext && !organizedPoliticalAttack && !organizedPropertyAttack) {
     return "ordinary mob assault without organized armed activity";
   }
 
-  if (ORDINARY_CRIME_WORDS.test(combined) && !armedContext) {
+  if (ORDINARY_CRIME_WORDS.test(combined) && !armedContext && !organizedPoliticalAttack && !organizedPropertyAttack) {
     return "ordinary isolated crime or legal report without organized armed activity";
   }
 

@@ -3,7 +3,8 @@ import { RawAttackData, generateAttackHash, isUsableEvidenceUrl, mergeIncidentSt
 import { normalizeCasualtyFields } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
-import { parseIncidentDate, assertActiveAttackDateIntegrity } from "./attack-data-integrity";
+import { assertActiveAttackDateIntegrity } from "./attack-data-integrity";
+import { normalizeIncidentDate } from "./incident-date";
 
 export interface IngestResult {
   saved: number;
@@ -54,15 +55,17 @@ export async function ingestAttacks(
 
   for (const rawAttack of filteredAttacks) {
     try {
-      const attackDate = parseIncidentDate(rawAttack.date, `${label}: ${rawAttack.title}`);
+      const dateEvidence = normalizeIncidentDate(rawAttack);
+      if (!dateEvidence) throw new Error(`[${label}: ${rawAttack.title}] Incident date evidence is missing or invalid.`);
+      const attackDate = dateEvidence.date;
       const hash = generateAttackHash(rawAttack);
       let existing = await Attack.findOne({ hash });
 
       if (!existing) {
-        const windowStart = new Date(attackDate);
+        const windowStart = new Date(dateEvidence.interval.start);
         windowStart.setDate(windowStart.getDate() - 2);
         windowStart.setHours(0, 0, 0, 0);
-        const windowEnd = new Date(attackDate);
+        const windowEnd = new Date(dateEvidence.interval.end);
         windowEnd.setDate(windowEnd.getDate() + 2);
         windowEnd.setHours(23, 59, 59, 999);
 
@@ -323,6 +326,8 @@ export async function ingestAttacks(
         title: sanitizeString(rawAttack.title),
         description: sanitizeString(rawAttack.description),
         date: attackDate,
+        datePrecision: dateEvidence.datePrecision,
+        dateRange: dateEvidence.dateRange,
         location: {
           state: normalizeStateName(sanitizeString(rawAttack.location.state)),
           lga: sanitizeString(rawAttack.location.lga || "Unknown"),
@@ -338,8 +343,8 @@ export async function ingestAttacks(
           title: sanitizeString(s.title || ""),
           publisher: sanitizeString(s.publisher || ""),
         })),
-        status: rawAttack.status || "unconfirmed",
-        tags: (rawAttack.tags || []).map(sanitizeString),
+        status: dateEvidence.datePrecision === "exact_day" ? (rawAttack.status || "unconfirmed") : "developing",
+        tags: Array.from(new Set([...(rawAttack.tags || []).map(sanitizeString), ...(dateEvidence.datePrecision === "exact_day" ? [] : ["date-uncertainty"])])),
         hash,
       });
 

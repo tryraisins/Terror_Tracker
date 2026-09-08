@@ -6,6 +6,7 @@ import {
   type LocationPrecision,
   casualtyRepresentativeValue,
 } from "./incident-uncertainty";
+import type { IncidentDatePrecision } from "./incident-date";
 
 export type IncidentStatus = "confirmed" | "developing" | "unconfirmed";
 
@@ -14,6 +15,8 @@ export interface IncidentRecord {
   title: string;
   description: string;
   date: string;
+  datePrecision?: IncidentDatePrecision;
+  dateRange?: { start?: string | null; end?: string | null };
   location: {
     state: string;
     lga: string;
@@ -40,6 +43,19 @@ export function formatDateLong(value?: string) {
   if (!value) return "Not recorded";
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? "Not recorded" : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" }).format(date);
+}
+
+export function incidentDateLabel(record: Pick<IncidentRecord, "date" | "datePrecision" | "dateRange">, long = false) {
+  const precision = record.datePrecision || "exact_day";
+  if (precision === "exact_day") return long ? formatDateLong(record.date) : formatDate(record.date);
+  if (precision === "month_only") {
+    const date = new Date(record.dateRange?.start || record.date);
+    return Number.isNaN(date.valueOf()) ? "Month not recorded" : new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "Africa/Lagos" }).format(date);
+  }
+  const start = record.dateRange?.start;
+  const end = record.dateRange?.end;
+  if (!start || !end) return long ? formatDateLong(record.date) : formatDate(record.date);
+  return `${formatDateLong(start)} to ${formatDateLong(end)}`;
 }
 
 export function locationLabel(location: IncidentRecord["location"], compact = false) {

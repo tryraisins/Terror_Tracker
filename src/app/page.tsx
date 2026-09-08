@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/DataState";
 import BarChart from "@/components/BarChart";
-import { IncidentRecord, formatDateLong, impactParts } from "@/lib/incident-view";
+import { IncidentRecord, incidentDateLabel, impactParts } from "@/lib/incident-view";
 
 interface StatsData {
   overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; year: number };
@@ -60,7 +60,7 @@ export default function DashboardPage() {
       <section className="panel"><div className="panel-heading"><h2>Most recorded states</h2><Link href="/map" className="text-link">View map →</Link></div><div className="rank-list">{data.byState.slice(0, 5).map((item) => <div className="rank-row" key={item.state}><span>{item.state || "Unknown"}</span><span className="rank-row__track"><span className="rank-row__fill" style={{ width: `${(item.count / maxState) * 100}%` }} /></span><span>{item.count}</span></div>)}</div></section>
       <section className="panel"><div className="panel-heading"><div><h2>Reported actors</h2><p className="panel-subtitle">Attribution is recorded as reported</p></div></div>{data.byGroup.slice(0, 5).map((item) => <div className="actor-row" key={item.group}><span><i className="dot" />{item.group || "Unknown"}</span><span>{item.count}</span></div>)}</section>
     </section>
-    <section><div className="section-heading"><h2>Recent incident records</h2><Link href="/incidents" className="text-link">Browse all {overview.totalAttacks} →</Link></div><div className="card table-card"><table className="records-table"><thead><tr><th>Date / place</th><th>Incident</th><th>Human impact</th><th>Evidence</th></tr></thead><tbody>{data.recentAttacks.map((incident) => <tr key={incident._id}><td><span className="records-table__date">{formatDateLong(incident.date)}</span><br /><strong>{incident.location.state || "Location unknown"}</strong></td><td><Link href={`/incidents/${incident._id}`} className="records-table__title">{incident.title}</Link></td><td className="record-card__impact">{impactParts(incident.casualties, incident.casualtyMeta).join(" · ") || "Not reported"}</td><td><span className={`status status--${incident.status}`}>{incident.status}</span><br /><span className="evidence-count">{incident.sources?.length || 0} sources</span></td></tr>)}</tbody></table></div></section>
+    <section><div className="section-heading"><h2>Recent incident records</h2><Link href="/incidents" className="text-link">Browse all {overview.totalAttacks} →</Link></div><div className="card table-card"><table className="records-table"><thead><tr><th>Date / place</th><th>Incident</th><th>Human impact</th><th>Evidence</th></tr></thead><tbody>{data.recentAttacks.map((incident) => <tr key={incident._id}><td><span className="records-table__date">{incidentDateLabel(incident, true)}</span><br /><strong>{incident.location.state || "Location unknown"}</strong></td><td><Link href={`/incidents/${incident._id}`} className="records-table__title">{incident.title}</Link></td><td className="record-card__impact">{impactParts(incident.casualties, incident.casualtyMeta).join(" · ") || "Not reported"}</td><td><span className={`status status--${incident.status}`}>{incident.status}</span><br /><span className="evidence-count">{incident.sources?.length || 0} sources</span></td></tr>)}</tbody></table></div></section>
   </div>;
 }
 

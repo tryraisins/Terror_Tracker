@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { incidentDateLabel } from "@/lib/incident-view";
+import type { IncidentDatePrecision } from "@/lib/incident-date";
 
 interface TickerItem {
     title: string;
@@ -19,13 +21,10 @@ export default function BreakingTicker() {
                 const data = await res.json();
                 if (data.attacks?.length) {
                     setItems(
-                        data.attacks.map((a: { title: string; location: { state: string; }; date: string; }) => ({
+                        data.attacks.map((a: { title: string; location: { state: string; }; date: string; datePrecision?: IncidentDatePrecision; dateRange?: { start?: string | null; end?: string | null } }) => ({
                             title: a.title,
                             location: a.location?.state || "",
-                            date: new Date(a.date).toLocaleDateString("en-NG", {
-                                month: "short",
-                                day: "numeric",
-                            }),
+                            date: incidentDateLabel(a),
                         }))
                     );
                 }

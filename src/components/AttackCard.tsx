@@ -9,8 +9,8 @@ import {
     ArrowTopRightOnSquareIcon,
     ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
-import { format } from "date-fns";
-import { displayValue, locationLabel } from "@/lib/incident-view";
+import { displayValue, incidentDateLabel, locationLabel } from "@/lib/incident-view";
+import type { IncidentDatePrecision } from "@/lib/incident-date";
 import type { CasualtyCountMetadata, LocationPrecision } from "@/lib/incident-uncertainty";
 
 interface AttackCardProps {
@@ -19,6 +19,8 @@ interface AttackCardProps {
         title: string;
         description: string;
         date: string;
+        datePrecision?: IncidentDatePrecision;
+        dateRange?: { start?: string | null; end?: string | null };
         location: {
             state: string;
             lga: string;
@@ -156,7 +158,7 @@ export default function AttackCard({
                     </span>
                     <span className="flex items-center gap-1.5">
                         <CalendarDaysIcon className="w-3.5 h-3.5" />
-                        {format(new Date(attack.date), "MMM d, yyyy")}
+                        {incidentDateLabel(attack)}
                     </span>
                     <span className="flex items-center gap-1.5">
                         <UserGroupIcon className="w-3.5 h-3.5" />

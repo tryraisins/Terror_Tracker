@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "check:incident-policy": "npx tsx scripts/check-incident-policy.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

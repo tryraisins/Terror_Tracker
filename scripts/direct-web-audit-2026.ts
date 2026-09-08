@@ -19,11 +19,16 @@ import {
   type NewsResolutionStatus,
   type NewsSearchProvider,
 } from "../src/lib/news-source-resolver";
+import {
+  searchNews,
+  type NewsDiscoveryReceipt,
+  type NewsDiscoverySelection,
+} from "../src/lib/news-discovery";
 
 dotenv.config({ path: path.join(process.cwd(), ".env.local"), quiet: true });
 mongoose.set("bufferCommands", false);
 
-const AUDIT_RUN_ID = "direct-web-revised-2026-04-01-to-09-03";
+const AUDIT_RUN_ID = "direct-web-multi-engine-2026";
 const DEFAULT_START = "2026-04-01";
 const DEFAULT_END = "2026-09-03";
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+direct source audit)";
@@ -50,6 +55,7 @@ type Args = {
   resolveDelayMs: number;
   resolveTitleSearch: boolean;
   resolveSearchProvider: NewsSearchProvider;
+  discoveryProviders: NewsDiscoverySelection;
 };
 
 type WeekWindow = {
@@ -64,7 +70,6 @@ type SearchTask = {
   jurisdiction: string;
   window: WeekWindow;
   query: string;
-  feedUrl: string;
 };
 
 type RssItem = {
@@ -73,6 +78,7 @@ type RssItem = {
   sourceName: string;
   sourceUrl: string | null;
   publishedAt: string | null;
+  provider: string;
 };
 
 type QueryLedger = {
@@ -82,11 +88,14 @@ type QueryLedger = {
   periodStart: string;
   periodEnd: string;
   query: string;
-  feedUrl: string;
+  feedUrl: string | null;
   status: "PASS" | "FAIL" | "BLOCKED";
   resultCount: number;
   candidateCount: number;
   reason: string;
+  discoveryProviders: NewsDiscoverySelection;
+  providerReceipts: NewsDiscoveryReceipt[];
+  searchQueries: string[];
 };
 
 type CandidateLedger = {
@@ -98,6 +107,8 @@ type CandidateLedger = {
   title: string;
   publisher: string;
   sourceDomain: string | null;
+  discoveryUrl: string;
+  discoveryProvider: string;
   googleNewsUrl: string;
   rssSourceUrl: string | null;
   directUrl: string | null;
@@ -125,6 +136,7 @@ type SearchScan = {
   ledgers: QueryLedger[];
   candidates: number;
   uniqueGoogleNewsUrls: number;
+  uniqueDiscoveryUrls: number;
   resolutions: NewsResolution[];
 };
 type KnownGapPlan = {
@@ -170,8 +182,11 @@ function parseArgs(argv: string[]): Args {
     resolveConcurrency: 2,
     resolveDelayMs: 350,
     resolveTitleSearch: process.env.NEWS_RESOLVER_TITLE_SEARCH === "true",
-    resolveSearchProvider: ["auto", "duckduckgo", "brave", "none"].includes(process.env.NEWS_RESOLVER_SEARCH_PROVIDER || "")
+    resolveSearchProvider: ["auto", "all", "duckduckgo", "brave", "bing", "none"].includes(process.env.NEWS_RESOLVER_SEARCH_PROVIDER || "")
       ? process.env.NEWS_RESOLVER_SEARCH_PROVIDER as NewsSearchProvider
+      : "auto",
+    discoveryProviders: ["auto", "all", "brave", "duckduckgo", "bing", "none"].includes(process.env.NEWS_DISCOVERY_PROVIDER || "")
+      ? process.env.NEWS_DISCOVERY_PROVIDER as NewsDiscoverySelection
       : "auto",
   };
 
@@ -198,9 +213,13 @@ function parseArgs(argv: string[]): Args {
     else if (arg.startsWith("--resolve-delay-ms=")) args.resolveDelayMs = Math.max(0, Number(arg.slice("--resolve-delay-ms=".length)) || 0);
     else if (arg === "--title-search") args.resolveTitleSearch = true;
     else if (arg === "--no-title-search") args.resolveTitleSearch = false;
+    else if (arg.startsWith("--discovery-provider=")) {
+      const provider = arg.slice("--discovery-provider=".length);
+      if (["auto", "all", "brave", "duckduckgo", "bing", "none"].includes(provider)) args.discoveryProviders = provider as NewsDiscoverySelection;
+    }
     else if (arg.startsWith("--search-provider=")) {
       const provider = arg.slice("--search-provider=".length);
-      if (["auto", "duckduckgo", "brave", "none"].includes(provider)) args.resolveSearchProvider = provider as NewsSearchProvider;
+      if (["auto", "all", "duckduckgo", "brave", "bing", "none"].includes(provider)) args.resolveSearchProvider = provider as NewsSearchProvider;
     }
   }
 
@@ -262,13 +281,11 @@ function buildSearchTasks(args: Args): SearchTask[] {
   for (const jurisdiction of args.states) {
     for (const window of windows) {
       const query = `${searchStateName(jurisdiction)} Nigeria (attack OR ambush OR abducted OR kidnapped OR massacre OR bombing OR clash) -deployment -patrol -training -arrest -weapons -neutralized -airstrike after:${window.start} before:${window.before}`;
-      const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-NG&gl=NG&ceid=NG:en`;
       tasks.push({
         hash: hash({ jurisdiction, window, query }),
         jurisdiction,
         window,
         query,
-        feedUrl,
       });
     }
   }
@@ -296,8 +313,7 @@ function buildSearchTasks(args: Args): SearchTask[] {
 
   for (const item of targeted) {
     const window: WeekWindow = { index: 0, start: item.start, end: item.end, before: isoDay(addDays(parseDay(item.end), 1)) };
-    const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(item.query)}&hl=en-NG&gl=NG&ceid=NG:en`;
-    tasks.push({ hash: hash(item), jurisdiction: item.jurisdiction, window, query: item.query, feedUrl });
+    tasks.push({ hash: hash(item), jurisdiction: item.jurisdiction, window, query: item.query });
   }
 
   return args.queryLimit ? tasks.slice(0, args.queryLimit) : tasks;
@@ -331,6 +347,7 @@ function parseRss(xml: string): RssItem[] {
       sourceName: decodeHtml(sourceMatch?.[2] || ""),
       sourceUrl: sourceMatch?.[1] || null,
       publishedAt: field(block, "pubDate") ? new Date(field(block, "pubDate")).toISOString() : null,
+      provider: "google",
     };
   }).filter((item) => item.title && /^https?:\/\//i.test(item.url));
 }
@@ -378,7 +395,7 @@ function locationPrecisionFor(title: string, state: string): { precision: Locati
 
 function candidateFromItem(task: SearchTask, item: RssItem): CandidateLedger | null {
   if (!EVENT_PATTERN.test(item.title) || NON_INCIDENT_PATTERN.test(item.title)) return null;
-  const sourceDomain = domainFromUrl(item.sourceUrl);
+  const sourceDomain = domainFromUrl(item.url);
   const location = locationPrecisionFor(item.title, task.jurisdiction);
   return {
     auditRunId: AUDIT_RUN_ID,
@@ -394,8 +411,10 @@ function candidateFromItem(task: SearchTask, item: RssItem): CandidateLedger | n
     title: item.title,
     publisher: item.sourceName || sourceDomain || "Unknown publisher",
     sourceDomain,
+    discoveryUrl: item.url,
+    discoveryProvider: item.provider,
     googleNewsUrl: item.url,
-    rssSourceUrl: item.sourceUrl,
+    rssSourceUrl: item.url,
     directUrl: null,
     directUrlStatus: "UNRESOLVED",
     directFetchStatus: "NOT_ATTEMPTED",
@@ -471,12 +490,12 @@ async function fetchText(url: string, timeoutMs: number): Promise<{ status: numb
 }
 
 function candidateResolutionKey(candidate: CandidateLedger): string {
-  return normalizeNewsUrl(candidate.googleNewsUrl) || candidate.googleNewsUrl;
+  return normalizeNewsUrl(candidate.discoveryUrl || candidate.googleNewsUrl) || candidate.discoveryUrl || candidate.googleNewsUrl;
 }
 
 function leadFromCandidate(candidate: CandidateLedger): NewsLead {
   return {
-    googleNewsUrl: candidate.googleNewsUrl,
+    googleNewsUrl: candidate.discoveryUrl || candidate.googleNewsUrl,
     sourceUrl: candidate.rssSourceUrl || candidate.directUrl,
     sourceDomain: candidate.sourceDomain,
     publisher: candidate.publisher,
@@ -529,33 +548,57 @@ async function scanTask(task: SearchTask, args: Args, queryLedgerFile: string, c
   for (let attempt = 1; attempt <= args.retryAttempts; attempt++) {
     try {
       if (args.delayMs) await sleep(args.delayMs);
-      const { status, text } = await fetchText(task.feedUrl, args.timeoutMs);
-      if (status >= 400) {
-        const ledger: QueryLedger = {
-          auditRunId: AUDIT_RUN_ID,
-          queryHash: task.hash,
-          jurisdiction: task.jurisdiction,
-          periodStart: task.window.start,
-          periodEnd: task.window.end,
-          query: task.query,
-          feedUrl: task.feedUrl,
-          status: status === 429 ? "BLOCKED" : "FAIL",
-          resultCount: 0,
-          candidateCount: 0,
-          reason: `Google News RSS returned HTTP ${status} on attempt ${attempt}.`,
-        };
-        if ((status === 429 || status === 503) && attempt < args.retryAttempts) {
-          await sleep(args.delayMs + attempt * 2000);
-          continue;
-        }
-        await appendJsonl(queryLedgerFile, [ledger]);
-        return ledger;
+      // Some public HTML engines ignore after:/before: operators. Retry an
+      // equivalent date-less query only when the date-constrained query is
+      // empty, then let direct-page adjudication establish the actual event
+      // date before any write.
+      const searchQueries = [
+        task.query,
+        task.query.replace(/\s+(?:after|before):\S+/gi, "").replace(/\s+/g, " ").trim(),
+      ].filter((query, index, all) => query && all.indexOf(query) === index);
+      const discoveryResponses = [] as Awaited<ReturnType<typeof searchNews>>[];
+      for (const searchQuery of searchQueries) {
+        const response = await searchNews(searchQuery, {
+          providers: args.discoveryProviders,
+          maxResults: args.maxResultsPerQuery,
+          timeoutMs: args.timeoutMs,
+          userAgent: USER_AGENT,
+        });
+        discoveryResponses.push(response);
+        if (response.results.length > 0) break;
       }
-
-      const items = parseRss(text).slice(0, args.maxResultsPerQuery);
+      const resultByUrl = new Map<string, (typeof discoveryResponses[number])["results"][number]>();
+      for (const response of discoveryResponses) {
+        for (const item of response.results) {
+          const existing = resultByUrl.get(item.url);
+          resultByUrl.set(item.url, existing
+            ? { ...existing, providers: [...new Set([...existing.providers, ...item.providers])] }
+            : item);
+        }
+      }
+      const results = [...resultByUrl.values()].slice(0, args.maxResultsPerQuery);
+      const receipts = discoveryResponses.flatMap((response) => response.receipts);
+      const items: RssItem[] = results.map((item) => ({
+        title: item.title,
+        url: item.url,
+        sourceName: item.publisher,
+        sourceUrl: item.url,
+        publishedAt: null,
+        provider: item.providers.join(","),
+      }));
       const candidates = items
         .map((item) => candidateFromItem(task, item))
         .filter((item): item is CandidateLedger => Boolean(item));
+      const hasResults = results.length > 0;
+      const hasBlockedProvider = receipts.some((receipt) => receipt.status === "BLOCKED");
+      const hasPassProvider = receipts.some((receipt) => receipt.status === "PASS");
+      const status: QueryLedger["status"] = hasResults
+        ? "PASS"
+        : hasBlockedProvider
+          ? "BLOCKED"
+          : hasPassProvider
+            ? "PASS"
+            : "FAIL";
       const ledger: QueryLedger = {
         auditRunId: AUDIT_RUN_ID,
         queryHash: task.hash,
@@ -563,11 +606,16 @@ async function scanTask(task: SearchTask, args: Args, queryLedgerFile: string, c
         periodStart: task.window.start,
         periodEnd: task.window.end,
         query: task.query,
-        feedUrl: task.feedUrl,
-        status: "PASS",
-        resultCount: items.length,
+        feedUrl: null,
+        status,
+        resultCount: results.length,
         candidateCount: candidates.length,
-        reason: candidates.length ? "Search returned incident leads requiring direct-source confirmation." : "No incident leads found in RSS titles for this cell.",
+        reason: candidates.length
+          ? "Search engines returned incident leads requiring direct publisher confirmation."
+          : `${results.length ? "No qualifying incident-language leads" : "No search results"}; provider receipts recorded for coverage review.`,
+        discoveryProviders: args.discoveryProviders,
+        providerReceipts: receipts,
+        searchQueries,
       };
       await appendJsonl(queryLedgerFile, [ledger]);
       await appendJsonl(candidateFile, candidates);
@@ -580,14 +628,18 @@ async function scanTask(task: SearchTask, args: Args, queryLedgerFile: string, c
         periodStart: task.window.start,
         periodEnd: task.window.end,
         query: task.query,
-        feedUrl: task.feedUrl,
+        feedUrl: null,
         status: "FAIL",
         resultCount: 0,
         candidateCount: 0,
         reason: `${error instanceof Error ? error.message : String(error)} on attempt ${attempt}`,
+        discoveryProviders: args.discoveryProviders,
+        providerReceipts: [],
+        searchQueries: [task.query],
       };
       if (attempt < args.retryAttempts) {
-        await sleep(args.delayMs + attempt * 2000);
+        const retryMinutes = [2, 5, 10, 20][Math.min(attempt - 1, 3)];
+        await sleep(Math.max(args.delayMs, retryMinutes * 60_000));
         continue;
       }
       await appendJsonl(queryLedgerFile, [ledger]);
@@ -656,13 +708,22 @@ async function runSearchScan(args: Args): Promise<SearchScan> {
   const resolutionStatus = Object.fromEntries(["PASS", "BLOCKED", "UNRESOLVED", "FAIL"].map((status) => [status, resolutions.filter((row) => row.resolutionStatus === status).length]));
   const resolutionMethod = Object.fromEntries(["RSS_SOURCE_URL", "HTTP_REDIRECT", "CANONICAL_TAG", "PUBLISHER_SITE_SEARCH", "PUBLISHER_TITLE_SEARCH", "NONE"].map((method) => [method, resolutions.filter((row) => row.resolutionMethod === method).length]));
   const directFetchStatus = Object.fromEntries(["PASS", "PARTIAL", "BLOCKED", "FAIL", "NOT_ATTEMPTED"].map((status) => [status, resolutions.filter((row) => row.directFetchStatus === status).length]));
+  const discoveryProviderStatus = Object.fromEntries(
+    ["brave", "duckduckgo", "bing"].flatMap((provider) => ["PASS", "BLOCKED", "FAIL", "SKIPPED"].map((status) => [
+      `${provider}:${status}`,
+      ledgers.flatMap((ledger) => ledger.providerReceipts).filter((receipt) => receipt.provider === provider && receipt.status === status).length,
+    ])),
+  );
   await writeJson(path.join(args.outDir, "direct-web-scan-summary.json"), {
     generatedAt: new Date().toISOString(),
     auditRunId: AUDIT_RUN_ID,
     scope: { start: args.start, endInclusive: args.end, states: args.states },
     queryCount: ledgers.length,
     candidateCount: candidates,
+    discoveryProvider: args.discoveryProviders,
+    discoveryProviderStatus,
     uniqueGoogleNewsUrlCount: uniqueCandidates.length,
+    uniqueDiscoveryUrlCount: uniqueCandidates.length,
     status: byStatus,
     candidateLeadsByState: byState,
     sourceResolution: {
@@ -674,7 +735,7 @@ async function runSearchScan(args: Args): Promise<SearchScan> {
     },
     writePolicy: "Read-only search ledger. Candidate leads are not database records until direct publisher pages are opened and matched.",
   });
-  return { tasks: tasks.length, ledgers, candidates, uniqueGoogleNewsUrls: uniqueCandidates.length, resolutions };
+  return { tasks: tasks.length, ledgers, candidates, uniqueGoogleNewsUrls: uniqueCandidates.length, uniqueDiscoveryUrls: uniqueCandidates.length, resolutions };
 }
 
 function sourceAlreadyPresent(existing: unknown, url: string): boolean {
@@ -1060,7 +1121,9 @@ function reportMarkdown(args: Args, scan: SearchScan | null, known: { plans: Kno
     lines.push(`- FAIL: ${fail}`);
     lines.push(`- BLOCKED: ${blocked}`);
     lines.push(`- Lead candidates requiring direct-source confirmation: ${scan.candidates}`);
-    lines.push(`- Unique Google News URLs resolved: ${scan.uniqueGoogleNewsUrls}`);
+    lines.push(`- Discovery providers: ${args.discoveryProviders}`);
+    lines.push(`- Unique discovery URLs resolved: ${scan.uniqueDiscoveryUrls}`);
+    lines.push(`- Discovery provider receipts: ${JSON.stringify(Object.fromEntries(["brave", "duckduckgo", "bing"].map((provider) => [provider, Object.fromEntries(["PASS", "BLOCKED", "FAIL", "SKIPPED"].map((status) => [status, scan.ledgers.flatMap((ledger) => ledger.providerReceipts).filter((receipt) => receipt.provider === provider && receipt.status === status).length]))])))}`);
     lines.push(`- Direct-source resolution: ${JSON.stringify(Object.fromEntries(["PASS", "BLOCKED", "UNRESOLVED", "FAIL"].map((status) => [status, scan.resolutions.filter((row) => row.resolutionStatus === status).length])))}`);
     lines.push(`- Resolution methods: ${JSON.stringify(Object.fromEntries(["RSS_SOURCE_URL", "HTTP_REDIRECT", "CANONICAL_TAG", "PUBLISHER_SITE_SEARCH", "PUBLISHER_TITLE_SEARCH", "NONE"].map((method) => [method, scan.resolutions.filter((row) => row.resolutionMethod === method).length])))}`);
     lines.push(`- Title-search fallback: ${args.resolveTitleSearch ? `enabled (${args.resolveSearchProvider})` : "disabled; use --title-search for publisher-domain fallback"}`);
@@ -1082,7 +1145,7 @@ function reportMarkdown(args: Args, scan: SearchScan | null, known: { plans: Kno
     "",
     "## Evidence Boundary",
     "",
-    "RSS search results are discovery leads only. Database writes require direct publisher URLs, a deterministic existing-record match, and an idempotency check.",
+    "Search-engine results are discovery leads only. Database writes require direct publisher URLs, a deterministic existing-record match, and an idempotency check. A blocked provider leaves the affected query unresolved; it is not evidence of no incident.",
     "",
   );
   return lines.join("\n");

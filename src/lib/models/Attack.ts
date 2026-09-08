@@ -5,11 +5,14 @@ import {
   type CasualtyMetadata,
   type LocationPrecision,
 } from "../incident-uncertainty";
+import type { IncidentDatePrecision } from "../incident-date";
 
 export interface IAttack extends Document {
   title: string;
   description: string;
   date: Date;
+  datePrecision?: IncidentDatePrecision;
+  dateRange?: { start: Date; end: Date };
   location: {
     state: string;
     lga: string; // Local Government Area
@@ -64,6 +67,16 @@ const AttackSchema = new Schema<IAttack>(
       type: Date,
       required: true,
       index: true,
+    },
+    datePrecision: {
+      type: String,
+      enum: ["exact_day", "date_range", "month_only"],
+      default: "exact_day",
+      index: true,
+    },
+    dateRange: {
+      start: { type: Date, default: null },
+      end: { type: Date, default: null },
     },
     location: {
       state: {

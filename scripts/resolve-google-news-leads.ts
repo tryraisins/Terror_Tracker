@@ -60,7 +60,7 @@ function parseArgs(argv: string[]): Args {
   const inputPath = path.resolve(process.cwd(), input);
   const defaultStem = inputPath.replace(/\.jsonl$/i, "");
   const providerValue = argValue(argv, "--search-provider=") || "auto";
-  const searchProvider: NewsSearchProvider = ["auto", "duckduckgo", "brave", "none"].includes(providerValue)
+  const searchProvider: NewsSearchProvider = ["auto", "all", "duckduckgo", "brave", "bing", "none"].includes(providerValue)
     ? providerValue as NewsSearchProvider
     : "auto";
   const concurrency = Math.min(6, Math.max(1, Number(argValue(argv, "--concurrency=")) || 2));

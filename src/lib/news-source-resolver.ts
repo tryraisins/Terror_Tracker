@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { isSuppressedSourceHost } from "./news-source-registry";
+import { searchNews, type NewsDiscoverySelection } from "./news-discovery";
 
 export type NewsLead = {
   googleNewsUrl: string;
@@ -19,7 +20,7 @@ export type NewsResolutionMethod =
   | "PUBLISHER_SITE_SEARCH"
   | "PUBLISHER_TITLE_SEARCH"
   | "NONE";
-export type NewsSearchProvider = "auto" | "duckduckgo" | "brave" | "none";
+export type NewsSearchProvider = NewsDiscoverySelection;
 
 export type NewsResolutionAttempt = {
   method: NewsResolutionMethod | "GOOGLE_REDIRECT_CHECK";
@@ -98,6 +99,7 @@ type PageAssessment = {
 };
 
 type SearchResult = { url: string; title: string };
+type ExternalSearchResponse = { results: SearchResult[]; blocked: boolean; reason: string };
 
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_USER_AGENT = "NigeriaAttackTracker/1.0 (+direct source resolver)";
@@ -168,10 +170,6 @@ const PUBLISHER_DOMAIN_HINTS: Array<[string, string]> = [
   ["associated press", "apnews.com"],
   ["ap news", "apnews.com"],
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -602,30 +600,6 @@ function assessmentResolution(
   };
 }
 
-function parseSearchHref(value: string): string | null {
-  const decoded = decodeHtml(value);
-  try {
-    const parsed = new URL(decoded, "https://duckduckgo.com");
-    if (parsed.hostname.endsWith("duckduckgo.com") && parsed.pathname === "/l/") {
-      return normalizeNewsUrl(parsed.searchParams.get("uddg"));
-    }
-    return normalizeNewsUrl(parsed.toString());
-  } catch {
-    return null;
-  }
-}
-
-function parseDuckDuckGoResults(html: string): SearchResult[] {
-  const results: SearchResult[] = [];
-  for (const match of html.matchAll(/<a\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const tag = match[0];
-    const href = parseSearchHref(parseAttributes(tag).get("href") || "");
-    const title = decodeHtml(match[1].replace(/<[^>]+>/g, " "));
-    if (href && title) results.push({ url: href, title });
-  }
-  return results;
-}
-
 function parsePublisherSearchResults(html: string, expectedDomain: string): SearchResult[] {
   const results: SearchResult[] = [];
   for (const match of html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)) {
@@ -666,61 +640,30 @@ async function publisherSiteSearch(
   return results.slice(0, settings.maxSearchResults);
 }
 
-async function duckDuckGoSearch(query: string, settings: ResolvedSettings): Promise<SearchResult[]> {
-  const endpoint = new URL("https://html.duckduckgo.com/html/");
-  endpoint.searchParams.set("q", query);
-  const page = await fetchPage(endpoint.toString(), settings);
-  if (page.status === null || page.status < 200 || page.status >= 400) return [];
-  return parseDuckDuckGoResults(page.html).slice(0, settings.maxSearchResults);
-}
-
-async function braveSearch(query: string, settings: ResolvedSettings): Promise<SearchResult[]> {
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!apiKey) return [];
-  const endpoint = new URL("https://api.search.brave.com/res/v1/web/search");
-  endpoint.searchParams.set("q", query);
-  endpoint.searchParams.set("count", String(settings.maxSearchResults));
-  endpoint.searchParams.set("country", "ALL");
-  try {
-    const response = await fetch(endpoint, {
-      headers: {
-        accept: "application/json",
-        "x-subscription-token": apiKey,
-        "user-agent": settings.userAgent,
-      },
-      signal: AbortSignal.timeout(settings.timeoutMs),
-    });
-    if (!response.ok) return [];
-    const data: unknown = await response.json();
-    const web = isRecord(data) && isRecord(data.web) ? data.web : null;
-    const rawResults = web && Array.isArray(web.results) ? web.results : [];
-    return rawResults
-      .filter(isRecord)
-      .map((result) => ({ url: stringValue(result.url), title: stringValue(result.title) }))
-      .filter((result) => Boolean(result.url && result.title))
-      .slice(0, settings.maxSearchResults);
-  } catch {
-    return [];
-  }
-}
-
 async function externalPublisherSearch(
   headline: string,
   expectedDomain: string,
   settings: ResolvedSettings,
-): Promise<SearchResult[]> {
-  const provider = settings.searchProvider === "auto"
-    ? (process.env.BRAVE_SEARCH_API_KEY ? "brave" : "duckduckgo")
-    : settings.searchProvider;
-  if (provider === "none") return [];
+): Promise<ExternalSearchResponse> {
+  if (settings.searchProvider === "none") return { results: [], blocked: false, reason: "Search provider disabled." };
   const exactQuery = `site:${expectedDomain} "${headline.replace(/"/g, "").slice(0, 180)}"`;
   const tokenQuery = `site:${expectedDomain} ${titleTokens(headline).slice(0, 8).join(" ")}`;
   const queries = tokenQuery === `site:${expectedDomain} ` ? [exactQuery] : [exactQuery, tokenQuery];
   const results: SearchResult[] = [];
   const seen = new Set<string>();
+  const receiptReasons: string[] = [];
+  let blocked = false;
   for (const query of queries) {
-    const batch = provider === "brave" ? await braveSearch(query, settings) : await duckDuckGoSearch(query, settings);
-    for (const result of batch) {
+    const response = await searchNews(query, {
+      providers: settings.searchProvider as NewsDiscoverySelection,
+      maxResults: settings.maxSearchResults,
+      timeoutMs: settings.timeoutMs,
+      userAgent: settings.userAgent,
+      minDelayMs: Math.max(settings.searchDelayMs, 3_000),
+    });
+    receiptReasons.push(...response.receipts.map((receipt) => `${receipt.provider}:${receipt.status}`));
+    blocked = blocked || (response.results.length === 0 && response.receipts.some((receipt) => receipt.status === "BLOCKED"));
+    for (const result of response.results) {
       const normalized = normalizeNewsUrl(result.url);
       if (!normalized || seen.has(normalized)) continue;
       seen.add(normalized);
@@ -728,13 +671,17 @@ async function externalPublisherSearch(
     }
     if (results.length >= settings.maxSearchResults) break;
   }
-  return results.slice(0, settings.maxSearchResults);
+  return {
+    results: results.slice(0, settings.maxSearchResults),
+    blocked,
+    reason: receiptReasons.length ? receiptReasons.join(", ") : "No external search provider was attempted.",
+  };
 }
 
 async function resolveUncached(
   lead: NewsLead,
   settings: ResolvedSettings,
-  searchPublisherTitles: (headline: string, domain: string) => Promise<SearchResult[]>,
+  searchPublisherTitles: (headline: string, domain: string) => Promise<ExternalSearchResponse>,
 ): Promise<NewsResolution> {
   const expectedDomain = domainHint(lead.sourceDomain)
     || domainFromNewsUrl(lead.sourceUrl)
@@ -803,8 +750,8 @@ async function resolveUncached(
       if (resolved) return resolved;
     }
 
-    const results = await searchPublisherTitles(lead.headline, expectedDomain);
-    for (const result of results) {
+    const externalSearch = await searchPublisherTitles(lead.headline, expectedDomain);
+    for (const result of externalSearch.results) {
       const candidate = directCandidateUrl(result.url, expectedDomain);
       if (!candidate) continue;
       const resolved = await tryUrl(candidate, "PUBLISHER_TITLE_SEARCH");
@@ -817,7 +764,9 @@ async function resolveUncached(
     return {
       ...base,
       resolutionStatus: "UNRESOLVED",
-      reason: siteResults.length ? "PUBLISHER_ARTICLE_MATCH_NOT_CONFIRMED" : "PUBLISHER_TITLE_SEARCH_NO_MATCH",
+      reason: externalSearch.blocked
+        ? `PUBLISHER_TITLE_SEARCH_BLOCKED (${externalSearch.reason})`
+        : siteResults.length ? "PUBLISHER_ARTICLE_MATCH_NOT_CONFIRMED" : "PUBLISHER_TITLE_SEARCH_NO_MATCH",
       attempts,
     };
   }
@@ -853,7 +802,7 @@ export function createNewsLeadResolver(options: NewsResolverOptions = {}): NewsL
   let searchQueue: Promise<void> = Promise.resolve();
   let lastSearchAt = 0;
 
-  const searchPublisherTitles = (headline: string, domain: string): Promise<SearchResult[]> => {
+  const searchPublisherTitles = (headline: string, domain: string): Promise<ExternalSearchResponse> => {
     const run = searchQueue.then(async () => {
       const waitMs = settings.searchDelayMs - (Date.now() - lastSearchAt);
       if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));

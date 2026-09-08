@@ -20,7 +20,9 @@ An open-source intelligence (OSINT) platform dedicated to tracking, visualizing,
 - **Free, Source-Led Collection**:
   - Polls RSS feeds from established Nigerian publishers; no AI API or paid web-search API is used.
   - Inspects only newly-seen article URLs and retains a receipt for every accepted, rejected, and retrospective article.
-  - Publishes only when the article itself describes one recent original armed/security incident or abduction with a source-supported Nigerian location and incident date. An article publication date is never treated as an incident date.
+  - Publishes only when a direct source describes one original qualifying event with a supported Nigerian state and at least the event month. Dates may be exact days, bounded day ranges, or month-only; the stored date anchor is never presented as more precise than the evidence.
+  - Includes completed political attacks/organized thuggery and premeditated or coordinated property-only attacks by groups. Political rhetoric, accidents, isolated vandalism, and ordinary individual crime remain out of scope.
+  - State-level location is sufficient. A border event receives one best-supported primary state, with the alternative state recorded in notes, so it is not counted twice.
   - Excludes routine Nigerian Army/security-force work such as patrols, hideout raids, arrests, weapons recovery, airstrikes, attacker-only kills and operational results. Army-related reporting is retained only for explicit kidnapping-victim rescues/releases that identify the original event.
   - Older/referenced events are recorded as evidence-only and cannot become new incidents merely because another publisher mentions them.
   - Monitors trusted publishers including:
@@ -117,21 +119,36 @@ The system uses an API route (`src/app/api/cron/update/route.ts`) designed to be
 - **Headers**: `x-cron-secret: <CRON_SECRET>`
 - **Function**:
     1.  Fetches only newly-seen articles from trusted publisher RSS feeds, including regional/security outlets alongside national outlets.
-    2.  Verifies article freshness, explicit incident date, state, town/LGA, and incident language before publishing.
+    2.  Verifies article freshness, a supported event month (exact day, bounded range, or month-only), Nigerian state, qualifying event language, and direct-source evidence before publishing.
     3.  Treats older/referenced events as evidence-only, never as a new incident.
     4.  Merges only an exact incident fingerprint; fuzzy matches are review-only and never delete records automatically.
 
 The source-led collector is paused by default. The Netlify hourly schedule is disabled, and the API route is a no-op unless `FREE_SOURCE_INGEST_ENABLED=true` is explicitly configured after review. It does not certify that every state was searched. Use the deliberate one-state-per-request recovery scan for evidence-backed historical or coverage work; it has a configurable concurrency cap, and its sources and database changes should be reviewed before it is run.
 
-### Google News lead resolution
+### Multi-engine incident discovery and source resolution
 
-The historical audit may use Google News RSS for discovery, but Google URLs are never stored as incident evidence. The resolver deduplicates Google URLs, follows redirects with `GET`, checks canonical publisher metadata, fetches the direct article, and searches the identified publisher domain by headline in the focused recovery command. The resolver itself writes only local JSONL ledgers and never updates MongoDB:
+The large-scale direct audit uses the provider-neutral discovery layer by default. `auto` queries DuckDuckGo HTML and adds Brave when `BRAVE_SEARCH_API_KEY` is configured; `all` explicitly requests Brave, DuckDuckGo, and Bing's public HTML results. Use `--discovery-provider=duckduckgo`, `--discovery-provider=brave`, or `--discovery-provider=bing` to isolate a surface. Microsoft's standalone Bing Search APIs were retired, so the Bing option is a best-effort public HTML surface and may be recorded as `BLOCKED`. Set `NEWS_DISCOVERY_ENABLE_BING=true` if you want Bing included in `auto` despite its possible challenge page.
+
+Search-engine results are never incident evidence. Each result is stored as a local lead, then the resolver fetches the direct publisher page, checks canonical metadata and source accessibility, and keeps `PASS`, `BLOCKED`, `UNRESOLVED`, or `FAIL` receipts. A blocked engine or publisher is not treated as proof that no incident occurred. The audit remains read-only until a separate guarded adjudication/apply workflow is used.
+
+Run a bounded discovery scan with all available engines:
+
+```powershell
+npx tsx scripts/direct-web-audit-2026.ts `
+  --start=2026-04-01 `
+  --end=2026-09-07 `
+  --discovery-provider=auto `
+  --title-search `
+  --skip-db
+```
+
+For the older Google-News-ledger recovery path, Google URLs are still accepted as input but are never stored as incident evidence. The resolver deduplicates those leads, follows redirects with `GET`, checks canonical publisher metadata, fetches the direct article, and can search the identified publisher domain by headline:
 
 ```bash
 npm run audit:resolve-google -- --input=audit-2026/<run>/unresolved-candidates.jsonl
 ```
 
-Use `--no-title-search` for redirect/canonical/source-URL checks only, or set `--search-provider=brave` when `BRAVE_SEARCH_API_KEY` is configured. A resolved URL still requires incident-date, location, casualty, scope, and duplicate adjudication before insertion.
+Use `--no-title-search` for redirect/canonical/source-URL checks only, or set `--search-provider=brave` when `BRAVE_SEARCH_API_KEY` is configured. A resolved URL still requires event-month/date-range, state, scope, direct-source, and duplicate adjudication before insertion. Human casualties are not mandatory for a qualifying premeditated or coordinated group property attack.
 
 To persist only the validated direct-source leads as unresolved review evidence and `reference` source articles, use the explicit PowerShell workflow below. It runs the resolver, captures a database fingerprint, creates a dry-run manifest, and only enables writes when `-Apply` is supplied. It never writes the public `attacks` collection; candidates without an independently established original event date remain outside public incident counts:
 

@@ -5,7 +5,7 @@ param(
 
   [string]$RunId = "google-resolution-$(Get-Date -Format 'yyyyMMddTHHmmssZ')",
 
-  [ValidateSet("auto", "duckduckgo", "brave", "none")]
+  [ValidateSet("auto", "all", "duckduckgo", "brave", "bing", "none")]
   [string]$SearchProvider = "duckduckgo",
 
   [int]$Concurrency = 12,

@@ -95,6 +95,8 @@ type ResolutionManifest = {
   generatedAt: string;
   inputPath: string;
   inputSha256: string;
+  candidateLedgerPath?: string;
+  candidateLedgerSha256?: string;
   databaseBefore: DatabaseState;
   summary: DryRunSummary;
   candidates: ResolutionCandidate[];
@@ -115,7 +117,21 @@ const REASON_CODES = new Set([
 const LOCATION_PRECISIONS = new Set(["exact", "surrounding_area", "approximate_lga", "approximate_state"]);
 const VALID_STATES: Set<string> = new Set(CANONICAL_NIGERIA_JURISDICTIONS);
 const DEFAULT_NEXT_EVIDENCE = "Establish the original incident date, event narrative, victim-only impact, and duplicate identity before any public Attack promotion.";
-const SOURCE_ARTICLE_REASON = "Direct publisher article resolved from a Google News lead; original event date and incident scope remain unresolved.";
+const SOURCE_ARTICLE_REASON = "Direct publisher article resolved from a multi-engine discovery lead; original event date and incident scope remain unresolved.";
+const REFERENCE_SOURCE_DOMAINS = new Set([
+  "wikipedia.org",
+  "opendoorsuk.org",
+  "allafrica.com",
+  "theguardian.com",
+  "amnesty.org",
+  "hrw.org",
+  "persecution.org",
+  "dw.com",
+  "foxnews.com",
+  "nytimes.com",
+]);
+const REFERENCE_TITLE_PATTERN = /\b(archive|archives|timeline|roundup|round-up|explainer|background|report|annual|monthly|quarterly|index|overview|history|crisis update|situation report)\b/i;
+const EVENT_SIGNAL_PATTERN = /\b(attack|attacked|ambush|abduct|abduction|abducted|bandit|bomb|clash|explosion|gunmen|insurgent|kidnap|killed|raid|shoot|terrorist|violence)\b/i;
 
 function clean(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() || fallback : fallback;
@@ -214,6 +230,8 @@ function locationPrecisionFor(row: JsonObject): ResolutionCandidate["locationPre
 }
 
 function candidateHashFor(row: JsonObject): string {
+  const bridgeHash = optionalString(row, "bridgeCandidateHash");
+  if (bridgeHash && /^[a-f0-9]{64}$/.test(bridgeHash)) return bridgeHash;
   const existing = optionalString(row, "candidateHash");
   if (existing && /^[a-f0-9]{64}$/.test(existing)) return existing;
   return sha256({
@@ -223,6 +241,74 @@ function candidateHashFor(row: JsonObject): string {
     jurisdiction: optionalString(row, "jurisdiction"),
     periodStart: optionalString(row, "periodStart"),
   });
+}
+
+function normalizedUrl(value: unknown): string | null {
+  const url = normalizeNewsUrl(optionalString({ value }, "value"));
+  return url || null;
+}
+
+function rowUrlKeys(row: JsonObject): string[] {
+  return [row.directUrl, row.discoveryUrl, row.rssSourceUrl, row.googleNewsUrl]
+    .map((value) => normalizedUrl(value))
+    .filter((value): value is string => Boolean(value));
+}
+
+function directResolutionUrl(row: JsonObject): string | null {
+  return normalizedUrl(row.resolvedSourceUrl) || normalizedUrl(row.sourceUrl) || normalizedUrl(row.directUrl);
+}
+
+function sourceDomainIsReference(url: string): boolean {
+  const domain = domainFromNewsUrl(url) || "";
+  return [...REFERENCE_SOURCE_DOMAINS].some((blocked) => domain === blocked || domain.endsWith(`.${blocked}`));
+}
+
+function bridgeRows(
+  resolutionRows: JsonObject[],
+  candidateRows: JsonObject[],
+): { rows: JsonObject[]; skipped: Record<string, number> } {
+  const byUrl = new Map<string, JsonObject>();
+  const skipped: Record<string, number> = {};
+  const increment = (key: string) => { skipped[key] = (skipped[key] || 0) + 1; };
+
+  for (const candidate of candidateRows) {
+    for (const key of rowUrlKeys(candidate)) {
+      if (!byUrl.has(key)) byUrl.set(key, candidate);
+    }
+  }
+
+  const rows: JsonObject[] = [];
+  for (const resolution of resolutionRows) {
+    const resolutionUrl = directResolutionUrl(resolution);
+    const candidate = resolutionUrl ? byUrl.get(resolutionUrl) : undefined;
+    if (!candidate) {
+      increment("NO_CANDIDATE_LEDGER_MATCH");
+      continue;
+    }
+    const directUrl = resolutionUrl || normalizedUrl(candidate.directUrl);
+    const title = `${optionalString(candidate, "title") || ""} ${optionalString(candidate, "directArticleTitle") || ""} ${optionalString(resolution, "articleTitle") || ""}`;
+    if (!directUrl || sourceDomainIsReference(directUrl)) {
+      increment("REFERENCE_SOURCE_DOMAIN");
+      continue;
+    }
+    if (REFERENCE_TITLE_PATTERN.test(title)) {
+      increment("REFERENCE_OR_ROUNDUP_TITLE");
+      continue;
+    }
+    if (!EVENT_SIGNAL_PATTERN.test(title)) {
+      increment("EVENT_SIGNAL_MISSING");
+      continue;
+    }
+    rows.push({
+      ...candidate,
+      ...resolution,
+      directUrl,
+      directArticleTitle: optionalString(resolution, "articleTitle") || optionalString(candidate, "directArticleTitle"),
+      directArticlePublishedAt: optionalString(resolution, "articlePublishedAt") || optionalString(candidate, "directArticlePublishedAt"),
+      bridgeCandidateHash: sha256({ auditRunId: optionalString(candidate, "auditRunId"), directUrl }),
+    });
+  }
+  return { rows, skipped };
 }
 
 function sameDomainOrSubdomain(actual: string | null, expected: string | null): boolean {
@@ -302,11 +388,11 @@ function prepareRow(row: JsonObject): { prepared: PreparedRecord | null; reason:
   return { prepared: { candidate, sourceArticle }, reason: null };
 }
 
-function prepareRows(rows: JsonObject[]): { records: PreparedRecord[]; summary: DryRunSummary } {
+function prepareRows(rows: JsonObject[], initialSkipped: Record<string, number> = {}, inputRows = rows.length): { records: PreparedRecord[]; summary: DryRunSummary } {
   const records: PreparedRecord[] = [];
   const seenHashes = new Set<string>();
   const seenUrls = new Set<string>();
-  const skipped: Record<string, number> = {};
+  const skipped: Record<string, number> = { ...initialSkipped };
   let passRows = 0;
   const increment = (key: string) => { skipped[key] = (skipped[key] || 0) + 1; };
 
@@ -323,7 +409,10 @@ function prepareRows(rows: JsonObject[]): { records: PreparedRecord[]; summary: 
       continue;
     }
     const sourceUrl = candidate.sources[0].url;
-    if (seenUrls.has(sourceUrl)) increment("DUPLICATE_SOURCE_URL");
+    if (seenUrls.has(sourceUrl)) {
+      increment("DUPLICATE_SOURCE_URL");
+      continue;
+    }
     seenHashes.add(candidate.candidateHash);
     seenUrls.add(sourceUrl);
     records.push({ candidate, sourceArticle });
@@ -336,7 +425,7 @@ function prepareRows(rows: JsonObject[]): { records: PreparedRecord[]; summary: 
   return {
     records,
     summary: {
-      inputRows: rows.length,
+      inputRows,
       passRows,
       eligibleCandidates: records.length,
       eligibleSourceArticles: uniqueSourceArticles.size,
@@ -502,14 +591,22 @@ async function main(): Promise<void> {
   try {
     if (!apply) {
       const inputPath = normalizeInputPath(inputArgument!);
-      const rows = await readJsonl(inputPath);
-      const prepared = prepareRows(rows);
+      const resolutionRows = await readJsonl(inputPath);
+      const candidateLedgerArgument = argValue("--candidate-ledger");
+      const candidateLedgerPath = candidateLedgerArgument ? normalizeInputPath(candidateLedgerArgument) : undefined;
+      const candidateLedgerRows = candidateLedgerPath ? await readJsonl(candidateLedgerPath) : null;
+      const bridged = candidateLedgerRows ? bridgeRows(resolutionRows, candidateLedgerRows) : { rows: resolutionRows, skipped: {} };
+      const prepared = prepareRows(bridged.rows, bridged.skipped, resolutionRows.length);
       const before = await databaseState(db);
       const manifest: ResolutionManifest = {
         mode: "dry-run",
         generatedAt: new Date().toISOString(),
         inputPath,
         inputSha256: sha256(await fs.readFile(inputPath, "utf8")),
+        ...(candidateLedgerPath ? {
+          candidateLedgerPath,
+          candidateLedgerSha256: sha256(await fs.readFile(candidateLedgerPath, "utf8")),
+        } : {}),
         databaseBefore: before,
         summary: prepared.summary,
         candidates: prepared.records.map((record) => record.candidate),
@@ -550,6 +647,13 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(blocked, null, 2));
       process.exitCode = 2;
       return;
+    }
+    if (manifest.candidateLedgerPath && manifest.candidateLedgerSha256) {
+      const candidateLedgerPath = normalizeInputPath(argValue("--candidate-ledger", manifest.candidateLedgerPath)!);
+      const currentCandidateLedgerHash = sha256(await fs.readFile(candidateLedgerPath, "utf8"));
+      if (candidateLedgerPath !== normalizeInputPath(manifest.candidateLedgerPath) || currentCandidateLedgerHash !== manifest.candidateLedgerSha256) {
+        throw new Error("Candidate ledger changed after dry-run; rerun the dry run before applying.");
+      }
     }
 
     const records: PreparedRecord[] = manifest.candidates.map((candidate) => ({ candidate, sourceArticle: manifest.sourceArticles.find((article) => article.url === candidate.sources[0]?.url) || null }));
