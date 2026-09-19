@@ -416,6 +416,12 @@ all 37 jurisdictions over the trailing 48 hours.
     real `article:published_time` anchoring (relative dates are never anchored to "now"), and a
     48h publication + incident-date window.
   - Ingestion: SHA-256 (`title|date|state|lga`) + source-URL + location/date dedup; **no Gemini**.
+- `src/lib/deepseek.ts` — **optional** DeepSeek cleanup/confirmation pass over heuristic-cleared
+  incidents. Enabled only when `DEEPSEEK_API_KEY` is set (and `DEEPSEEK_CLEANUP_ENABLED` is not
+  `"false"`), so the scan is free by default. It confirms the source describes a specific,
+  completed, original incident (rejecting denials, security-force operations, threats/roundups)
+  and returns cleaned title/date/state/LGA/town/group/status/victim-only casualties. On a
+  DeepSeek error it fails open (keeps the heuristic candidate) and increments `deepseekErrors`.
 - `netlify/functions/scheduled-discovery-background.mts` — Netlify scheduled function (06:00 UTC)
   that runs discovery + ingestion, then the report-only duplicate check on the same schedule.
 - `scripts/search-led-scan.ts` — manual / CI entry point.
@@ -434,7 +440,8 @@ all 37 jurisdictions over the trailing 48 hours.
 
 ### Env required for the cron
 - Netlify: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, `FREE_SOURCE_INGEST_ENABLED=true`.
-- GitHub secrets: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`.
+  Optional: `DEEPSEEK_API_KEY` (+ `DEEPSEEK_CLEANUP_ENABLED=true`) for the cleanup pass.
+- GitHub secrets: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, optional `DEEPSEEK_API_KEY`.
 - Gemini/VertAII code is left in place but is no longer in the scheduled path.
 
 ### Do not repeat

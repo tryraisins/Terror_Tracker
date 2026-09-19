@@ -27,6 +27,7 @@ import {
 import { screenIncidentCandidate } from "./incident-scope";
 import { CasualtyMetadata, normalizeCasualtyFields } from "./incident-uncertainty";
 import { isSuppressedSourceHost } from "./news-source-registry";
+import { cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
 
 export interface SearchLedReport {
   queriesRun: number;
@@ -36,6 +37,10 @@ export interface SearchLedReport {
   rejected: number;
   errors: number;
   braveFallbackCalls: number;
+  deepseekCalls: number;
+  deepseekConfirmed: number;
+  deepseekRejected: number;
+  deepseekErrors: number;
 }
 
 export interface SearchLedIngestResult {
@@ -121,6 +126,35 @@ function shuffle<T>(items: T[]): T[] {
   return out;
 }
 
+async function applyDeepSeekCleanup(
+  candidate: RawAttackData,
+  parts: ArticleParts,
+  report: SearchLedReport,
+  minMs: number,
+  maxMs: number,
+): Promise<RawAttackData | null> {
+  if (!isDeepSeekCleanupEnabled()) return candidate;
+  report.deepseekCalls++;
+  const result = await cleanAndConfirmIncident(candidate, `${parts.title}. ${parts.lead}. ${parts.text}`);
+  if (result.fallback) {
+    report.deepseekErrors++;
+    return result.incident ?? candidate;
+  }
+  if (!result.confirmed || !result.incident) {
+    report.deepseekRejected++;
+    if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek rejected (${result.reason}): ${candidate.title}`);
+    return null;
+  }
+  const ts = new Date(result.incident.date).getTime();
+  if (Number.isNaN(ts) || ts < minMs || ts > maxMs) {
+    report.deepseekRejected++;
+    if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek date outside window: ${candidate.title}`);
+    return null;
+  }
+  report.deepseekConfirmed++;
+  return result.incident;
+}
+
 async function fetchAndExtract(
   urls: Array<{ url: string; title: string; publisher: string }>,
   report: SearchLedReport,
@@ -141,8 +175,13 @@ async function fetchAndExtract(
         const parts = html.viaJina ? partsFromMarkdown(u.title, html.html) : extractArticleParts(html.html, u.title);
         const publishedAt = html.viaJina ? readerPublishedAt(html.html) : extractPublishedAt(html.html);
         const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, minMs, maxMs);
-        if (candidate) {
-          found.push(candidate);
+        if (!candidate) {
+          report.rejected++;
+          return;
+        }
+        const final = await applyDeepSeekCleanup(candidate, parts, report, minMs, maxMs);
+        if (final) {
+          found.push(final);
           report.candidates++;
         } else {
           report.rejected++;
@@ -283,6 +322,10 @@ export async function collectSearchLedIncidents(
     rejected: 0,
     errors: 0,
     braveFallbackCalls: 0,
+    deepseekCalls: 0,
+    deepseekConfirmed: 0,
+    deepseekRejected: 0,
+    deepseekErrors: 0,
   };
   const attacks: RawAttackData[] = [];
   const budget = { braveCalls: 0 };
