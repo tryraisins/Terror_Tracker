@@ -44,8 +44,8 @@ export type FreeCollectionResult = {
   disabled: boolean;
 };
 
-const MAX_ARTICLE_AGE_HOURS = Number(process.env.FREE_SOURCE_MAX_ARTICLE_AGE_HOURS || 72);
-const MAX_INCIDENT_AGE_DAYS = Number(process.env.FREE_SOURCE_MAX_INCIDENT_AGE_DAYS || 3);
+const MAX_ARTICLE_AGE_HOURS = Number(process.env.FREE_SOURCE_MAX_ARTICLE_AGE_HOURS || 48);
+const MAX_INCIDENT_AGE_DAYS = Number(process.env.FREE_SOURCE_MAX_INCIDENT_AGE_DAYS || 2);
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
 const MAX_ITEMS_PER_FEED = Number(process.env.FREE_SOURCE_MAX_ITEMS_PER_FEED || 12);
 const FREE_SOURCE_INGEST_ENABLED = process.env.FREE_SOURCE_INGEST_ENABLED === "true";
@@ -91,7 +91,15 @@ function meta(html: string, name: string): string {
 function articleText(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 18).join(" ").slice(0, 8000); }
 function articleLead(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 4).join(" ").slice(0, 2800); }
 
-function sourceLedAdmissionRejection(title: string, lead: string): string | null {
+export function extractArticleParts(html: string, fallbackTitle: string): { title: string; description: string; lead: string; text: string } {
+  const title = meta(html, "og:title") || fallbackTitle;
+  const description = meta(html, "description") || meta(html, "og:description");
+  const lead = `${title}. ${description}. ${articleLead(html)}`.slice(0, 6000);
+  const text = `${lead}. ${articleText(html)}`;
+  return { title, description, lead, text };
+}
+
+export function sourceLedAdmissionRejection(title: string, lead: string): string | null {
   if (ROUNDUP_HEADLINE_PATTERN.test(title)) return "roundup or newspaper-summary headline, not a specific incident";
 
   const hasEventHeadline = DIRECT_EVENT_HEADLINE_PATTERN.test(title) || VICTIM_OUTCOME_HEADLINE_PATTERN.test(title);
@@ -120,7 +128,7 @@ export function isFreeSourceIngestionEnabled(): boolean {
   return FREE_SOURCE_INGEST_ENABLED;
 }
 
-function dateFromText(text: string, publishedAt: Date): Date | null {
+export function dateFromText(text: string, publishedAt: Date): Date | null {
   const absolute = text.match(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/i);
   if (absolute) {
     const parsed = new Date(`${absolute[1].replace(/(st|nd|rd|th)/i, "")} UTC`);
@@ -134,12 +142,12 @@ function dateFromText(text: string, publishedAt: Date): Date | null {
   }
   return null;
 }
-function hasSecurityIncidentSignal(text: string): boolean {
+export function hasSecurityIncidentSignal(text: string): boolean {
   if (!SECURITY_INCIDENT_PATTERN.test(text)) return false;
   return !NON_SECURITY_DISASTER_PATTERN.test(text) || /\b(attack|ambush|kidnap|abduct|raid|shoot|gunmen|bandits?|insurgents?|terrorists?|militants?|boko\s+haram|iswap|ied|clash|massacre|herdsmen|cultists?)\b/i.test(text);
 }
 
-function extractState(text: string): string | null {
+export function extractState(text: string): string | null {
   for (const match of text.matchAll(STATE_PATTERN)) {
     const raw = match[1];
     const normalized = /abuja|federal capital/i.test(raw) ? "FCT" : normalizeStateName(raw);
@@ -163,7 +171,7 @@ function extractTown(title: string, state: string): string | null {
   if (!town || new RegExp(`^${escapeRegex(state)}$`, "i").test(town)) return null;
   return /^(nigeria|community|village|state)$/i.test(town) ? null : town;
 }
-function extractGroup(text: string): string { if (/boko\s+haram/i.test(text)) return "Boko Haram"; if (/\biswap\b/i.test(text)) return "ISWAP"; if (/\bipob|\besn\b/i.test(text)) return "IPOB/ESN"; if (/\bbandits?\b/i.test(text)) return "Bandits"; if (/\bherdsmen\b/i.test(text)) return "Herdsmen"; if (/\bcultists?\b/i.test(text)) return "Cultists"; return "Unknown Gunmen"; }
+export function extractGroup(text: string): string { if (/boko\s+haram/i.test(text)) return "Boko Haram"; if (/\biswap\b/i.test(text)) return "ISWAP"; if (/\bipob|\besn\b/i.test(text)) return "IPOB/ESN"; if (/\bbandits?\b/i.test(text)) return "Bandits"; if (/\bherdsmen\b/i.test(text)) return "Herdsmen"; if (/\bcultists?\b/i.test(text)) return "Cultists"; return "Unknown Gunmen"; }
 function hashFor(attack: RawAttackData): string {
   const day = new Date(attack.date).toISOString().slice(0, 10);
   const town = attack.location.town?.toLowerCase() || "";
@@ -179,7 +187,7 @@ function extractLga(text: string): string | null {
   return !lga || /^(the|a|an|in|of)$/i.test(lga) ? null : lga;
 }
 
-function extractLocation(title: string, text: string, state: string): RawAttackData["location"] {
+export function extractLocation(title: string, text: string, state: string): RawAttackData["location"] {
   const town = extractTown(title, state);
   const lga = extractLga(text);
   if (town) {
@@ -210,7 +218,7 @@ function extractLocation(title: string, text: string, state: string): RawAttackD
   };
 }
 
-function extractCasualtyAssessment(text: string, terms: string): CasualtyCountMetadata {
+export function extractCasualtyAssessment(text: string, terms: string): CasualtyCountMetadata {
   const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|children|worshippers?|victims?)?";
   const counted = text.match(new RegExp(`\\b(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
   if (counted) {
