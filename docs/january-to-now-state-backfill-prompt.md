@@ -48,7 +48,7 @@ Location rules:
 
 Evidence and reconciliation:
 
-- Prefer two independent direct publisher reports, or one official direct statement plus one independent trusted report. A single direct trusted report may remain `unconfirmed` only if the repository's current guarded policy permits it; otherwise retain it as `UNRESOLVED`.
+- A single trustworthy direct publisher report or official statement is sufficient to admit a valid, completed qualifying incident into production as `unconfirmed` (or `developing` if ongoing/conflict). Two independent direct publisher reports or an official statement plus a trusted report confirm the incident as `confirmed`.
 - Each retained source URL must be the canonical direct article/statement and support the event, month/date range, and state. Remove wrappers, search URLs, homepages, tag pages, and unrelated links.
 - Before proposing an insert, compare the candidate against active attacks, soft-deleted attacks, unresolved candidates, source-article receipts, and same-run candidates. Treat overlapping date intervals, shared sources, related location, title/event details, actors, and casualty patterns as duplicate evidence. Never duplicate one border event across states.
 - Cluster multiple reports and follow-ups into one original event. Preserve conflicting credible casualty figures as ranges/estimates rather than selecting the highest number.

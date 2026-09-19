@@ -21,7 +21,9 @@
     "audit:promote-unresolved:apply": "npx tsx scripts/promote-unresolved-candidates.ts --apply",
     "audit:promote-unresolved:idempotency": "npx tsx scripts/promote-unresolved-candidates.ts --apply --idempotency-pass",
     "audit:duplicates": "node scripts/analyze-duplicates.js",
-    "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute"
+    "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute",
+    "repair:attack-date-types": "npx tsx scripts/normalize-attack-date-types.ts",
+    "repair:attack-date-types:apply": "npx tsx scripts/normalize-attack-date-types.ts --apply"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

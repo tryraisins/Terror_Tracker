@@ -165,6 +165,17 @@ Omit `-Apply` to stop after the dry run. The apply step aborts if the input ledg
 
 ## 🧹 Data Integrity & Cleanup
 
+If the dashboard or incident archive reports data unavailable because an active
+record has a non-BSON `date` value, review and repair only valid date strings:
+
+```bash
+npm run repair:attack-date-types
+npm run repair:attack-date-types:apply
+```
+
+The first command is read-only. The apply command conditionally updates only
+the records inspected during preflight and fails if a record changes first.
+
 A dedicated cleanup tool is available to retroactively sanitize the database of "attacker-killed" records (e.g., "Troops neutralized 30 terrorists") that may have been ingested.
 
 - **Endpoint**: `POST /api/cleanup`

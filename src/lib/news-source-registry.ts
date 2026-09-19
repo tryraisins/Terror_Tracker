@@ -10,6 +10,8 @@ export type RegisteredNewsFeed = {
  * These feeds were the PASS surfaces in the 2026-09-07 daily source audit.
  * Keep this list intentionally smaller than the discovery universe: a source
  * must first pass a direct-access canary before it becomes eligible here.
+ * Hosts in SUPPRESSED_SOURCE_HOSTS are excluded from scheduled discovery and
+ * must not be re-added here until a deliberate direct canary revalidates them.
  */
 export const VERIFIED_NEWS_FEEDS: readonly RegisteredNewsFeed[] = [
   ["Premium Times", "https://www.premiumtimesng.com/feed", "www.premiumtimesng.com"],
@@ -79,5 +81,7 @@ export function isSuppressedSourceHost(value: string | null | undefined): boolea
 }
 
 export function getVerifiedNewsFeeds(): RegisteredNewsFeed[] {
-  return VERIFIED_NEWS_FEEDS.map((feed) => ({ ...feed }));
+  return VERIFIED_NEWS_FEEDS
+    .filter((feed) => !isSuppressedSourceHost(feed.host))
+    .map((feed) => ({ ...feed }));
 }

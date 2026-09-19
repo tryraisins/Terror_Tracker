@@ -33,6 +33,11 @@ export const REVISED_2026_AUDIT_POLICY = {
     "Exclude opinion, analysis, background, policy, threats without a completed event, political rhetoric, peaceful protest, accident/disaster, isolated vandalism, ordinary individual crime, court and general roundup articles.",
     "A headline keyword alone never qualifies a record. Require direct-source narrative evidence, a canonical Nigerian state and at least the supported event month; never substitute publication date.",
   ],
+  sources: [
+    "A single trustworthy direct publisher report or official statement is sufficient to admit a valid completed qualifying incident with unconfirmed status.",
+    "Two independent direct publisher reports or an official statement plus a trusted report confirm the incident as confirmed.",
+    "Preserve credible conflicts as developing status with uncertainty metadata.",
+  ],
   date: [
     "Prefer the exact original event day when direct evidence supports it.",
     "Use date_range with both bounds when evidence supports only a period of days; use the range start as a storage anchor, not as an asserted exact date.",
@@ -53,6 +58,22 @@ export const REVISED_2026_AUDIT_POLICY = {
     "Use range when credible direct sources conflict; preserve min, max and a representative midpoint estimate.",
     "Use estimate for source language such as about, over, more than, at least, scores or hundreds.",
     "Use unknown only when the impact is reported but no defensible count, estimate or range can be derived.",
+  ],
+  revalidation: [
+    "Use zero-cost discovery (free search, direct publisher sitemaps, RSS archives, and URL unwrapping) as the primary revalidation layer for soft-deleted, quarantined, or unresolved incidents.",
+    "Resolve DATE_CONFLICT records by verifying exact event day versus publication date against direct publisher reporting or official state/security releases.",
+    "Resolve LOCATION_INSUFFICIENT records by discovering direct local reporting establishing LGA and town/community.",
+    "Brave Search API calls are strictly reserved as a fallback for targeted unresolved gaps after zero-cost discovery is exhausted.",
+  ],
+  enrichment: [
+    "Existing attacks may be enriched with secondary corroborating sources to upgrade status from unconfirmed to confirmed.",
+    "Preserve existing verified data; enrich with more specific LGA/town details or reconciled casualty ranges when supported by authoritative reporting.",
+    "Never overwrite direct victim counts with attacker/insurgent casualties.",
+  ],
+  databaseSafety: [
+    "All database mutations must be preceded by a full pre-apply snapshot.",
+    "Validate that date is stored as a valid BSON Date object, casualties are non-negative integers or null, and SHA-256 hashes are unique.",
+    "Require idempotency: re-running any apply pass must produce zero additional database writes (NO_OP_IDEMPOTENT).",
   ],
   trendLanguage:
     "Post-April incident counts are not evidence of a decline while source collection rules, date/location strictness and unresolved evidence gaps differ across months.",
