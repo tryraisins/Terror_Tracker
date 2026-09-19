@@ -19,6 +19,7 @@ import {
   extractCasualtyAssessment,
   extractGroup,
   extractLocation,
+  extractPublishedAt,
   extractState,
   hasSecurityIncidentSignal,
   sourceLedAdmissionRejection,
@@ -52,13 +53,24 @@ interface ArticleParts {
 
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
 const SEARCH_RESULTS_PER_QUERY = Number(process.env.SEARCH_RESULTS_PER_QUERY || 5);
+const SEARCH_FRESHNESS = (process.env.SEARCH_FRESHNESS as "day" | "week" | "month" | undefined) || "week";
 const ARTICLE_FETCH_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FREE_SOURCE_CONCURRENCY || 4)));
 const STATE_SCAN_CONCURRENCY = Math.max(1, Number(process.env.STATE_SCAN_CONCURRENCY || 3));
 const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 20);
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+search-led OSINT collector)";
 
+// Rescue/recovery/operation headlines describe a follow-up or a security-force
+// action, not a new original incident. The RSS lane keeps them as references;
+// the search-led lane simply drops them to avoid false new incidents.
+const FOLLOW_UP_TITLE_PATTERN = /\b(?:rescue[sd]?|released?|freed|recovered|liberated?|neutrali[sz]ed?|arrest(?:ed|s)?|foil(?:ed|s)?|repel(?:led|s)?|surrendered?)\b/i;
+const OPERATION_TITLE_PREFIX_PATTERN = /^\s*(?:troops?|army|soldiers?|navy|air\s?force|naf|military|police|officers?|security\s+forces?|joint\s+task\s+force|jtf|operation\s+[A-Z]+)\b/i;
+
 function buildQuery(state: string): string {
-  return `${state} attack OR abduction OR bandits OR gunmen`;
+  // Biasing the query with the current month/year materially improves recency
+  // on engines whose HTML endpoints do not reliably honor a date filter.
+  const now = new Date();
+  const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+  return `${state} attack OR abduction OR bandits OR gunmen ${month} ${now.getUTCFullYear()}`;
 }
 
 function hashFor(candidate: RawAttackData): string {
@@ -71,25 +83,74 @@ function hashFor(candidate: RawAttackData): string {
 
 async function discoverForQuery(
   query: string,
+  providers: NewsDiscoveryProvider[],
   budget: { braveCalls: number },
 ): Promise<{ results: NewsDiscoveryResult[]; braveFallbackUsed: boolean }> {
-  const freeProviders: NewsDiscoveryProvider[] = ["duckduckgo"];
-  if (process.env.NEWS_DISCOVERY_ENABLE_BING === "true") freeProviders.push("bing");
-
-  for (const provider of freeProviders) {
-    const res = await searchNews(query, { providers: provider, maxResults: SEARCH_RESULTS_PER_QUERY });
-    if (res.results.length > 0) return { results: res.results, braveFallbackUsed: false };
+  for (const provider of providers) {
+    if (provider === "brave" && (!process.env.BRAVE_SEARCH_API_KEY || budget.braveCalls >= BRAVE_CALL_LIMIT)) continue;
+    if (provider === "brave") budget.braveCalls++;
+    const res = await searchNews(query, { providers: provider, maxResults: SEARCH_RESULTS_PER_QUERY, freshness: SEARCH_FRESHNESS });
+    if (res.results.length > 0) return { results: res.results, braveFallbackUsed: provider === "brave" };
   }
-
-  // Brave is the paid fallback, used only when every free engine came back
-  // empty or blocked, and only up to the per-run budget.
-  if (process.env.BRAVE_SEARCH_API_KEY && budget.braveCalls < BRAVE_CALL_LIMIT) {
-    budget.braveCalls++;
-    const res = await searchNews(query, { providers: "brave", maxResults: SEARCH_RESULTS_PER_QUERY });
-    return { results: res.results, braveFallbackUsed: true };
-  }
-
   return { results: [], braveFallbackUsed: false };
+}
+
+function absorbResults(
+  results: NewsDiscoveryResult[],
+  seenUrls: Set<string>,
+  report: SearchLedReport,
+): Array<{ url: string; title: string; publisher: string }> {
+  const urls: Array<{ url: string; title: string; publisher: string }> = [];
+  for (const r of results) {
+    if (seenUrls.has(r.url)) continue;
+    if (isSuppressedSourceHost(r.url)) continue;
+    seenUrls.add(r.url);
+    report.urlsDiscovered++;
+    urls.push({ url: r.url, title: r.title, publisher: r.publisher });
+  }
+  return urls;
+}
+
+/** Fisher-Yates shuffle so the capped Brave fallback rotates across states. */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+async function fetchAndExtract(
+  urls: Array<{ url: string; title: string; publisher: string }>,
+  report: SearchLedReport,
+  minMs: number,
+  maxMs: number,
+): Promise<RawAttackData[]> {
+  const found: RawAttackData[] = [];
+  for (let j = 0; j < urls.length; j += ARTICLE_FETCH_CONCURRENCY) {
+    const chunk = urls.slice(j, j + ARTICLE_FETCH_CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (u) => {
+        const html = await fetchArticleHtml(u.url);
+        if (!html) {
+          report.errors++;
+          return;
+        }
+        report.urlsFetched++;
+        const parts = html.viaJina ? partsFromMarkdown(u.title, html.html) : extractArticleParts(html.html, u.title);
+        const publishedAt = html.viaJina ? readerPublishedAt(html.html) : extractPublishedAt(html.html);
+        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, minMs, maxMs);
+        if (candidate) {
+          found.push(candidate);
+          report.candidates++;
+        } else {
+          report.rejected++;
+        }
+      }),
+    );
+  }
+  return found;
 }
 
 async function fetchArticleHtml(url: string): Promise<{ html: string; viaJina: boolean } | null> {
@@ -125,25 +186,51 @@ function partsFromMarkdown(title: string, text: string): ArticleParts {
   return { title, description: "", lead: cleaned.slice(0, 6000), text: cleaned };
 }
 
+/** The Jina reader prefixes its markdown output with a "Published Time:" line. */
+function readerPublishedAt(text: string): Date | null {
+  const match = text.match(/Published Time:\s*([^\n]+)/i) || text.match(/published_time["']?\s*[:=]\s*["']?([^"'\n]+)/i);
+  if (!match?.[1]) return null;
+  const parsed = new Date(match[1].trim());
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function buildCandidate(
   parts: ArticleParts,
   url: string,
   publisher: string,
+  publishedAt: Date | null,
   minMs: number,
   maxMs: number,
 ): RawAttackData | null {
   const { title, description, lead, text } = parts;
-  if (sourceLedAdmissionRejection(title, lead)) return null;
-  if (!hasSecurityIncidentSignal(lead)) return null;
-  const group = extractGroup(lead);
-  if (screenIncidentCandidate({ title, description: lead, group })) return null;
-  const state = extractState(lead);
-  if (!state) return null;
+  const debug = process.env.SEARCH_LED_DEBUG === "true";
+  const reject = (reason: string) => {
+    if (debug) console.log(`[search-led] reject (${reason}): ${title}`);
+    return null;
+  };
+  const admissionRejection = sourceLedAdmissionRejection(title, lead);
+  if (admissionRejection) return reject(admissionRejection);
+  if (FOLLOW_UP_TITLE_PATTERN.test(title)) return reject("rescue/recovery/operation headline, not an original incident");
+  if (OPERATION_TITLE_PREFIX_PATTERN.test(title)) return reject("security-force operation headline, not an original incident");
+  if (!hasSecurityIncidentSignal(lead)) return reject("no security-incident signal");
 
-  const incidentDate = dateFromText(lead, new Date());
-  if (!incidentDate) return null;
+  // Search results do not carry a timestamp, so relative date language must be
+  // anchored to the article's real publication date. Without it we cannot tell
+  // a fresh incident from an old one, so the candidate is dropped.
+  if (!publishedAt) return reject("no reliable publication date");
+  const publishedMs = publishedAt.getTime();
+  if (publishedMs < minMs - 2 * 3_600_000 || publishedMs > maxMs) return reject("published outside the 48h window");
+
+  const group = extractGroup(lead);
+  const scopeRejection = screenIncidentCandidate({ title, description: lead, group });
+  if (scopeRejection) return reject(scopeRejection);
+  const state = extractState(lead);
+  if (!state) return reject("no Nigerian state");
+
+  const incidentDate = dateFromText(lead, publishedAt);
+  if (!incidentDate) return reject("no explicit incident date");
   const ts = incidentDate.getTime();
-  if (ts < minMs || ts > maxMs) return null;
+  if (ts < minMs || ts > maxMs) return reject("incident date outside the 48h window");
 
   const location = extractLocation(title, lead, state);
   const casualtyMeta: CasualtyMetadata = {
@@ -203,51 +290,33 @@ export async function collectSearchLedIncidents(
   const minMs = Date.now() - lookbackHours * 3_600_000;
   const maxMs = Date.now() + 2 * 3_600_000;
 
-  const uniqueStates = [...new Set(states.map((s) => s.trim()).filter(Boolean))];
+  // Shuffle so the capped Brave fallback rotates across states rather than
+  // starving the tail of the list.
+  const uniqueStates = shuffle([...new Set(states.map((s) => s.trim()).filter(Boolean))]);
   const stateConcurrency = Math.max(1, Math.min(STATE_SCAN_CONCURRENCY, uniqueStates.length || 1));
 
   for (let i = 0; i < uniqueStates.length; i += stateConcurrency) {
     const batch = uniqueStates.slice(i, i + stateConcurrency);
-    const discovered = await Promise.all(
+    const batchResults = await Promise.all(
       batch.map(async (state) => {
-        const query = buildQuery(state);
-        const { results, braveFallbackUsed } = await discoverForQuery(query, budget);
-        if (braveFallbackUsed) report.braveFallbackCalls++;
         report.queriesRun++;
-        const urls: Array<{ url: string; title: string; publisher: string }> = [];
-        for (const r of results) {
-          if (seenUrls.has(r.url)) continue;
-          if (isSuppressedSourceHost(r.url)) continue;
-          seenUrls.add(r.url);
-          report.urlsDiscovered++;
-          urls.push({ url: r.url, title: r.title, publisher: r.publisher });
+        const query = buildQuery(state);
+
+        // Free-first lane.
+        const free = await discoverForQuery(query, ["duckduckgo"], budget);
+        let found = await fetchAndExtract(absorbResults(free.results, seenUrls, report), report, minMs, maxMs);
+
+        // Brave recency fallback: free HTML search does not reliably honor a
+        // date filter, so only reach for Brave when the free lane found nothing.
+        if (found.length === 0) {
+          const brave = await discoverForQuery(query, ["brave"], budget);
+          if (brave.braveFallbackUsed) report.braveFallbackCalls++;
+          found = await fetchAndExtract(absorbResults(brave.results, seenUrls, report), report, minMs, maxMs);
         }
-        return urls;
+        return found;
       }),
     );
-
-    const allUrls = discovered.flat();
-    for (let j = 0; j < allUrls.length; j += ARTICLE_FETCH_CONCURRENCY) {
-      const chunk = allUrls.slice(j, j + ARTICLE_FETCH_CONCURRENCY);
-      await Promise.all(
-        chunk.map(async (u) => {
-          const html = await fetchArticleHtml(u.url);
-          if (!html) {
-            report.errors++;
-            return;
-          }
-          report.urlsFetched++;
-          const parts = html.viaJina ? partsFromMarkdown(u.title, html.html) : extractArticleParts(html.html, u.title);
-          const candidate = buildCandidate(parts, u.url, u.publisher, minMs, maxMs);
-          if (candidate) {
-            attacks.push(candidate);
-            report.candidates++;
-          } else {
-            report.rejected++;
-          }
-        }),
-      );
-    }
+    attacks.push(...batchResults.flat());
   }
 
   return { attacks, report };

@@ -63,7 +63,8 @@ const NON_SECURITY_DISASTER_PATTERN = /\b(floods?|landslides?|earthquakes?|storm
 const RETROSPECTIVE_PATTERN = /\b(anniversary|years? ago|in (?:19|20)\d{2}|remember(?:ing)?|recall(?:ed|ing)?|previously|historic(?:al)?|at the time|had been)\b/i;
 const NIGERIAN_LOCATION_CONTEXT_PATTERN = /\b(Nigeria|Nigerian|State|Police Command|LGA|Local Government Area|Local Govt\.?|Council Area|governor|residents?)\b/i;
 const ROUNDUP_HEADLINE_PATTERN = /\b(?:nigerian newspapers?|10 things? you need to know|top stories|morning headlines?|daily briefing|news roundup|latest news)\b/i;
-const DIRECT_EVENT_HEADLINE_PATTERN = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|shot|kidnap(?:ped|ping)?|abduct(?:ed|ing)?|bomb(?:ed|ing)?|explod(?:ed|ing)|clash(?:ed|es|ing)?|massacre[ds]?|hostage|captive)\b/i;
+const DENIAL_HEADLINE_PATTERN = /\b(?:dismiss(?:es|ed)?|den(?:y|ies|ied)|refut(?:e|es|ed)|debunk(?:s|ed)?|dispel(?:s|led)?|fact[- ]?check(?:ed|s)?|no such|baseless|unfounded|hoax)\b/i;
+const DIRECT_EVENT_HEADLINE_PATTERN = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|shot|kill(?:ed|s|ing)?|kidnap(?:ped|ping)?|abduct(?:ed|ing|ion|ions)?|bomb(?:ed|ing)?|explod(?:ed|ing)|clash(?:ed|es|ing)?|massacre[ds]?|hostage|captive)\b/i;
 const VICTIM_OUTCOME_HEADLINE_PATTERN = /\b(?:killed|injured|wounded)\b[\s\S]{0,70}\b(?:civilian|villager|resident|farmer|soldier|troop|police|officer|people|victim|worshipper|student|child|driver|commuter)\b|\b(?:civilian|villager|resident|farmer|soldier|troop|police|officer|people|victim|worshipper|student|child|driver|commuter)\b[\s\S]{0,70}\b(?:killed|injured|wounded)\b/i;
 const SECURITY_OPERATION_HEADLINE_PATTERN = /^\s*(?:troops?|army|soldiers?|police|military|joint\s+task\s+force|jtf|operation\s+[A-Z]+)\b[\s\S]{0,120}\b(?:raid(?:ed|s|ing)?|ambush(?:ed|es|ing)?|overpower(?:ed|s|ing)?|kill(?:ed|s|ing)?|neutraliz(?:e|ed|es|ing)|recover(?:ed|s|ing)?|arrest(?:ed|s|ing)?|rescue(?:d|s|ing)?)\b/i;
 const HOSTILE_ATTACK_ON_SECURITY_HEADLINE_PATTERN = /\b(?:bandits?|terrorists?|gunmen|insurgents?|militants?)\b[\s\S]{0,80}\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|bomb(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|target(?:ed|s|ing)?)\b[\s\S]{0,80}\b(?:troops?|soldiers?|army|police|officers?|convoy|base|barracks?|station)\b/i;
@@ -99,8 +100,34 @@ export function extractArticleParts(html: string, fallbackTitle: string): { titl
   return { title, description, lead, text };
 }
 
+/**
+ * Extract the article's real publication date from common meta surfaces. The
+ * search-led collector needs this because relative date language ("yesterday")
+ * must be anchored to when the article was published, never to "now".
+ */
+export function extractPublishedAt(html: string): Date | null {
+  const patterns = [
+    /<meta[^>]+(?:property|name)=["'](?:article:published_time|og:published_time|published_time|pubdate|publish-date|date)["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:article:published_time|og:published_time|published_time|pubdate|publish-date|date)["']/i,
+    /<meta[^>]+itemprop=["']datePublished["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+itemprop=["']datePublished["']/i,
+    /<time[^>]+datetime=["']([^"']+)["']/i,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match?.[1]) continue;
+    const parsed = new Date(decodeHtml(match[1]));
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
 export function sourceLedAdmissionRejection(title: string, lead: string): string | null {
   if (ROUNDUP_HEADLINE_PATTERN.test(title)) return "roundup or newspaper-summary headline, not a specific incident";
+
+  // A denial, dismissal or fact-check headline ("Police dismiss church attack
+  // claims") is not itself an original qualifying incident.
+  if (DENIAL_HEADLINE_PATTERN.test(title)) return "denial, dismissal or fact-check headline, not an original incident";
 
   const hasEventHeadline = DIRECT_EVENT_HEADLINE_PATTERN.test(title) || VICTIM_OUTCOME_HEADLINE_PATTERN.test(title);
   if (!hasEventHeadline) return "headline is not specific to an original armed/security incident";

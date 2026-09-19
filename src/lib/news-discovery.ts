@@ -36,6 +36,16 @@ export type NewsDiscoveryOptions = {
   timeoutMs?: number;
   userAgent?: string;
   minDelayMs?: number;
+  freshness?: "day" | "week" | "month";
+};
+
+type ResolvedDiscoveryOptions = {
+  providers: NewsDiscoverySelection;
+  maxResults: number;
+  timeoutMs: number;
+  userAgent: string;
+  minDelayMs: number;
+  freshness?: "day" | "week" | "month";
 };
 
 type SearchResult = { url: string; title: string; publisher: string };
@@ -184,7 +194,7 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-async function braveSearch(query: string, options: Required<NewsDiscoveryOptions>): Promise<ProviderResponse> {
+async function braveSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!apiKey) return { status: "SKIPPED", httpStatus: null, results: [], reason: "BRAVE_SEARCH_API_KEY is not configured." };
 
@@ -196,6 +206,9 @@ async function braveSearch(query: string, options: Required<NewsDiscoveryOptions
   endpoint.searchParams.set("country", "ALL");
   endpoint.searchParams.set("search_lang", "en");
   endpoint.searchParams.set("safesearch", "moderate");
+  if (options.freshness) {
+    endpoint.searchParams.set("freshness", options.freshness === "day" ? "pd" : options.freshness === "week" ? "pw" : "pm");
+  }
 
   try {
     const response = await fetchWithTimeout(endpoint.toString(), {
@@ -232,9 +245,12 @@ async function braveSearch(query: string, options: Required<NewsDiscoveryOptions
   }
 }
 
-async function duckDuckGoSearch(query: string, options: Required<NewsDiscoveryOptions>): Promise<ProviderResponse> {
+async function duckDuckGoSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", query);
+  if (options.freshness) {
+    endpoint.searchParams.set("df", options.freshness === "day" ? "d" : options.freshness === "week" ? "w" : "m");
+  }
   try {
     const response = await fetchWithTimeout(endpoint.toString(), {
       headers: {
@@ -259,11 +275,15 @@ async function duckDuckGoSearch(query: string, options: Required<NewsDiscoveryOp
   }
 }
 
-async function bingSearch(query: string, options: Required<NewsDiscoveryOptions>): Promise<ProviderResponse> {
+async function bingSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const endpoint = new URL("https://www.bing.com/search");
   endpoint.searchParams.set("q", query);
   endpoint.searchParams.set("count", String(Math.min(50, options.maxResults)));
   endpoint.searchParams.set("setlang", "en-US");
+  if (options.freshness) {
+    const ageMinutes = options.freshness === "day" ? 1440 : options.freshness === "week" ? 10080 : 43200;
+    endpoint.searchParams.set("qft", `+filterui:age-lt${ageMinutes}`);
+  }
   try {
     const response = await fetchWithTimeout(endpoint.toString(), {
       headers: {
@@ -312,7 +332,7 @@ async function scheduleProvider<T>(provider: NewsDiscoveryProvider, minDelayMs: 
   return run;
 }
 
-async function runProvider(provider: NewsDiscoveryProvider, query: string, options: Required<NewsDiscoveryOptions>): Promise<ProviderResponse> {
+async function runProvider(provider: NewsDiscoveryProvider, query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   return scheduleProvider(provider, options.minDelayMs, () => {
     if (provider === "brave") return braveSearch(query, options);
     if (provider === "duckduckgo") return duckDuckGoSearch(query, options);
@@ -321,12 +341,13 @@ async function runProvider(provider: NewsDiscoveryProvider, query: string, optio
 }
 
 export async function searchNews(query: string, input: NewsDiscoveryOptions = {}): Promise<NewsDiscoveryResponse> {
-  const options: Required<NewsDiscoveryOptions> = {
+  const options: ResolvedDiscoveryOptions = {
     providers: input.providers ?? "auto",
     maxResults: Math.max(1, Math.min(50, Math.floor(input.maxResults ?? DEFAULT_MAX_RESULTS))),
     timeoutMs: Math.max(1_000, input.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     userAgent: input.userAgent ?? DEFAULT_USER_AGENT,
     minDelayMs: Math.max(0, input.minDelayMs ?? Number(process.env.NEWS_DISCOVERY_MIN_DELAY_MS || DEFAULT_MIN_DELAY_MS)),
+    freshness: input.freshness,
   };
   const providers = selectedProviders(options.providers);
   if (!providers.length) return { query, results: [], receipts: [] };

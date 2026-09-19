@@ -399,3 +399,43 @@ node scripts/apply-batchN.js     # guarded apply (snapshot, dedup, quarantine, v
   - The Batch 10 Magami and Bungudu enrichments reported `hashUpdated=true` because their stored
     legacy `hash` values did not match canonical `generateHash()`; hashes were recomputed and
     validation found 0 duplicate hashes. Same class of stale-hash issue seen in Batches 7–9.
+
+## Scheduled Daily Discovery (free + Brave fallback)
+
+Objective: replace the paid Gemini/VertexAI discovery path with a free, scheduled daily scan of
+all 37 jurisdictions over the trailing 48 hours.
+
+### Components
+- `src/lib/search-led-discovery.ts` — free discovery + non-AI ingestion.
+  - Discovery: per-state query → DuckDuckGo HTML (free) first; if a state yields zero candidates,
+    fall back to Brave Search API with a recency filter, capped by `BRAVE_SEARCH_MAX_CALLS_PER_RUN`
+    (default 20) and shuffled so coverage rotates. Bing HTML is **disabled** (returns unusable
+    results). Articles are fetched directly with a Jina reader (r.jina.ai) fallback for 403s.
+  - Guards: denial/fact-check headline rejection, rescue/recovery/security-operation rejection,
+    real `article:published_time` anchoring (relative dates are never anchored to "now"), and a
+    48h publication + incident-date window.
+  - Ingestion: SHA-256 (`title|date|state|lga`) + source-URL + location/date dedup; **no Gemini**.
+- `netlify/functions/scheduled-discovery-background.mts` — Netlify scheduled function (06:00 UTC)
+  that runs discovery + ingestion, then the report-only duplicate check on the same schedule.
+- `scripts/search-led-scan.ts` — manual / CI entry point.
+- `.github/workflows/daily-scan.yml` — free GitHub Actions fallback (06:30 UTC) running the same
+  script with `MONGODB_URI` + `BRAVE_SEARCH_API_KEY` secrets.
+- Existing `netlify/functions/scheduled-update-background.mts` (RSS collector) remains scheduled.
+
+### Verified behaviour (read-only test, 2026-09-19)
+- 6 states, 48h window: 53 URLs discovered, 53 fetched, 0 fetch errors; Brave fallback used per
+  state; 1 marginal candidate; no false positives after fixes.
+- Bugs found and fixed during testing: old articles dated "now", denial/fact-check admission,
+  rescue/raid admission, and missing `kill`/`abduction` headline coverage.
+- Known limits: free DuckDuckGo ignores recency (Brave is the only reliable fresh engine); many
+  articles lack a parseable publish date and are dropped; casualty extraction can miss
+  (e.g. "kill 15" → 0). The RSS lane remains the freshest source; search-led is a gap-filler.
+
+### Env required for the cron
+- Netlify: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, `FREE_SOURCE_INGEST_ENABLED=true`.
+- GitHub secrets: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`.
+- Gemini/VertAII code is left in place but is no longer in the scheduled path.
+
+### Do not repeat
+- Do not rely on DuckDuckGo `df=` or Bing HTML for recency — both are ineffective/unusable here.
+- Do not anchor relative date language to the run time; always use the article publish date.
