@@ -20,7 +20,7 @@ jobs:
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       NEWS_DISCOVERY_ENABLE_BING: "false"
       STATE_SCAN_CONCURRENCY: "3"
-      BRAVE_SEARCH_MAX_CALLS_PER_RUN: "20"
+      BRAVE_SEARCH_MAX_CALLS_PER_RUN: "40"
       SEARCH_RESULTS_PER_QUERY: "5"
     steps:
       - uses: actions/checkout@v4

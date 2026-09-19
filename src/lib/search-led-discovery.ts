@@ -56,7 +56,7 @@ const SEARCH_RESULTS_PER_QUERY = Number(process.env.SEARCH_RESULTS_PER_QUERY || 
 const SEARCH_FRESHNESS = (process.env.SEARCH_FRESHNESS as "day" | "week" | "month" | undefined) || "week";
 const ARTICLE_FETCH_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FREE_SOURCE_CONCURRENCY || 4)));
 const STATE_SCAN_CONCURRENCY = Math.max(1, Number(process.env.STATE_SCAN_CONCURRENCY || 3));
-const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 20);
+const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 40);
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+search-led OSINT collector)";
 
 // Rescue/recovery/operation headlines describe a follow-up or a security-force

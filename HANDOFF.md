@@ -409,7 +409,8 @@ all 37 jurisdictions over the trailing 48 hours.
 - `src/lib/search-led-discovery.ts` — free discovery + non-AI ingestion.
   - Discovery: per-state query → DuckDuckGo HTML (free) first; if a state yields zero candidates,
     fall back to Brave Search API with a recency filter, capped by `BRAVE_SEARCH_MAX_CALLS_PER_RUN`
-    (default 20) and shuffled so coverage rotates. Bing HTML is **disabled** (returns unusable
+    (default 40; enough to cover all 37 jurisdictions per run) and shuffled so coverage rotates.
+    Bing HTML is **disabled** (returns unusable
     results). Articles are fetched directly with a Jina reader (r.jina.ai) fallback for 403s.
   - Guards: denial/fact-check headline rejection, rescue/recovery/security-operation rejection,
     real `article:published_time` anchoring (relative dates are never anchored to "now"), and a
