@@ -8,16 +8,5 @@
 [functions]
   node_bundler = "esbuild"
 
-# Daily security-incident discovery: scans all states via verified RSS feeds
-# and ingests qualifying incidents from the trailing 48-hour window.
-# Cron is evaluated in UTC (06:00 UTC == 07:00 WAT).
-[functions."scheduled-update-background"]
-  schedule = "0 6 * * *"
-
-# Daily search-led discovery (free engines + Brave fallback, no Gemini) over the
-# trailing 48-hour window, plus the report-only duplicate check on the same run.
-[functions."scheduled-discovery-background"]
-  schedule = "0 6 * * *"
-
 [[plugins]]
   package = "@netlify/plugin-nextjs"
