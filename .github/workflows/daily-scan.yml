@@ -1,10 +1,22 @@
-name: Daily 48h incident scan
+name: Daily Nigeria incident scan
 
 on:
   schedule:
-    # Primary daily scanner. Schedule is UTC and intentionally runs off the hour.
+    # Daily scan uses a 96-hour overlap to tolerate delayed or missed schedule events.
     - cron: "30 6 * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: Incident-date lookback window
+        type: choice
+        required: true
+        default: "96"
+        options:
+          - "48"
+          - "72"
+          - "96"
+          - "120"
+          - "168"
 
 permissions:
   contents: read
@@ -20,9 +32,13 @@ jobs:
       DEEPSEEK_CLEANUP_ENABLED: "true"
       DEEPSEEK_MODEL: deepseek-chat
       NEWS_DISCOVERY_ENABLE_BING: "false"
+      INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '96' }}
+      SEARCH_PUBLICATION_MAX_AGE_HOURS: "168"
       STATE_SCAN_CONCURRENCY: "3"
       BRAVE_SEARCH_MAX_CALLS_PER_RUN: "40"
-      SEARCH_RESULTS_PER_QUERY: "5"
+      SEARCH_RESULTS_PER_QUERY: "10"
+      SOURCE_FETCH_TIMEOUT_MS: "10000"
+      SCAN_REPORT_PATH: ${{ github.workspace }}/incident-scan-report.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,3 +49,11 @@ jobs:
         run: npm ci
       - name: Run search-led discovery + ingest + duplicate check
         run: npx -y tsx scripts/search-led-scan.ts
+      - name: Upload scan report and review leads
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: incident-scan-report-${{ github.run_id }}
+          path: ${{ github.workspace }}/incident-scan-report.json
+          if-no-files-found: ignore
+          retention-days: 30

@@ -8,9 +8,12 @@ Branch: main
 Maintain Nigeria incident discovery and victim-only casualty extraction. Recent parser
 hardening addresses clear human impact (e.g. "abduct village head", "abandon three
 kidnap victims", "kill security commander, abduct two") previously stored as zero or
-unknown casualties. The GitHub Actions scheduler is live, but its 2026-09-23 manual
-run scanned 48 hours and admitted zero of 177 fetched URLs; see Scheduler migration
-below for the confirmed coverage limits.
+unknown casualties. GitHub Actions is the daily scheduler. The 2026-09-23 manual run
+completed all 37 queries but admitted zero of 177 fetched URLs, exposing a 48-hour
+window, date-metadata filters, and missing fetch-level diagnostics. A 2026-09-23
+hardening change widens the default overlap to 96 hours and preserves rejected leads
+and fetch/provider errors for review; this improves recovery but does not make search
+coverage exhaustive.
 
 ### Recent Milestone (2026-09-21)
 - **Heuristic Casualty Extraction Hardening (`src/lib/free-news.ts`, `src/lib/search-led-discovery.ts`)**:
@@ -305,8 +308,10 @@ node scripts/apply-batchN.js     # guarded apply (snapshot, dedup, quarantine, v
 
 ## Next Actions
 
-1. Backfill is COMPLETE (Batches 1–10). No further state-group batches remain.
-2. Ongoing maintenance: resolve the **174 quarantine candidates still `open`** across all
+1. Verify the pushed GitHub workflow run and inspect its uploaded scan report; adjudicate
+   any review leads and unresolved fetch/provider failures before treating coverage as complete.
+2. Backfill is COMPLETE (Batches 1–10). No further state-group batches remain.
+3. Ongoing maintenance: resolve the **174 quarantine candidates still `open`** across all
    states. Highest-value/known-ambiguous sets to revisit first (each needs a second
    independent direct publisher before any insert):
    - Zamfara: `6a94d08285e2744b7d3a7b33` (2026-08-02 FOB Kasuwan Daji repel; soldier+policeman killed).
@@ -321,9 +326,9 @@ node scripts/apply-batchN.js     # guarded apply (snapshot, dedup, quarantine, v
    - Batches 1–4 discovery leftovers (Abia/Akwa Ibom/Borno/FCT/Imo etc.) include many
      aggressor-only, rescue, threat-only, fact-check and wrong-state items; a pass should
      classify the clearly out-of-scope ones and only keep genuinely unresolved events.
-3. Reconcile the known casualty/date conflicts recorded under Known Issues below if a
+4. Reconcile the known casualty/date conflicts recorded under Known Issues below if a
    definitive official release appears.
-4. Keep Brave API usage as fallback only (~597 requests remaining).
+5. Keep Brave API usage as fallback only (~597 requests remaining).
 
 ## Known Issues / Do Not Repeat
 
@@ -471,13 +476,23 @@ all 37 jurisdictions over the trailing 48 hours.
 - Manual production workflow run `35860483242` completed successfully in 3m48s: connected to
   MongoDB, completed all 37 state queries, discovered 178 URLs, fetched 177, admitted 0
   candidates, and reported 1 fetch error. This was not a timeout or early cutoff. The
-  scheduled/manual job uses a trailing 48-hour window, which excludes earlier dates when
-  a wider range is requested. The scan requires parseable publish and incident dates and
-  can reject original attacks when search results surface only a rescue/operation follow-up.
+  scheduled/manual job at the time used a trailing 48-hour window, which excluded dates
+  earlier than 21 Sep at that run time. Its hard filters also required a publication date
+  and rejected some rescue/operation headlines before examining the full incident context.
   Ingestion completed with 0 inserts, 0 merges, and 0 errors; duplicate scan reported 7
   candidates across 5 states (report-only). One later read-only retry pass found a transient
   article timeout that recovered on retry; earlier audit output stored only aggregate fetch
   errors, not the original failed URLs.
+- Workflow hardening: default 96-hour incident window (manual dispatch supports 48–168h),
+  10 search results per state query, seven-day publication horizon while keeping the event
+  date inside the selected window, and one retry for network/408/425/429/5xx article fetches.
+  Failed article and search-provider requests plus date/location review leads are included
+  in a 30-day GitHub artifact. Incomplete provider/fetch coverage fails the job after saving
+  the report; candidates needing review remain visible without being auto-admitted.
+- The previously retried Borno report refers to the 17 Sep Gajiram attack already in MongoDB;
+  Kebbi reports are dated 18 Sep and fall outside the 20–23 Sep audit window; the Plateau
+  report overlaps already-adjudicated 19–20 Sep events. No additional in-window incident
+  from those retry URLs was eligible for insertion.
 - GitHub Actions is now the primary scheduler at 06:30 UTC (07:30 Lagos); workflow timeout is 60m.
 - Netlify schedule declarations were removed from `netlify.toml`; production deploy
   `6ab3c6c6a415930008021f2e` for commit `2843a73` is ready and reports no function schedules.

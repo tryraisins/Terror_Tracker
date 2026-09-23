@@ -155,14 +155,14 @@ export function isFreeSourceIngestionEnabled(): boolean {
   return FREE_SOURCE_INGEST_ENABLED;
 }
 
-export function dateFromText(text: string, publishedAt: Date): Date | null {
+export function dateFromText(text: string, publishedAt: Date | null = null): Date | null {
   const absolute = text.match(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/i);
   if (absolute) {
     const parsed = new Date(`${absolute[1].replace(/(st|nd|rd|th)/i, "")} UTC`);
     if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   const relative = text.match(/\b(today|yesterday)\b/i);
-  if (relative && hasSecurityIncidentSignal(text)) {
+  if (relative && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
     const date = new Date(publishedAt);
     if (relative[1].toLowerCase() === "yesterday") date.setUTCDate(date.getUTCDate() - 1);
     return date;

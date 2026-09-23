@@ -5,8 +5,8 @@
  * that mirrors the whole-year backfill: DuckDuckGo/Bing HTML search for free,
  * Brave Search API only as a fallback, direct article fetch with a Jina reader
  * fallback for 403s, and regex extraction of the incident fields. Ingestion
- * uses a SHA-256 dedup guard with source-URL and location/date checks — no AI
- * is ever called, so this path is fully free to run on a schedule.
+ * uses a SHA-256 dedup guard with source-URL and location/date checks. Optional
+ * DeepSeek cleanup can confirm candidates when configured.
  */
 
 import crypto from "crypto";
@@ -30,11 +30,19 @@ import { isSuppressedSourceHost } from "./news-source-registry";
 import { cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
 
 export interface SearchLedReport {
+  windowStart: string;
+  windowEnd: string;
+  lookbackHours: number;
   queriesRun: number;
   urlsDiscovered: number;
   urlsFetched: number;
+  fetchRetries: number;
+  fetchFailures: Array<{ url: string; error: string }>;
+  searchFailures: Array<{ state: string; provider: NewsDiscoveryProvider; status: string; reason: string }>;
   candidates: number;
   rejected: number;
+  rejectionReasons: Record<string, number>;
+  reviewLeads: Array<{ url: string; title: string; publisher: string; reason: string }>;
   errors: number;
   braveFallbackCalls: number;
   deepseekCalls: number;
@@ -57,25 +65,33 @@ interface ArticleParts {
 }
 
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
-const SEARCH_RESULTS_PER_QUERY = Number(process.env.SEARCH_RESULTS_PER_QUERY || 5);
+const SEARCH_RESULTS_PER_QUERY = Number(process.env.SEARCH_RESULTS_PER_QUERY || 10);
 const SEARCH_FRESHNESS = (process.env.SEARCH_FRESHNESS as "day" | "week" | "month" | undefined) || "week";
+const SEARCH_PUBLICATION_MAX_AGE_HOURS = Math.max(1, Number(process.env.SEARCH_PUBLICATION_MAX_AGE_HOURS || 168));
 const ARTICLE_FETCH_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FREE_SOURCE_CONCURRENCY || 4)));
 const STATE_SCAN_CONCURRENCY = Math.max(1, Number(process.env.STATE_SCAN_CONCURRENCY || 3));
 const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 40);
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+search-led OSINT collector)";
 
-// Rescue/recovery/operation headlines describe a follow-up or a security-force
-// action, not a new original incident. The RSS lane keeps them as references;
-// the search-led lane simply drops them to avoid false new incidents.
-const FOLLOW_UP_TITLE_PATTERN = /\b(?:rescue[sd]?|released?|freed|recovered|liberated?|neutrali[sz]ed?|arrest(?:ed|s)?|foil(?:ed|s)?|repel(?:led|s)?|surrendered?)\b/i;
-const OPERATION_TITLE_PREFIX_PATTERN = /^\s*(?:troops?|army|soldiers?|navy|air\s?force|naf|military|police|officers?|security\s+forces?|joint\s+task\s+force|jtf|operation\s+[A-Z]+)\b/i;
-
 function buildQuery(state: string): string {
-  // Biasing the query with the current month/year materially improves recency
-  // on engines whose HTML endpoints do not reliably honor a date filter.
+  // Keep the query Nigeria-specific and include victim outcomes as well as
+  // attacker/event terms so reports are not missed when headlines omit "attack".
   const now = new Date();
   const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
-  return `${state} attack OR abduction OR bandits OR gunmen ${month} ${now.getUTCFullYear()}`;
+  return `Nigeria "${state}" attack OR ambush OR kidnapping OR abduction OR killed OR injured ${month} ${now.getUTCFullYear()}`;
+}
+
+export function isPublishedWithinDiscoveryHorizon(
+  publishedAt: Date,
+  latestAllowedMs: number,
+  maxAgeHours = SEARCH_PUBLICATION_MAX_AGE_HOURS,
+): boolean {
+  const publishedMs = publishedAt.getTime();
+  return Number.isFinite(publishedMs) && publishedMs <= latestAllowedMs && publishedMs >= latestAllowedMs - maxAgeHours * 3_600_000;
+}
+
+export function isTransientArticleFetchStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 function hashFor(candidate: RawAttackData): string {
@@ -88,13 +104,20 @@ function hashFor(candidate: RawAttackData): string {
 
 async function discoverForQuery(
   query: string,
+  state: string,
   providers: NewsDiscoveryProvider[],
   budget: { braveCalls: number },
+  report: SearchLedReport,
 ): Promise<{ results: NewsDiscoveryResult[]; braveFallbackUsed: boolean }> {
   for (const provider of providers) {
     if (provider === "brave" && (!process.env.BRAVE_SEARCH_API_KEY || budget.braveCalls >= BRAVE_CALL_LIMIT)) continue;
     if (provider === "brave") budget.braveCalls++;
     const res = await searchNews(query, { providers: provider, maxResults: SEARCH_RESULTS_PER_QUERY, freshness: SEARCH_FRESHNESS });
+    for (const receipt of res.receipts) {
+      if (receipt.status === "FAIL" || receipt.status === "BLOCKED") {
+        report.searchFailures.push({ state, provider: receipt.provider, status: receipt.status, reason: receipt.reason });
+      }
+    }
     if (res.results.length > 0) return { results: res.results, braveFallbackUsed: provider === "brave" };
   }
   return { results: [], braveFallbackUsed: false };
@@ -146,8 +169,8 @@ async function applyDeepSeekCleanup(
     return null;
   }
   const ts = new Date(result.incident.date).getTime();
-  // Allow a 24h grace window (up to 72h total) for the event date if the article
-  // was published within the 48h discovery window (e.g. Thursday night attack reported Sat/Sun).
+  // Allow a 24h grace window beyond the configured lookback for the event date
+  // when a recently published report describes a delayed-reported incident.
   if (Number.isNaN(ts) || ts < minMs - 24 * 3_600_000 || ts > maxMs) {
     report.deepseekRejected++;
     if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek date outside window: ${candidate.title}`);
@@ -168,17 +191,24 @@ async function fetchAndExtract(
     const chunk = urls.slice(j, j + ARTICLE_FETCH_CONCURRENCY);
     await Promise.all(
       chunk.map(async (u) => {
-        const html = await fetchArticleHtml(u.url);
-        if (!html) {
+        const article = await fetchArticleHtml(u.url);
+        report.fetchRetries += article.retries;
+        if (!article.html) {
           report.errors++;
+          report.fetchFailures.push({ url: u.url, error: article.error });
           return;
         }
         report.urlsFetched++;
-        const parts = html.viaJina ? partsFromMarkdown(u.title, html.html) : extractArticleParts(html.html, u.title);
-        const publishedAt = html.viaJina ? readerPublishedAt(html.html) : extractPublishedAt(html.html);
-        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, minMs, maxMs);
-        if (!candidate) {
+        const parts = article.viaJina ? partsFromMarkdown(u.title, article.html) : extractArticleParts(article.html, u.title);
+        const publishedAt = article.viaJina ? readerPublishedAt(article.html) : extractPublishedAt(article.html);
+        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, minMs, maxMs, report.lookbackHours, (reason) => {
           report.rejected++;
+          report.rejectionReasons[reason] = (report.rejectionReasons[reason] || 0) + 1;
+          if (isReviewableRejection(reason) && report.reviewLeads.length < 1000) {
+            report.reviewLeads.push({ url: u.url, title: u.title, publisher: u.publisher, reason });
+          }
+        });
+        if (!candidate) {
           return;
         }
         const final = await applyDeepSeekCleanup(candidate, parts, report, minMs, maxMs);
@@ -187,6 +217,8 @@ async function fetchAndExtract(
           report.candidates++;
         } else {
           report.rejected++;
+          const reason = "DeepSeek rejected or could not confirm candidate";
+          report.rejectionReasons[reason] = (report.rejectionReasons[reason] || 0) + 1;
         }
       }),
     );
@@ -194,32 +226,66 @@ async function fetchAndExtract(
   return found;
 }
 
-async function fetchArticleHtml(url: string): Promise<{ html: string; viaJina: boolean } | null> {
-  try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { "user-agent": USER_AGENT },
-    });
-    if (res.ok && (res.headers.get("content-type") || "").includes("text/html")) {
-      return { html: await res.text(), viaJina: false };
+function isReviewableRejection(reason: string): boolean {
+  return /no reliable publication date|relative incident date requires|no explicit incident date|no Nigerian state|original incident date/i.test(reason);
+}
+
+async function fetchWithRetry(url: string, timeoutMs: number): Promise<{ response: Response | null; retries: number; error: string | null }> {
+  let retries = 0;
+  let lastError: string | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: { "user-agent": USER_AGENT },
+      });
+      if (!isTransientArticleFetchStatus(response.status) || attempt === 1) {
+        return {
+          response,
+          retries,
+          error: response.ok ? null : `HTTP ${response.status}`,
+        };
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt === 1) return { response: null, retries, error: lastError };
     }
-  } catch {
-    /* fall through to reader */
+    retries++;
+    await new Promise((resolve) => setTimeout(resolve, 250 * retries));
   }
-  try {
-    const res = await fetch(`https://r.jina.ai/${url}`, {
-      signal: AbortSignal.timeout(20000),
-      headers: { "user-agent": USER_AGENT },
-    });
-    if (res.ok) {
-      const text = await res.text();
-      if (text && text.length > 200) return { html: text, viaJina: true };
+  return { response: null, retries, error: lastError || "request failed" };
+}
+
+async function fetchArticleHtml(url: string): Promise<{ html: string | null; viaJina: boolean; retries: number; error: string }> {
+  const direct = await fetchWithRetry(url, FETCH_TIMEOUT_MS);
+  if (direct.response?.ok && (direct.response.headers.get("content-type") || "").includes("text/html")) {
+    try {
+      const html = await direct.response.text();
+      if (html.length > 200) {
+        return { html, viaJina: false, retries: direct.retries, error: "" };
+      }
+      direct.error = "publisher returned too little content";
+    } catch (error) {
+      direct.error = error instanceof Error ? error.message : String(error);
     }
-  } catch {
-    /* ignore */
   }
-  return null;
+  const directError = direct.error || (direct.response ? `non-HTML content type ${direct.response.headers.get("content-type") || "unknown"}` : "direct request failed");
+
+  const reader = await fetchWithRetry(`https://r.jina.ai/${url}`, 20000);
+  if (reader.response?.ok) {
+    try {
+      const text = await reader.response.text();
+      if (text && text.length > 200) {
+        return { html: text, viaJina: true, retries: direct.retries + reader.retries, error: "" };
+      }
+    } catch (error) {
+      reader.error = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const readerError = reader.error || (reader.response ? `reader returned too little content (${reader.response.status})` : "reader request failed");
+  return { html: null, viaJina: false, retries: direct.retries + reader.retries, error: `publisher: ${directError}; reader: ${readerError}` };
 }
 
 function partsFromMarkdown(title: string, text: string): ArticleParts {
@@ -242,25 +308,27 @@ function buildCandidate(
   publishedAt: Date | null,
   minMs: number,
   maxMs: number,
+  lookbackHours: number,
+  onReject: (reason: string) => void,
 ): RawAttackData | null {
   const { title, description, lead, text } = parts;
   const debug = process.env.SEARCH_LED_DEBUG === "true";
   const reject = (reason: string) => {
+    onReject(reason);
     if (debug) console.log(`[search-led] reject (${reason}): ${title}`);
     return null;
   };
   const admissionRejection = sourceLedAdmissionRejection(title, lead);
   if (admissionRejection) return reject(admissionRejection);
-  if (FOLLOW_UP_TITLE_PATTERN.test(title)) return reject("rescue/recovery/operation headline, not an original incident");
-  if (OPERATION_TITLE_PREFIX_PATTERN.test(title)) return reject("security-force operation headline, not an original incident");
   if (!hasSecurityIncidentSignal(lead)) return reject("no security-incident signal");
 
-  // Search results do not carry a timestamp, so relative date language must be
-  // anchored to the article's real publication date. Without it we cannot tell
-  // a fresh incident from an old one, so the candidate is dropped.
-  if (!publishedAt) return reject("no reliable publication date");
-  const publishedMs = publishedAt.getTime();
-  if (publishedMs < minMs - 2 * 3_600_000 || publishedMs > maxMs) return reject("published outside the 48h window");
+  // A source publication can predate an incident report or include a late
+  // update. Bound its age to the search horizon, then use the reported event
+  // date for admission. Explicit event dates remain usable without publish
+  // metadata; relative dates still require a reliable publication timestamp.
+  if (publishedAt && !isPublishedWithinDiscoveryHorizon(publishedAt, maxMs)) {
+    return reject("published outside the configured discovery horizon");
+  }
 
   const group = extractGroup(lead);
   const scopeRejection = screenIncidentCandidate({ title, description: lead, group });
@@ -269,9 +337,15 @@ function buildCandidate(
   if (!state) return reject("no Nigerian state");
 
   const incidentDate = dateFromText(lead, publishedAt);
-  if (!incidentDate) return reject("no explicit incident date");
+  if (!incidentDate) {
+    return reject(publishedAt && /\b(?:today|yesterday)\b/i.test(lead)
+      ? "no explicit incident date"
+      : !publishedAt && /\b(?:today|yesterday)\b/i.test(lead)
+        ? "relative incident date requires a reliable publication date"
+        : "no explicit incident date");
+  }
   const ts = incidentDate.getTime();
-  if (ts < minMs || ts > maxMs) return reject("incident date outside the 48h window");
+  if (ts < minMs || ts > maxMs) return reject(`incident date outside the ${lookbackHours}-hour window`);
 
   const location = extractLocation(title, lead, state);
   const narrative = `${title}. ${lead}`;
@@ -310,20 +384,34 @@ function buildCandidate(
 
 /**
  * Discover candidate incidents across the given states within the trailing
- * `lookbackHours` window (default 48). Returns candidates plus a report; no
+ * `lookbackHours` window (default 96). Returns candidates plus a report; no
  * database writes happen here.
  */
 export async function collectSearchLedIncidents(
   states: string[],
-  lookbackHours = 48,
+  lookbackHours = 96,
 ): Promise<{ attacks: RawAttackData[]; report: SearchLedReport }> {
+  if (!Number.isFinite(lookbackHours) || lookbackHours < 1 || lookbackHours > 336) {
+    throw new Error("lookbackHours must be between 1 and 336");
+  }
+  const windowEnd = new Date();
+  const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
+  const maxMs = windowEnd.getTime() + 2 * 3_600_000;
   const report: SearchLedReport = {
+    windowStart: new Date(minMs).toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    lookbackHours,
     queriesRun: 0,
     urlsDiscovered: 0,
     urlsFetched: 0,
+    fetchRetries: 0,
+    fetchFailures: [],
     candidates: 0,
     rejected: 0,
+    rejectionReasons: {},
+    reviewLeads: [],
     errors: 0,
+    searchFailures: [],
     braveFallbackCalls: 0,
     deepseekCalls: 0,
     deepseekConfirmed: 0,
@@ -333,9 +421,6 @@ export async function collectSearchLedIncidents(
   const attacks: RawAttackData[] = [];
   const budget = { braveCalls: 0 };
   const seenUrls = new Set<string>();
-  const minMs = Date.now() - lookbackHours * 3_600_000;
-  const maxMs = Date.now() + 2 * 3_600_000;
-
   // Shuffle so the capped Brave fallback rotates across states rather than
   // starving the tail of the list.
   const uniqueStates = shuffle([...new Set(states.map((s) => s.trim()).filter(Boolean))]);
@@ -350,13 +435,13 @@ export async function collectSearchLedIncidents(
         const query = buildQuery(state);
 
         // Free-first lane.
-        const free = await discoverForQuery(query, ["duckduckgo"], budget);
+        const free = await discoverForQuery(query, state, ["duckduckgo"], budget, report);
         let found = await fetchAndExtract(absorbResults(free.results, seenUrls, report), report, minMs, maxMs);
 
         // Brave recency fallback: free HTML search does not reliably honor a
         // date filter, so only reach for Brave when the free lane found nothing.
         if (found.length === 0) {
-          const brave = await discoverForQuery(query, ["brave"], budget);
+          const brave = await discoverForQuery(query, state, ["brave"], budget, report);
           if (brave.braveFallbackUsed) report.braveFallbackCalls++;
           found = await fetchAndExtract(absorbResults(brave.results, seenUrls, report), report, minMs, maxMs);
         }
