@@ -2,9 +2,7 @@ name: Daily 48h incident scan
 
 on:
   schedule:
-    # Free GitHub Actions cron fallback. Runs 30 minutes after the Netlify
-    # scheduled function (06:00 UTC) so it only matters when Netlify failed.
-    # Cron is UTC.
+    # Primary daily scanner. Schedule is UTC and intentionally runs off the hour.
     - cron: "30 6 * * *"
   workflow_dispatch: {}
 
@@ -14,7 +12,7 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
