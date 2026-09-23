@@ -3,6 +3,7 @@ import {
   isPublishedWithinDiscoveryHorizon,
   isTransientArticleFetchStatus,
 } from "../src/lib/search-led-discovery";
+import { dateFromText } from "../src/lib/free-news";
 
 const now = new Date("2026-09-23T12:00:00.000Z").getTime();
 const recentWindowStart = now - 96 * 60 * 60 * 1000;
@@ -28,6 +29,20 @@ assert.equal(
   "invalid publication dates must be rejected",
 );
 assert.ok(recentWindowStart < now, "fixture event window is valid");
+
+assert.equal(
+  dateFromText(
+    "Gunmen attacked the community on Tuesday night, killing one resident.",
+    new Date("2026-09-22T23:30:00.000Z"),
+  )?.toISOString(),
+  "2026-09-22T00:00:00.000Z",
+  "weekday event dates use the Nigeria publication day across the UTC midnight boundary",
+);
+assert.equal(
+  dateFromText("Gunmen attacked the community on Tuesday night, killing one resident."),
+  null,
+  "weekday dates require a reliable publication anchor",
+);
 
 assert.equal(isTransientArticleFetchStatus(408), true);
 assert.equal(isTransientArticleFetchStatus(429), true);

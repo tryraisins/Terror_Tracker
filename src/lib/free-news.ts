@@ -163,9 +163,28 @@ export function dateFromText(text: string, publishedAt: Date | null = null): Dat
   }
   const relative = text.match(/\b(today|yesterday)\b/i);
   if (relative && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
-    const date = new Date(publishedAt);
-    if (relative[1].toLowerCase() === "yesterday") date.setUTCDate(date.getUTCDate() - 1);
-    return date;
+    const lagosDate = new Date(publishedAt.getTime() + 60 * 60 * 1000);
+    const dayOffset = relative[1].toLowerCase() === "yesterday" ? 1 : 0;
+    return new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
+  }
+  const weekday = text.match(/\b(last|this|next)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  if (weekday && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
+    const qualifier = (weekday[1] || "").toLowerCase();
+    if (qualifier === "next") return null;
+    const weekdayIndex: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+    const lagosDate = new Date(publishedAt.getTime() + 60 * 60 * 1000);
+    let dayOffset = (lagosDate.getUTCDay() - weekdayIndex[weekday[2].toLowerCase()] + 7) % 7;
+    if (qualifier === "last") dayOffset += 7;
+    if (qualifier === "this" && dayOffset > 0) return null;
+    return new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
   }
   return null;
 }

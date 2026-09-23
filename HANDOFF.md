@@ -11,9 +11,10 @@ kidnap victims", "kill security commander, abduct two") previously stored as zer
 unknown casualties. GitHub Actions is the daily scheduler. The 2026-09-23 manual run
 completed all 37 queries but admitted zero of 177 fetched URLs, exposing a 48-hour
 window, date-metadata filters, and missing fetch-level diagnostics. A 2026-09-23
-hardening change widens the default overlap to 96 hours and preserves rejected leads
-and fetch/provider errors for review; this improves recovery but does not make search
-coverage exhaustive.
+hardening change widens the default overlap to 96 hours, retries transient requests,
+and preserves rejected leads and fetch/provider errors for review. Relative weekday
+dates now resolve against the publication date in Lagos time. Search coverage remains
+non-exhaustive.
 
 ### Recent Milestone (2026-09-21)
 - **Heuristic Casualty Extraction Hardening (`src/lib/free-news.ts`, `src/lib/search-led-discovery.ts`)**:
@@ -308,8 +309,8 @@ node scripts/apply-batchN.js     # guarded apply (snapshot, dedup, quarantine, v
 
 ## Next Actions
 
-1. Verify the pushed GitHub workflow run and inspect its uploaded scan report; adjudicate
-   any review leads and unresolved fetch/provider failures before treating coverage as complete.
+1. Review the current GitHub run artifact and its remaining manual-review leads; dispatch
+   the updated weekday-date parser and confirm its live result.
 2. Backfill is COMPLETE (Batches 1–10). No further state-group batches remain.
 3. Ongoing maintenance: resolve the **174 quarantine candidates still `open`** across all
    states. Highest-value/known-ambiguous sets to revisit first (each needs a second
@@ -488,7 +489,16 @@ all 37 jurisdictions over the trailing 48 hours.
   date inside the selected window, and one retry for network/408/425/429/5xx article fetches.
   Failed article and search-provider requests plus date/location review leads are included
   in a 30-day GitHub artifact. Incomplete provider/fetch coverage fails the job after saving
-  the report; candidates needing review remain visible without being auto-admitted.
+  the report; candidates needing review remain visible without being auto-admitted. Weekday
+  incident dates resolve relative to publication day in Lagos time when security context and
+  a reliable publication timestamp are present.
+- Manual verification run `35871689427` on commit `668a598` completed all 37 state queries:
+  148 URLs discovered/fetched, 6 retry attempts, no fetch or search-provider failures, 4
+  admitted candidates, 55 review leads, 0 inserted, 4 matched/merged, and 0 ingest errors.
+  The Sokoto Sabon Gari record already existed with six abducted and one injured; the new
+  military roundup corroborates that event as part of a 23-person rescue across two locations.
+  Other admitted records also matched existing records. No new incident row was required.
+  The artifact status was `REVIEW_REQUIRED`; the run preceded weekday-date parsing.
 - The previously retried Borno report refers to the 17 Sep Gajiram attack already in MongoDB;
   Kebbi reports are dated 18 Sep and fall outside the 20–23 Sep audit window; the Plateau
   report overlaps already-adjudicated 19–20 Sep events. No additional in-window incident
