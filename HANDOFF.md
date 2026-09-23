@@ -309,8 +309,8 @@ node scripts/apply-batchN.js     # guarded apply (snapshot, dedup, quarantine, v
 
 ## Next Actions
 
-1. Review the current GitHub run artifact and its remaining manual-review leads; dispatch
-   the updated weekday-date parser and confirm its live result.
+1. Review the remaining manual-review leads from GitHub run `35873334644`; retry unresolved
+   publisher fetches on the next run and adjudicate against direct sources.
 2. Backfill is COMPLETE (Batches 1–10). No further state-group batches remain.
 3. Ongoing maintenance: resolve the **174 quarantine candidates still `open`** across all
    states. Highest-value/known-ambiguous sets to revisit first (each needs a second
@@ -499,6 +499,13 @@ all 37 jurisdictions over the trailing 48 hours.
   military roundup corroborates that event as part of a 23-person rescue across two locations.
   Other admitted records also matched existing records. No new incident row was required.
   The artifact status was `REVIEW_REQUIRED`; the run preceded weekday-date parsing.
+- Follow-up run `35873334644` on commit `c2c58c1` also completed all 37 state queries and
+  parsed the weekday-dated Plateau report. It fetched 147/148 URLs (6 retries), admitted 5
+  candidates, retained 36 review leads, inserted 0, matched/merged 5, and had 0 ingest
+  errors. The job correctly ended `INCOMPLETE` because the Advocate Kebbi URL returned 403
+  and its Jina retry timed out. Independent mirrors date that report to 18 Sep, outside the
+  20–23 Sep window. MongoDB already held the admitted incidents; no new incident row was
+  required. The run artifact is `incident-scan-report-35873334644`.
 - The previously retried Borno report refers to the 17 Sep Gajiram attack already in MongoDB;
   Kebbi reports are dated 18 Sep and fall outside the 20–23 Sep audit window; the Plateau
   report overlaps already-adjudicated 19–20 Sep events. No additional in-window incident
