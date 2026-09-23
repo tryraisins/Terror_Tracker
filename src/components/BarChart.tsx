@@ -6,22 +6,25 @@ interface BarChartProps {
   data: { label: string; value: number; killed?: number; kidnapped?: number }[];
   title?: string;
   maxBars?: number;
+  mode?: "incidents" | "impact";
 }
 
-const SERIES = [
-  { key: "attacks" as const, label: "Attacks", color: "var(--chart-attacks)" },
+const INCIDENT_SERIES = [{ key: "attacks" as const, label: "Incidents", color: "var(--chart-attacks)" }];
+const IMPACT_SERIES = [
   { key: "deaths" as const, label: "Deaths", color: "var(--chart-deaths)" },
-  { key: "kidnapped" as const, label: "Kidnapped", color: "var(--chart-kidnapped)" },
+  { key: "kidnapped" as const, label: "Abducted", color: "var(--chart-kidnapped)" },
 ];
 
 function formatValue(value: number) {
   return value.toLocaleString("en-NG");
 }
 
-export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
+export default function BarChart({ data, title, maxBars = 12, mode = "incidents" }: BarChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const displayData = data.slice(0, maxBars);
-  const maxValue = Math.max(...displayData.map((item) => Math.max(item.value, item.killed ?? 0, item.kidnapped ?? 0)), 1);
+  const series = mode === "impact" ? IMPACT_SERIES : INCIDENT_SERIES;
+  const valuesFor = (item: (typeof displayData)[number]) => mode === "impact" ? [item.killed ?? 0, item.kidnapped ?? 0] : [item.value];
+  const maxValue = Math.max(...displayData.flatMap(valuesFor), 1);
 
   const width = 960;
   const height = 360;
@@ -32,7 +35,7 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
   const groupInnerWidth = groupWidth * 0.72;
   const groupMargin = (groupWidth - groupInnerWidth) / 2;
   const barGap = Math.max(groupInnerWidth * 0.07, 2);
-  const barWidth = Math.max((groupInnerWidth - barGap * (SERIES.length - 1)) / SERIES.length, 4);
+  const barWidth = Math.max((groupInnerWidth - barGap * (series.length - 1)) / series.length, 4);
   const gridLines = 4;
 
   const handleKeyDown = (event: KeyboardEvent<SVGGElement>, index: number) => {
@@ -47,13 +50,13 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
   const active = activeIndex === null ? null : displayData[activeIndex];
   const activeGroupX = activeIndex === null ? 0 : padding.left + groupWidth * activeIndex + groupMargin;
   const activeLeft = activeIndex === null ? "50%" : `${Math.min(Math.max(((activeGroupX + groupInnerWidth / 2) / width) * 100, 12), 88)}%`;
-  const activeTop = active ? `${Math.max(((height - padding.bottom - (Math.max(active.value, active.killed ?? 0, active.kidnapped ?? 0) / maxValue) * chartHeight) / height) * 100 - 3, 12)}%` : "0";
+  const activeTop = active ? `${Math.max(((height - padding.bottom - (Math.max(...valuesFor(active)) / maxValue) * chartHeight) / height) * 100 - 3, 12)}%` : "0";
 
   return <div className="bar-chart">
     {title ? <h3 className="bar-chart__title">{title}</h3> : null}
     <div className="bar-chart__plot">
-      <svg className="bar-chart__svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Grouped monthly chart showing incident records and reported victim impacts">
-        <title>Monthly incident records and reported victim impacts</title>
+      <svg className="bar-chart__svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "incidents" ? "Monthly reported incident counts" : "Monthly reported deaths and abductions"}>
+        <title>{mode === "incidents" ? "Monthly reported incident counts" : "Monthly reported deaths and abductions"}</title>
         {Array.from({ length: gridLines + 1 }).map((_, index) => {
           const value = Math.round((maxValue / gridLines) * (gridLines - index));
           const y = padding.top + (chartHeight / gridLines) * index;
@@ -61,14 +64,14 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
         })}
         {displayData.map((item, index) => {
           const groupX = padding.left + groupWidth * index + groupMargin;
-          const values = [item.value, item.killed ?? 0, item.kidnapped ?? 0];
+          const values = valuesFor(item);
           const isActive = activeIndex === index;
           return <g
             className={`bar-chart__group ${isActive ? "bar-chart__group--active" : ""}`}
             key={`${item.label}-${index}`}
             tabIndex={0}
             role="button"
-            aria-label={`${item.label}: ${formatValue(item.value)} attacks, ${formatValue(item.killed ?? 0)} deaths, ${formatValue(item.kidnapped ?? 0)} kidnapped`}
+            aria-label={`${item.label}: ${series.map((entry, seriesIndex) => `${formatValue(values[seriesIndex])} ${entry.label.toLowerCase()}`).join(", ")}`}
             onMouseEnter={() => setActiveIndex(index)}
             onMouseLeave={() => setActiveIndex(null)}
             onFocus={() => setActiveIndex(index)}
@@ -80,15 +83,15 @@ export default function BarChart({ data, title, maxBars = 12 }: BarChartProps) {
               const barHeight = value > 0 ? Math.max((value / maxValue) * chartHeight, 3) : 0;
               const x = groupX + seriesIndex * (barWidth + barGap);
               const y = height - padding.bottom - barHeight;
-              return <rect className="bar-chart__bar" key={SERIES[seriesIndex].key} x={x} y={y} width={barWidth} height={barHeight} rx="3" fill={SERIES[seriesIndex].color} />;
+              return <rect className="bar-chart__bar" key={series[seriesIndex].key} x={x} y={y} width={barWidth} height={barHeight} rx="3" fill={series[seriesIndex].color} />;
             })}
             <text className="bar-chart__x-label" x={groupX + groupInnerWidth / 2} y={height - padding.bottom + 28} textAnchor="middle">{item.label}</text>
           </g>;
         })}
       </svg>
-      {active ? <div className="bar-chart__tooltip" style={{ left: activeLeft, top: activeTop }} role="status"><strong>{active.label}</strong><span><i style={{ background: SERIES[0].color }} />Attacks <b>{formatValue(active.value)}</b></span><span><i style={{ background: SERIES[1].color }} />Deaths <b>{formatValue(active.killed ?? 0)}</b></span><span><i style={{ background: SERIES[2].color }} />Kidnapped <b>{formatValue(active.kidnapped ?? 0)}</b></span></div> : null}
+      {active ? <div className="bar-chart__tooltip" style={{ left: activeLeft, top: activeTop }} role="status"><strong>{active.label}</strong>{series.map((entry, index) => <span key={entry.key}><i style={{ background: entry.color }} />{entry.label} <b>{formatValue(valuesFor(active)[index])}</b></span>)}</div> : null}
     </div>
-    <div className="bar-chart__legend" aria-label="Chart key">{SERIES.map((series) => <span key={series.key}><i style={{ background: series.color }} />{series.label}</span>)}</div>
-    <ul className="sr-only">{displayData.map((item) => <li key={`summary-${item.label}`}>{item.label}: {formatValue(item.value)} attacks, {formatValue(item.killed ?? 0)} deaths, {formatValue(item.kidnapped ?? 0)} kidnapped.</li>)}</ul>
+    <div className="bar-chart__legend" aria-label="Chart key">{series.map((entry) => <span key={entry.key}><i style={{ background: entry.color }} />{entry.label}</span>)}</div>
+    <ul className="sr-only">{displayData.map((item) => <li key={`summary-${item.label}`}>{item.label}: {series.map((entry, index) => `${formatValue(valuesFor(item)[index])} ${entry.label.toLowerCase()}`).join(", ")}.</li>)}</ul>
   </div>;
 }

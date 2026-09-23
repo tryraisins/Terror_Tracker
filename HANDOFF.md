@@ -3,6 +3,12 @@
 Last updated: 2026-09-23
 Branch: main
 
+## Recent Dashboard Update (2026-09-23)
+
+- The home dashboard monthly chart now switches between incident counts and victim impact (deaths/abductions), so unlike measures are not compared on a shared axis.
+- State ranking includes each displayed state's percentage of all recorded incidents for the reporting year. The percentage denominator is the full yearly total, not only the top-state slice.
+- Validation: changed dashboard files pass targeted ESLint and `npx tsc --noEmit`. Repository-wide `npm run lint` still reports existing errors across audit/scripts and unrelated components.
+
 ## Current Objective
 
 Maintain Nigeria incident discovery and victim-only casualty extraction. Recent parser
