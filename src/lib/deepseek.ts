@@ -64,10 +64,12 @@ attack on civilians or security personnel).
 
 Set "confirmed" to false if the article is any of:
 - a denial, dismissal, or fact-check of an incident ("police dismiss...", "false claim", "no such attack");
-- a security-force operation or result (troops/police rescue, raid, arrest, foil, repel, neutralize, recover);
+- a security-force offensive operation or arrest with NO victim casualties (e.g. routine patrols, raid on criminal hideouts, or neutralization of terrorists where NO civilian or security personnel were killed, injured, or abducted);
 - a threat, warning, analysis, opinion, roundup, or retrospective;
 - not about Nigeria, or not a completed incident;
 - missing a clear original event date.
+
+NOTE: If the article documents an armed attack, ambush, or kidnapping/abduction of victims (even if troops subsequently responded, repelled attackers, or rescued/recovered the kidnap victims), CONFIRM the incident and record the victims affected (e.g. number abducted, killed, injured).
 
 If confirmed, return cleaned fields. RULES:
 - Count VICTIMS only (civilians, soldiers, police, vigilantes). NEVER count attacker/bandit/insurgent deaths.

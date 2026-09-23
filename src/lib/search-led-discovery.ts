@@ -146,7 +146,9 @@ async function applyDeepSeekCleanup(
     return null;
   }
   const ts = new Date(result.incident.date).getTime();
-  if (Number.isNaN(ts) || ts < minMs || ts > maxMs) {
+  // Allow a 24h grace window (up to 72h total) for the event date if the article
+  // was published within the 48h discovery window (e.g. Thursday night attack reported Sat/Sun).
+  if (Number.isNaN(ts) || ts < minMs - 24 * 3_600_000 || ts > maxMs) {
     report.deepseekRejected++;
     if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek date outside window: ${candidate.title}`);
     return null;
@@ -272,11 +274,12 @@ function buildCandidate(
   if (ts < minMs || ts > maxMs) return reject("incident date outside the 48h window");
 
   const location = extractLocation(title, lead, state);
+  const narrative = `${title}. ${lead}`;
   const casualtyMeta: CasualtyMetadata = {
-    killed: extractCasualtyAssessment(lead, "killed"),
-    injured: extractCasualtyAssessment(lead, "injured|wounded"),
-    kidnapped: extractCasualtyAssessment(lead, "kidnapped|abducted"),
-    displaced: extractCasualtyAssessment(lead, "displaced|forced to flee"),
+    killed: extractCasualtyAssessment(narrative, "kill(?:ed|s|ing)?|slay|slain|murder(?:ed|s|ing)?|shot\\s+dead"),
+    injured: extractCasualtyAssessment(narrative, "injur(?:ed|es|ing|y|ies)?|wound(?:ed|s|ing)?"),
+    kidnapped: extractCasualtyAssessment(narrative, "kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing|ion|ions)?|hostage"),
+    displaced: extractCasualtyAssessment(narrative, "displace(?:d|s|ing)?|forced\\s+to\\s+flee"),
   };
   const normalized = normalizeCasualtyFields({}, casualtyMeta);
 
@@ -340,6 +343,7 @@ export async function collectSearchLedIncidents(
 
   for (let i = 0; i < uniqueStates.length; i += stateConcurrency) {
     const batch = uniqueStates.slice(i, i + stateConcurrency);
+    console.log(`[Scheduled Discovery] Scanning batch ${Math.floor(i / stateConcurrency) + 1}/${Math.ceil(uniqueStates.length / stateConcurrency)}: ${batch.join(", ")}`);
     const batchResults = await Promise.all(
       batch.map(async (state) => {
         report.queriesRun++;

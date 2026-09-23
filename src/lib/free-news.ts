@@ -196,6 +196,7 @@ function extractTown(title: string, state: string): string | null {
   const location = title.match(/\b(?:in|at|near)\s+([A-Z][A-Za-z'’-]{2,}(?:\s+[A-Z][A-Za-z'’-]{2,}){0,2})(?:,|\s+in)?/);
   const town = location?.[1]?.trim();
   if (!town || new RegExp(`^${escapeRegex(state)}$`, "i").test(town)) return null;
+  if (/\b(?:attacks?|ambush|clash|gunmen|bandits?|fresh|recent|multiple|separate|another|communal|reprisal|suspected|hoodlums?)\b/i.test(town)) return null;
   return /^(nigeria|community|village|state)$/i.test(town) ? null : town;
 }
 export function extractGroup(text: string): string { if (/boko\s+haram/i.test(text)) return "Boko Haram"; if (/\biswap\b/i.test(text)) return "ISWAP"; if (/\bipob|\besn\b/i.test(text)) return "IPOB/ESN"; if (/\bbandits?\b/i.test(text)) return "Bandits"; if (/\bherdsmen\b/i.test(text)) return "Herdsmen"; if (/\bcultists?\b/i.test(text)) return "Cultists"; return "Unknown Gunmen"; }
@@ -245,45 +246,109 @@ export function extractLocation(title: string, text: string, state: string): Raw
   };
 }
 
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  thirty: 30, forty: 40, fifty: 50,
+};
+const NUMBER_WORD_PATTERN = Object.keys(NUMBER_WORDS).join("|");
+const COUNT_PATTERN = `(?:\\d{1,4}|${NUMBER_WORD_PATTERN})`;
+const SINGULAR_VICTIM_ROLES = "(?:village\\s+head|traditional\\s+ruler|monarch|king|chief|security\\s+commander|commander|pastor|priest|reverend|officer|soldier|policeman|driver|trader|farmer|youth|woman|child|boy|girl|father|mother|son|daughter)";
+
+function parseCountToken(token: string): number | null {
+  if (!token) return null;
+  const lower = token.trim().toLowerCase();
+  if (NUMBER_WORDS[lower] !== undefined) return NUMBER_WORDS[lower];
+  const num = Number(lower);
+  return Number.isFinite(num) && num >= 0 ? num : null;
+}
+
 export function extractCasualtyAssessment(text: string, terms: string): CasualtyCountMetadata {
-  const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|children|worshippers?|victims?)?";
-  const counted = text.match(new RegExp(`\\b(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+  const people = "(?:people|persons|villagers|residents|farmers|soldiers|police officers?|civilians?|students?|children|worshippers?|victims?|others|passengers?|travell?ers?|commuters?)?";
+  const AUXILIARY = "(?:(?:have|has)\\s+(?:(?:reportedly|allegedly|also)\\s+)?been\\s+|(?:were|was|are|is)\\s+(?:(?:reportedly|allegedly|also)\\s+)?)*";
+  const APPOSITIVE = "(?:,\\s*including\\s+[^,]+,)?";
+  const ADVERB = "(?:reportedly|allegedly|confirmed|feared)?\\s*";
+
+  // Pattern: "<count> kidnap victims" or "kidnap/abduction of <count>"
+  if (/kidnap|abduct/i.test(terms)) {
+    const kidnapVictims = text.match(new RegExp(`\\b(${COUNT_PATTERN})\\s+(?:kidnap|abducted?|abduction)\\s+victims?\\b`, "i"));
+    if (kidnapVictims) {
+      const value = parseCountToken(kidnapVictims[1]);
+      if (value != null) {
+        return { precision: "exact", min: value, max: value, estimate: value, sourceText: kidnapVictims[0] };
+      }
+    }
+    const abductionOf = text.match(new RegExp(`\\b(?:abduction|kidnap(?:ping)?)\\s+of\\s+(${COUNT_PATTERN})\\b`, "i"));
+    if (abductionOf) {
+      const value = parseCountToken(abductionOf[1]);
+      if (value != null) {
+        return { precision: "exact", min: value, max: value, estimate: value, sourceText: abductionOf[0] };
+      }
+    }
+  }
+
+  // Pattern: "<count> <people> were <terms>"
+  const counted = text.match(new RegExp(`\\b(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(${COUNT_PATTERN})\\s+${people}\\s*${APPOSITIVE}\\s*${AUXILIARY}\\s*${ADVERB}(?:${terms})\\b`, "i"));
   if (counted) {
-    const value = Number(counted[2]);
-    const qualifier = counted[1]?.replace(/\s+/g, " ").toLowerCase();
-    if (qualifier) {
-      const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
-      const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
-      return { precision: "estimate", min, max, estimate: value, sourceText: counted[0] };
+    const value = parseCountToken(counted[2]);
+    if (value != null) {
+      const qualifier = counted[1]?.replace(/\s+/g, " ").toLowerCase();
+      if (qualifier) {
+        const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
+        const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+        return { precision: "estimate", min, max, estimate: value, sourceText: counted[0] };
+      }
+      return { precision: "exact", min: value, max: value, estimate: value, sourceText: counted[0] };
     }
-    return { precision: "exact", min: value, max: value, estimate: value, sourceText: counted[0] };
   }
-  const verbFirst = text.match(new RegExp(`\\b(?:${terms})\\s+(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(\\d{1,4})\\s+${people}`, "i"));
+
+  // Pattern: "<terms> <count> <people>"
+  const verbFirst = text.match(new RegExp(`\\b(?:${terms})\\s+(?:(about|around|approximately|over|more\\s+than|at\\s+least|nearly)\\s+)?(${COUNT_PATTERN})\\s+${people}`, "i"));
   if (verbFirst) {
-    const value = Number(verbFirst[2]);
-    const qualifier = verbFirst[1]?.replace(/\s+/g, " ").toLowerCase();
-    if (qualifier) {
-      const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
-      const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
-      return { precision: "estimate", min, max, estimate: value, sourceText: verbFirst[0] };
+    const value = parseCountToken(verbFirst[2]);
+    if (value != null) {
+      const qualifier = verbFirst[1]?.replace(/\s+/g, " ").toLowerCase();
+      if (qualifier) {
+        const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
+        const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+        return { precision: "estimate", min, max, estimate: value, sourceText: verbFirst[0] };
+      }
+      return { precision: "exact", min: value, max: value, estimate: value, sourceText: verbFirst[0] };
     }
-    return { precision: "exact", min: value, max: value, estimate: value, sourceText: verbFirst[0] };
   }
-  const range = text.match(new RegExp(`\\b(\\d{1,4})\\s*(?:-|to)\\s*(\\d{1,4})\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
+
+  // Pattern: singular victim role (count = 1), e.g. "abduct village head", "kill security commander", "killed a local security commander"
+  const ADJECTIVES = "(?:local|prominent|female|male|community|district)?\\s*";
+  const singularPost = text.match(new RegExp(`\\b(?:${terms})\\s+(?:a|an|the|one)?\\s*${ADJECTIVES}(${SINGULAR_VICTIM_ROLES})\\b`, "i"));
+  if (singularPost) {
+    return { precision: "exact", min: 1, max: 1, estimate: 1, sourceText: singularPost[0] };
+  }
+  const singularPre = text.match(new RegExp(`\\b(?:a|an|the|one)\\s*${ADJECTIVES}(${SINGULAR_VICTIM_ROLES})\\s+${AUXILIARY}\\s*${ADVERB}(?:${terms})\\b`, "i"));
+  if (singularPre) {
+    return { precision: "exact", min: 1, max: 1, estimate: 1, sourceText: singularPre[0] };
+  }
+
+  // Pattern: range "<count> to <count> <people> were <terms>"
+  const range = text.match(new RegExp(`\\b(${COUNT_PATTERN})\\s*(?:-|to)\\s*(${COUNT_PATTERN})\\s+${people}\\s*${APPOSITIVE}\\s*${AUXILIARY}\\s*${ADVERB}(?:${terms})\\b`, "i"));
   if (range) {
-    const first = Number(range[1]);
-    const second = Number(range[2]);
-    return { precision: "range", min: Math.min(first, second), max: Math.max(first, second), estimate: Math.round((first + second) / 2), sourceText: range[0] };
+    const first = parseCountToken(range[1]);
+    const second = parseCountToken(range[2]);
+    if (first != null && second != null) {
+      return { precision: "range", min: Math.min(first, second), max: Math.max(first, second), estimate: Math.round((first + second) / 2), sourceText: range[0] };
+    }
   }
+
   const vague = text.match(new RegExp(`\\b(hundreds|dozens|scores)\\s+of\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i"));
   if (vague) {
     const word = vague[1].toLowerCase();
     const estimate = word === "hundreds" ? 200 : word === "scores" ? 40 : 24;
     return { precision: "estimate", min: word === "hundreds" ? 100 : word === "scores" ? 20 : 12, max: null, estimate, sourceText: vague[0] };
   }
+
   if (new RegExp(`\\b(?:no|zero|none|without(?:\\s+any)?)\\s+${people}\\s*(?:were\\s+)?(?:${terms})\\b`, "i").test(text)) {
     return { precision: "not_reported", min: 0, max: 0, estimate: 0 };
   }
+
   const impactWasReportedWithoutFigure = new RegExp(`\\b(?:${terms})\\b`, "i").test(text) || /\b(?:casualties?|victims?)\s+(?:were\s+)?(?:unknown|unclear|not known|unconfirmed)\b/i.test(text);
   return impactWasReportedWithoutFigure ? { precision: "unknown" } : { precision: "not_reported", min: 0, max: 0, estimate: 0 };
 }
@@ -330,10 +395,10 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   }
   const location = extractLocation(title, lead, state);
   const casualtyMeta: CasualtyMetadata = {
-    killed: extractCasualtyAssessment(lead, "killed"),
-    injured: extractCasualtyAssessment(lead, "injured|wounded"),
-    kidnapped: extractCasualtyAssessment(lead, "kidnapped|abducted"),
-    displaced: extractCasualtyAssessment(lead, "displaced|forced to flee"),
+    killed: extractCasualtyAssessment(lead, "kill(?:ed|s|ing)?|slay|slain|murder(?:ed|s|ing)?|shot\\s+dead"),
+    injured: extractCasualtyAssessment(lead, "injur(?:ed|es|ing|y|ies)?|wound(?:ed|s|ing)?"),
+    kidnapped: extractCasualtyAssessment(lead, "kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing|ion|ions)?|hostage"),
+    displaced: extractCasualtyAssessment(lead, "displace(?:d|s|ing)?|forced\\s+to\\s+flee"),
   };
   const normalizedImpact = normalizeCasualtyFields({}, casualtyMeta);
   const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];

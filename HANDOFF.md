@@ -1,21 +1,48 @@
 # Project Handoff
 
-Last updated: 2026-09-19
+Last updated: 2026-09-23
 Branch: main
-HEAD: 3cde293 Broaden incident evidence policy and discovery
 
 ## Current Objective
 
-Nigerian terrorism/security incident backfill by state groups into MongoDB
-`TerrorTracker.attacks`. **The 10-batch backfill is COMPLETE:** Batch 5 (Imo,
-Jigawa, Kaduna, Kano), 6 (Katsina, Kebbi, Kogi, Kwara), 7 (Lagos, Nasarawa,
-Niger, Ogun), 8 (Ondo, Osun, Oyo, Plateau), 9 (Rivers, Sokoto, Taraba, Yobe)
-and **10 (Zamfara)** are all DONE. Remaining work is ongoing maintenance and
-resolving the quarantine candidates still left `open` (see Next Actions).
+Maintain Nigeria incident discovery and victim-only casualty extraction. Recent parser
+hardening addresses clear human impact (e.g. "abduct village head", "abandon three
+kidnap victims", "kill security commander, abduct two") previously stored as zero or
+unknown casualties. The GitHub Actions scheduler is live, but its 2026-09-23 manual
+run scanned 48 hours and admitted zero of 177 fetched URLs; see Scheduler migration
+below for the confirmed coverage limits.
+
+### Recent Milestone (2026-09-21)
+- **Heuristic Casualty Extraction Hardening (`src/lib/free-news.ts`, `src/lib/search-led-discovery.ts`)**:
+  - Expanded `extractCasualtyAssessment` to parse appositive/parenthetical clauses (e.g. `at least nine people, including a pastor, have been killed`).
+  - Added support for auxiliary verb constructs (`have been`, `has been`, `were`, `was`, `are`, `is`) and adverbs (`reportedly`, `allegedly`, `confirmed`, `feared`).
+  - Expanded victim nouns in `people` pattern with `others`, `passengers`, `travellers`, `commuters`.
+  - Updated `buildCandidate` in `src/lib/search-led-discovery.ts` to evaluate `${title}. ${lead}` against casualty extraction terms so headline figures like "Nine Killed..." are captured.
+  - Added batch progress logging to `uniqueStates` loop in `src/lib/search-led-discovery.ts` so Netlify logs report live progress during the 37-state scan.
+  - Hardened `extractTown` to reject generic incident descriptors like `Separate Gunmen Attacks` or `Fresh Attack`.
+- **Database Reconciliation (`scripts/update-plateau-incident.ts`)**:
+  - The initial broad attribution of nine deaths to Gana-Ropp was superseded by the 2026-09-23 source review: five Gana-Ropp deaths were reported for 19 Sep, before the scan window; the in-window Dorowa Babuje record was narrowed to two deaths. Do not rerun the old one-off updater without re-adjudicating its source.
+  - Verified `6ab13a4687749f8740a4e914` ("Armed robbers raid TSU students’ residences in Jalingo"): correctly records 0 casualties (property raid only, no human casualties reported), displaying "Not reported".
+
+### Recent Milestone (2026-09-20)
+- **Heuristic Casualty Extraction Hardening (`src/lib/free-news.ts`)**:
+  - Expanded `extractCasualtyAssessment` to parse written number words (`one` to `fifty`) in addition to digits.
+  - Added support for singular victim roles/titles (count = 1) including `village head`, `security commander`, `monarch`, `pastor`, `officer`, etc., with optional descriptive adjectives (`local`, `prominent`, `community`).
+  - Added support for `<count> kidnap victims` and `abduction of <count>` structures.
+  - Expanded verb/noun forms across `killed`, `injured`, `kidnapped`, and `displaced`.
+- **DeepSeek AI Verification Prompt (`src/lib/deepseek.ts`)**:
+  - Clarified operation exclusion rule: offensive operations without victim harm are excluded, but armed attacks and kidnappings where victims were abducted (even if troops responded or rescued victims) are confirmed with victim counts recorded.
+- **Search-Led Discovery (`src/lib/search-led-discovery.ts`)**:
+  - Added 24h grace window to `minMs` check in `applyDeepSeekCleanup` for true incident event dates when published within the 48h discovery window.
+  - Passed comprehensive regex terms to `extractCasualtyAssessment`.
+- **Database Reconciliation (`scripts/update-recent-top3.ts`)**:
+  - `6aaf77ab227884560cbe8876` ("Gunmen abduct village head in Kano"): updated to `date: 2026-09-17`, `kidnapped: 1`, `town: Aujarawar Alkali`, tags `deepseek-verified`. Displays "1 abducted".
+  - `6aaf77ab227884560cbe8872` ("Bandits flee, abandon three kidnap victims as troops strike in Katsina"): updated to `kidnapped: 3`, `lga: Dandume`, tags `deepseek-verified`. Displays "3 abducted".
+  - `6aaf77ac227884560cbe887a` ("Bandits kill security commander, abduct two in Kwara community"): updated to `killed: 1, kidnapped: 2`, tags `deepseek-verified`. Displays "1 killed · 2 abducted".
 
 ## Current State
 
-- Total active attacks in `TerrorTracker.attacks`: **467** (`_deleted: { $ne: true }`).
+- Backfill checkpoint before the 2026-09-23 audit: **467 active attacks**. The 2026-09-23 audit added 8 records (collection count 475 -> 483); re-query active count before relying on the exact current total.
 - Backfill batches completed:
   - Batch 1 (Abia, Adamawa, Akwa Ibom, Anambra) — DONE
   - Batch 2 (Bauchi, Bayelsa, Benue, Borno) — DONE
@@ -422,12 +449,12 @@ all 37 jurisdictions over the trailing 48 hours.
   completed, original incident (rejecting denials, security-force operations, threats/roundups)
   and returns cleaned title/date/state/LGA/town/group/status/victim-only casualties. On a
   DeepSeek error it fails open (keeps the heuristic candidate) and increments `deepseekErrors`.
-- `netlify/functions/scheduled-discovery-background.mts` — Netlify scheduled function (06:00 UTC)
-  that runs discovery + ingestion, then the report-only duplicate check on the same schedule.
+- `netlify/functions/scheduled-discovery-background.mts` — retained background function, no longer
+  scheduled; scheduled discovery runs through GitHub Actions.
 - `scripts/search-led-scan.ts` — manual / CI entry point.
-- `.github/workflows/daily-scan.yml` — free GitHub Actions fallback (06:30 UTC) running the same
-  script with `MONGODB_URI` + `BRAVE_SEARCH_API_KEY` secrets.
-- Existing `netlify/functions/scheduled-update-background.mts` (RSS collector) remains scheduled.
+- `.github/workflows/daily-scan.yml` — primary daily scheduler (06:30 UTC), plus manual dispatch;
+  runs the scan with GitHub Actions secrets and a 60-minute timeout.
+- `netlify/functions/scheduled-update-background.mts` is retained but is no longer scheduled.
 
 ### Verified behaviour (read-only test, 2026-09-19)
 - 6 states, 48h window: 53 URLs discovered, 53 fetched, 0 fetch errors; Brave fallback used per
@@ -438,10 +465,27 @@ all 37 jurisdictions over the trailing 48 hours.
   articles lack a parseable publish date and are dropped; casualty extraction can miss
   (e.g. "kill 15" → 0). The RSS lane remains the freshest source; search-led is a gap-filler.
 
+### Scheduler migration (2026-09-23)
+- GitHub Actions secrets `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, and `DEEPSEEK_API_KEY` were
+  configured from the existing ignored local environment file; secret values are not stored here.
+- Manual production workflow run `35860483242` completed successfully in 3m48s: connected to
+  MongoDB, completed all 37 state queries, discovered 178 URLs, fetched 177, admitted 0
+  candidates, and reported 1 fetch error. This was not a timeout or early cutoff. The
+  scheduled/manual job uses a trailing 48-hour window, which excludes earlier dates when
+  a wider range is requested. The scan requires parseable publish and incident dates and
+  can reject original attacks when search results surface only a rescue/operation follow-up.
+  Ingestion completed with 0 inserts, 0 merges, and 0 errors; duplicate scan reported 7
+  candidates across 5 states (report-only). One later read-only retry pass found a transient
+  article timeout that recovered on retry; earlier audit output stored only aggregate fetch
+  errors, not the original failed URLs.
+- GitHub Actions is now the primary scheduler at 06:30 UTC (07:30 Lagos); workflow timeout is 60m.
+- Netlify schedule declarations were removed from `netlify.toml`; production deploy
+  `6ab3c6c6a415930008021f2e` for commit `2843a73` is ready and reports no function schedules.
+  GitHub scheduled events can be delayed or dropped, so monitor run history.
+
 ### Env required for the cron
-- Netlify: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, `FREE_SOURCE_INGEST_ENABLED=true`.
-  Optional: `DEEPSEEK_API_KEY` (+ `DEEPSEEK_CLEANUP_ENABLED=true`) for the cleanup pass.
-- GitHub secrets: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, optional `DEEPSEEK_API_KEY`.
+- GitHub Actions secrets: `MONGODB_URI`, `BRAVE_SEARCH_API_KEY`, `DEEPSEEK_API_KEY`.
+- Netlify no longer owns a schedule for these jobs.
 - Gemini/VertAII code is left in place but is no longer in the scheduled path.
 
 ### Do not repeat
