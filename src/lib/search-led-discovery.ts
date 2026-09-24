@@ -5,7 +5,7 @@
  * that mirrors the whole-year backfill: DuckDuckGo/Bing HTML search for free,
  * Brave Search API only as a fallback, direct article fetch with a Jina reader
  * fallback for 403s, and regex extraction of the incident fields. Ingestion
- * uses a SHA-256 dedup guard with source-URL and location/date checks. Optional
+ * uses a SHA-256 dedup guard with source-URL and same-town/date checks. Optional
  * DeepSeek cleanup can confirm candidates when configured.
  */
 
@@ -100,6 +100,10 @@ function hashFor(candidate: RawAttackData): string {
   const state = (candidate.location.state || "").trim().toLowerCase();
   const lga = (candidate.location.lga || "").trim().toLowerCase();
   return crypto.createHash("sha256").update(`${title}|${dateStr}|${state}|${lga}`).digest("hex");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function discoverForQuery(
@@ -470,13 +474,25 @@ export async function ingestSearchLedAttacks(
     try {
       const hash = hashFor(candidate);
       const date = new Date(candidate.date);
+      const town = (candidate.location.town || "").trim();
+      const hasSpecificTown = town !== "" && !/^(?:unknown|multiple|various|unspecified|n\/?a)$/i.test(town);
+      const duplicateFilters: Record<string, unknown>[] = [
+        { hash },
+        { "sources.url": { $in: (candidate.sources || []).map((s) => s.url) } },
+      ];
+      // State + LGA + date alone is too broad: separate attacks can happen in
+      // the same LGA on the same day. Only use the location/date fallback when
+      // both records identify the same specific town.
+      if (hasSpecificTown) {
+        duplicateFilters.push({
+          "location.state": candidate.location.state,
+          date,
+          "location.town": { $regex: `^${escapeRegExp(town)}(?:$|\\s|[,(/–—-])`, $options: "i" },
+        });
+      }
       const existing = await Attack.findOne({
         _deleted: { $ne: true },
-        $or: [
-          { hash },
-          { "sources.url": { $in: (candidate.sources || []).map((s) => s.url) } },
-          { "location.state": candidate.location.state, "location.lga": candidate.location.lga, date },
-        ],
+        $or: duplicateFilters,
       });
 
       if (existing) {

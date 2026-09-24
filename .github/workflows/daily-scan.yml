@@ -2,8 +2,9 @@ name: Daily Nigeria incident scan
 
 on:
   schedule:
-    # Daily scan uses a 96-hour overlap to tolerate delayed or missed schedule events.
+    # Primary run plus a guarded daily retry in case GitHub misses the first schedule event.
     - cron: "30 6 * * *"
+    - cron: "30 9 * * *"
   workflow_dispatch:
     inputs:
       lookback_hours:
@@ -20,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   scan:
@@ -40,14 +42,38 @@ jobs:
       SOURCE_FETCH_TIMEOUT_MS: "10000"
       SCAN_REPORT_PATH: ${{ github.workspace }}/incident-scan-report.json
     steps:
+      - name: Skip backup if today's scan already succeeded
+        id: backup_guard
+        if: github.event_name == 'schedule' && github.event.schedule == '30 9 * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          today="$(TZ=Africa/Lagos date +%F)"
+          runs="$(gh run list --workflow daily-scan.yml --limit 100 --json databaseId,createdAt,conclusion,status --jq '.[] | [.databaseId, .createdAt, (.conclusion // ""), .status] | @tsv')"
+          while IFS=$'\t' read -r run_id created_at conclusion status; do
+            [ -n "$run_id" ] || continue
+            [ "$run_id" = "$GITHUB_RUN_ID" ] && continue
+            run_day="$(TZ=Africa/Lagos date -d "$created_at" +%F)"
+            if [ "$run_day" = "$today" ] && { [ "$conclusion" = "success" ] || [ "$status" = "in_progress" ]; }; then
+              echo "Today's scan is already successful or running (run $run_id); skipping backup."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done <<< "$runs"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.backup_guard.outputs.skip != 'true'
       - uses: actions/setup-node@v4
+        if: steps.backup_guard.outputs.skip != 'true'
         with:
           node-version: 20
           cache: npm
       - name: Install dependencies
+        if: steps.backup_guard.outputs.skip != 'true'
         run: npm ci
       - name: Run search-led discovery + ingest + duplicate check
+        if: steps.backup_guard.outputs.skip != 'true'
         run: npx -y tsx scripts/search-led-scan.ts
       - name: Upload scan report and review leads
         if: always()

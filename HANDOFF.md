@@ -1,6 +1,6 @@
 # Project Handoff
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 Branch: main
 
 ## Recent Dashboard Update (2026-09-23)
@@ -14,13 +14,36 @@ Branch: main
 Maintain Nigeria incident discovery and victim-only casualty extraction. Recent parser
 hardening addresses clear human impact (e.g. "abduct village head", "abandon three
 kidnap victims", "kill security commander, abduct two") previously stored as zero or
-unknown casualties. GitHub Actions is the daily scheduler. The 2026-09-23 manual run
-completed all 37 queries but admitted zero of 177 fetched URLs, exposing a 48-hour
-window, date-metadata filters, and missing fetch-level diagnostics. A 2026-09-23
-hardening change widens the default overlap to 96 hours, retries transient requests,
-and preserves rejected leads and fetch/provider errors for review. Relative weekday
-dates now resolve against the publication date in Lagos time. Search coverage remains
-non-exhaustive.
+unknown casualties. GitHub Actions is the daily scheduler. The 2026-09-24 catch-up run
+scanned all 37 states and fetched 144/144 URLs with no fetch/search/provider errors;
+four candidates matched existing records, and a separate Kebbi communal-violence lead
+was manually verified and inserted. The run remains `REVIEW_REQUIRED` because other
+leads still need date/scope review. GitHub had no Sep24 scheduled run by 08:28 UTC, so
+the workflow now has a guarded retry schedule at 09:30 UTC. Source/date dedup matching
+now requires a same-town match instead of merging unrelated incidents solely because
+state, LGA, and date match. Relative weekday dates resolve against the publication date
+in Lagos time. Search coverage remains non-exhaustive.
+
+### Recent Scan Reconciliation (2026-09-24)
+
+- Manual workflow run `35975794590` (`68f5d80`): 37/37 states, 144/144 URLs fetched,
+  2 retry attempts, 0 fetch failures, 0 search failures, 4 candidates, 36 review leads,
+  0 insertions and 4 duplicate merges. All four candidates were already represented:
+  three Plateau reports and the Taraba TSU raid. New Plateau source links were merged
+  into existing records. The report artifact is `incident-scan-report-35975794590`.
+- A review lead for the Lafagu/Buya communal violence in Bagudo, Kebbi was dated to
+  Sunday 2026-09-20 by cross-source reporting. Added as attack
+  `6ab4e3b695ce6e7d427d445b`, with a reported minimum of 15 killed, approximate
+  multi-community location, developing status, and Channels, Daily Post, and Punch
+  sources. Verified against live MongoDB after insertion.
+- GitHub scheduled runs Sep20-23 failed immediately because `MONGODB_URI` was absent;
+  the secret was added after the Sep23 scheduled attempt. No Sep24 schedule event was
+  present by 08:28 UTC. The workflow now schedules a second daily run at 09:30 UTC
+  (10:30 Lagos) and skips its scan if a same-Lagos-day run has already succeeded or is
+  still running. Workflow requires `actions: read` for this guard.
+- `ingestSearchLedAttacks` no longer treats state + LGA + date alone as a duplicate;
+  its location/date fallback now also requires the same specific town. Exact candidate
+  hash and source URL matching remain in place.
 
 ### Recent Milestone (2026-09-21)
 - **Heuristic Casualty Extraction Hardening (`src/lib/free-news.ts`, `src/lib/search-led-discovery.ts`)**:
