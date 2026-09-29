@@ -3,6 +3,13 @@
 Last updated: 2026-09-29
 Branch: codex/multi-incident-cleaner
 
+## Incident Sharing and Social Previews
+
+- Incident detail routes now load the public record on the server and render it into the initial HTML, while retaining the existing client detail interactions.
+- Each incident has record-specific title, description, canonical URL, Open Graph article metadata, and Twitter/X large-card metadata. `/incidents/[id]/opengraph-image` renders a 1200×630 branded, non-graphic card using the incident title, date, location, and record status.
+- Detail pages offer native device sharing, copy link, WhatsApp, Facebook, LinkedIn, and X actions.
+- Verification: `npx tsc --noEmit`, targeted ESLint, `git diff --check`, and `npm run build` pass. A local production-server check returned a 200 incident page with server-rendered title metadata and a 200 `image/png` OG card (68 KB). Live social crawler previews still require a deployed public URL.
+
 ## Current Objective
 
 Maintain source-grounded, event-level incident records. DeepSeek cleanup now classifies one-event,

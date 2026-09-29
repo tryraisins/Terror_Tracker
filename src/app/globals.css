@@ -93,6 +93,13 @@ body { background:radial-gradient(circle at 12% -15%,rgba(180,72,89,.16),transpa
 .rank-row__value small { margin-top:.2rem; color:var(--muted); font-size:.68rem; }
 @media (max-width:767px) { .chart-panel .panel-heading { align-items:flex-start; flex-direction:column; }.chart-switch { width:100%; }.chart-switch button { flex:1 1 50%; }.rank-row { grid-template-columns:minmax(4.5rem,5rem) minmax(0,1fr) 3.25rem; } }
 
+.incident-share { display:flex; flex-wrap:wrap; align-items:center; gap:.55rem; margin-top:1.25rem; }
+.incident-share__label { flex-basis:100%; color:var(--muted); font-size:.7rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; }
+.incident-share .button-quiet,.incident-share .button-secondary { gap:.45rem; min-height:2.45rem; padding:.45rem .75rem; font-size:.78rem; }
+.incident-share__primary { background:rgba(229,54,32,.1); }
+.incident-share__social { text-decoration:none; }
+@media (max-width:767px) { .incident-share { gap:.45rem; }.incident-share__copy { margin-left:auto; }.incident-share .button-quiet,.incident-share .button-secondary { padding:.42rem .65rem; font-size:.74rem; } }
+
 /* Dark-only red signal system */
 html { color-scheme:dark; }
 body { background:radial-gradient(circle at 12% -15%,rgba(229,54,32,.16),transparent 29rem),linear-gradient(145deg,var(--canvas),#121216 60%,#090a0c); }
