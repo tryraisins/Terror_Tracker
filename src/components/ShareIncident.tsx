@@ -18,16 +18,7 @@ export default function ShareIncident({ title, shareUrl }: { title: string; shar
       }
       return;
     }
-    await copyLink();
-  }
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setMessage("Incident link copied.");
-    } catch {
-      setMessage("Copy failed. Select and copy the address bar link.");
-    }
+    setMessage("Choose a social platform below to share this record.");
   }
 
   return <div className="incident-share" aria-label="Share this incident">
@@ -35,11 +26,9 @@ export default function ShareIncident({ title, shareUrl }: { title: string; shar
     <button type="button" className="button-secondary incident-share__primary" onClick={share} aria-label="Share incident link">
       <ShareIcon /> Share
     </button>
-    <button type="button" className="button-quiet incident-share__copy" onClick={copyLink}>Copy link</button>
     <a className="button-quiet incident-share__social" href={`https://wa.me/?text=${encodedTitle}%20${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on WhatsApp">WhatsApp</a>
     <a className="button-quiet incident-share__social" href={`https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on Facebook">Facebook</a>
-    <a className="button-quiet incident-share__social" href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on LinkedIn">LinkedIn</a>
-    <a className="button-quiet incident-share__social" href={`https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on X">X</a>
+    <a className="button-quiet incident-share__social" href={`https://twitter.com/intent/tweet?text=${encodedTitle}&url=${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on Twitter">Twitter</a>
     <span className="sr-only" role="status" aria-live="polite">{message}</span>
   </div>;
 }

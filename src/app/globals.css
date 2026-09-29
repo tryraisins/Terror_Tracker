@@ -98,7 +98,7 @@ body { background:radial-gradient(circle at 12% -15%,rgba(180,72,89,.16),transpa
 .incident-share .button-quiet,.incident-share .button-secondary { gap:.45rem; min-height:2.45rem; padding:.45rem .75rem; font-size:.78rem; }
 .incident-share__primary { background:rgba(229,54,32,.1); }
 .incident-share__social { text-decoration:none; }
-@media (max-width:767px) { .incident-share { gap:.45rem; }.incident-share__copy { margin-left:auto; }.incident-share .button-quiet,.incident-share .button-secondary { padding:.42rem .65rem; font-size:.74rem; } }
+@media (max-width:767px) { .incident-share { gap:.45rem; }.incident-share .button-quiet,.incident-share .button-secondary { padding:.42rem .65rem; font-size:.74rem; } }
 
 /* Dark-only red signal system */
 html { color-scheme:dark; }
