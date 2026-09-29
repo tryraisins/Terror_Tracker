@@ -4,13 +4,12 @@
  * explicitly disabled), so the scheduled scan stays free by default.
  *
  * The model receives the candidate plus the fetched article text and must
- * (a) confirm the source describes a specific, completed, original armed/
- * security incident in Nigeria, and (b) return cleaned structured fields.
- * It is a gate + normalizer, never a source of new URLs.
+ * (a) classify a source as one event, multiple events, review-required, or
+ * ineligible, and (b) return source-grounded event records. It is a gate +
+ * normalizer, never a source of new URLs.
  */
 
 import { RawAttackData } from "./free-news";
-import { normalizeCasualtyFields } from "./incident-uncertainty";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 
@@ -23,6 +22,8 @@ export interface DeepSeekCleanupResult {
   confirmed: boolean;
   reason: string;
   incident?: RawAttackData;
+  incidents?: RawAttackData[];
+  reviewRequired?: boolean;
   /** True when DeepSeek could not be reached/parsed and the heuristic candidate was kept. */
   fallback?: boolean;
 }
@@ -58,20 +59,31 @@ function buildPrompt(candidate: RawAttackData, articleText: string): string {
   };
   return `You verify and clean news-derived security incidents for a Nigerian tracker.
 
-Decide whether the ARTICLE describes a specific, completed, original armed/security incident in
-Nigeria (attack, ambush, raid, shooting, kidnapping/abduction, massacre, IED/bombing, or an armed
-attack on civilians or security personnel).
+Classify the ARTICLE as a report of one event, multiple distinct events, a roundup with events that
+cannot be separated from the text, or not an eligible incident. An event is one attack/abduction
+episode with its own date and place. Separate attacks remain separate even when the article gives
+one aggregate headline total. Do not combine casualties from different dates, towns, LGAs, or states.
 
-Set "confirmed" to false if the article is any of:
+Classify as "not_incident" if the article is any of:
 - a denial, dismissal, or fact-check of an incident ("police dismiss...", "false claim", "no such attack");
 - a security-force offensive operation or arrest with NO victim casualties (e.g. routine patrols, raid on criminal hideouts, or neutralization of terrorists where NO civilian or security personnel were killed, injured, or abducted);
-- a threat, warning, analysis, opinion, roundup, or retrospective;
+- a threat, warning, analysis, opinion, or retrospective;
 - not about Nigeria, or not a completed incident;
-- missing a clear original event date.
+- no qualifying original armed/security incident.
 
 NOTE: If the article documents an armed attack, ambush, or kidnapping/abduction of victims (even if troops subsequently responded, repelled attackers, or rescued/recovered the kidnap victims), CONFIRM the incident and record the victims affected (e.g. number abducted, killed, injured).
 
-If confirmed, return cleaned fields. RULES:
+If one or more events are individually separable, return one object per event in "incidents". If an
+article is a roundup or reports multiple events but you cannot confidently assign each event's date,
+location, or victim count separately, or the original event date is unclear, set classification to
+"review_required" and return no incidents.
+Do not turn an article-wide total into a per-event count. Do not treat a report that explicitly says
+it could not confirm an event as confirmed; it may be returned as unconfirmed with that limitation.
+
+For EVERY event, provide short verbatim evidence excerpts copied from ARTICLE TEXT for the date,
+location, and each non-null casualty count. Each excerpt must support only that event and field. If
+the evidence for a field is absent or ambiguous, use null for a casualty count or request review for
+date/location. RULES:
 - Count VICTIMS only (civilians, soldiers, police, vigilantes). NEVER count attacker/bandit/insurgent deaths.
 - Use null when a count is not stated. Do not invent numbers.
 - "date" must be the original event date in ISO 8601 (YYYY-MM-DD or full ISO); never the publication date.
@@ -80,20 +92,28 @@ If confirmed, return cleaned fields. RULES:
 
 Respond with JSON only:
 {
-  "confirmed": boolean,
+  "classification": "single_event" | "multiple_events" | "review_required" | "not_incident",
   "reason": "short explanation",
-  "title": string,
-  "date": string,
-  "state": string,
-  "lga": string,
-  "town": string,
-  "group": string,
-  "status": "confirmed" | "unconfirmed" | "developing",
-  "killed": number | null,
-  "injured": number | null,
-  "kidnapped": number | null,
-  "displaced": number | null,
-  "tags": string[]
+  "incidents": [{
+    "title": string,
+    "date": string,
+    "dateEvidence": string,
+    "state": string,
+    "lga": string,
+    "town": string,
+    "locationEvidence": string,
+    "group": string,
+    "status": "confirmed" | "unconfirmed" | "developing",
+    "killed": number | null,
+    "killedEvidence": string,
+    "injured": number | null,
+    "injuredEvidence": string,
+    "kidnapped": number | null,
+    "kidnappedEvidence": string,
+    "displaced": number | null,
+    "displacedEvidence": string,
+    "tags": string[]
+  }]
 }
 
 CANDIDATE:
@@ -132,7 +152,7 @@ export async function cleanAndConfirmIncident(
           { role: "user", content: buildPrompt(candidate, articleText) },
         ],
         temperature: 0,
-        max_tokens: 900,
+        max_tokens: 2200,
         response_format: { type: "json_object" },
       }),
       signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
@@ -155,48 +175,97 @@ export async function cleanAndConfirmIncident(
     return fallback(`deepseek error (${error instanceof Error ? error.message : String(error)}); kept heuristic candidate`, candidate);
   }
 
-  if (parsed.confirmed !== true) {
-    return { confirmed: false, reason: typeof parsed.reason === "string" ? parsed.reason : "not confirmed by deepseek" };
+  const classification = parsed.classification;
+  const reason = typeof parsed.reason === "string" ? parsed.reason : "DeepSeek could not establish event identity";
+  if (classification === "review_required") return { confirmed: false, reviewRequired: true, reason };
+  if (classification === "not_incident") return { confirmed: false, reason };
+  if (classification !== "single_event" && classification !== "multiple_events") {
+    return { confirmed: false, reviewRequired: true, reason: "DeepSeek returned an invalid event classification" };
+  }
+  if (!Array.isArray(parsed.incidents) || parsed.incidents.length === 0) {
+    return { confirmed: false, reviewRequired: true, reason: "DeepSeek classified the article as an incident but returned no event records" };
+  }
+  if ((classification === "single_event" && parsed.incidents.length !== 1) || (classification === "multiple_events" && parsed.incidents.length < 2)) {
+    return { confirmed: false, reviewRequired: true, reason: "DeepSeek classification and event count disagree" };
   }
 
-  const state = typeof parsed.state === "string" && parsed.state.trim()
-    ? normalizeStateName(parsed.state)
-    : candidate.location.state;
-  const date = toDateString(parsed.date) || candidate.date;
-  const title = typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim().slice(0, 500) : candidate.title;
-  const group = typeof parsed.group === "string" && parsed.group.trim() ? parsed.group.trim().slice(0, 120) : candidate.group;
-  const status = typeof parsed.status === "string" && VALID_STATUSES.has(parsed.status)
-    ? (parsed.status as RawAttackData["status"])
-    : candidate.status;
+  const normalizedArticle = normalizeEvidenceText(articleText);
+  const cleanedIncidents: RawAttackData[] = [];
+  for (const raw of parsed.incidents) {
+    if (!raw || typeof raw !== "object") return { confirmed: false, reviewRequired: true, reason: "DeepSeek returned an invalid event record" };
+    const event = raw as Record<string, unknown>;
+    const evidence = (field: string) => typeof event[field] === "string" ? normalizeEvidenceText(event[field] as string) : "";
+    const date = toDateString(event.date);
+    const stateValue = typeof event.state === "string" ? event.state.trim() : "";
+    const lga = typeof event.lga === "string" ? event.lga.trim() : "";
+    const town = typeof event.town === "string" ? event.town.trim() : "";
+    const dateEvidence = evidence("dateEvidence");
+    const locationEvidence = evidence("locationEvidence");
+    if (!date || !stateValue || !lga || !town || !dateEvidence || !locationEvidence ||
+        !normalizedArticle.includes(dateEvidence) || !normalizedArticle.includes(locationEvidence) ||
+        /^(unknown|unspecified|n\/a)$/i.test(lga) || /^(unknown|unspecified|n\/a)$/i.test(town)) {
+      return { confirmed: false, reviewRequired: true, reason: "Event date or location lacks specific supporting article text" };
+    }
 
-  const normalizedImpact = normalizeCasualtyFields({
-    killed: toCount(parsed.killed),
-    injured: toCount(parsed.injured),
-    kidnapped: toCount(parsed.kidnapped),
-    displaced: toCount(parsed.displaced),
-  });
+    const countFields = ["killed", "injured", "kidnapped", "displaced"] as const;
+    const counts: Record<string, number | null> = {};
+    const casualtyMeta: Record<string, { precision: "exact" | "range"; min: number | null; max: number | null; estimate: number | null; sourceText?: string }> = {};
+    for (const field of countFields) {
+      const value = toCount(event[field]);
+      const quote = evidence(`${field}Evidence`);
+      if (value != null && (!quote || !normalizedArticle.includes(quote))) {
+        return { confirmed: false, reviewRequired: true, reason: `The ${field} figure lacks supporting article text` };
+      }
+      counts[field] = value;
+      if (value != null) {
+        const isMinimum = /\b(?:more than|over|at least|no fewer than)\b/i.test(quote);
+        const minimum = isMinimum ? value + (/\b(?:more than|over)\b/i.test(quote) ? 1 : 0) : value;
+        casualtyMeta[field] = {
+          precision: isMinimum ? "range" : "exact",
+          min: minimum,
+          max: isMinimum ? null : value,
+          estimate: minimum,
+          sourceText: typeof event[`${field}Evidence`] === "string" ? (event[`${field}Evidence`] as string).slice(0, 300) : undefined,
+        };
+        if (isMinimum) counts[field] = minimum;
+      }
+    }
 
-  const cleaned: RawAttackData = {
-    ...candidate,
-    title,
-    date,
-    datePrecision: "exact_day",
-    location: {
-      state,
-      lga: typeof parsed.lga === "string" && parsed.lga.trim() ? parsed.lga.trim() : candidate.location.lga || "Unknown",
-      town: typeof parsed.town === "string" && parsed.town.trim() ? parsed.town.trim() : candidate.location.town || "Unknown",
-      precision: candidate.location.precision,
-      notes: candidate.location.notes,
-    },
-    group,
-    casualties: normalizedImpact.casualties,
-    casualtyMeta: normalizedImpact.casualtyMeta,
-    status,
-    tags: Array.from(new Set([...(candidate.tags || []), ...(Array.isArray(parsed.tags) ? parsed.tags.filter((t): t is string => typeof t === "string") : []), "deepseek-verified"])),
+    const title = typeof event.title === "string" && event.title.trim() ? event.title.trim().slice(0, 500) : "";
+    const group = typeof event.group === "string" && event.group.trim() ? event.group.trim().slice(0, 120) : candidate.group;
+    const status = typeof event.status === "string" && VALID_STATUSES.has(event.status)
+      ? (event.status as RawAttackData["status"])
+      : "unconfirmed";
+    if (!title || !VALID_STATUSES.has(status)) return { confirmed: false, reviewRequired: true, reason: "Event title or status is invalid" };
+    const cleaned: RawAttackData = {
+      ...candidate,
+      title,
+      description: `${title}. ${typeof event.description === "string" ? event.description.trim() : event.locationEvidence}`.slice(0, 5000),
+      date,
+      datePrecision: "exact_day",
+      location: {
+        state: normalizeStateName(stateValue), lga: lga.slice(0, 120), town: town.slice(0, 160),
+        precision: candidate.location.precision, notes: `Event location supported by source text: ${event.locationEvidence}`.slice(0, 500),
+      },
+      group,
+      casualties: counts as RawAttackData["casualties"],
+      casualtyMeta,
+      status,
+      tags: Array.from(new Set([...(candidate.tags || []), ...(Array.isArray(event.tags) ? event.tags.filter((t): t is string => typeof t === "string") : []), "deepseek-verified"])),
+    };
+    const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });
+    if (scopeRejection) return { confirmed: false, reason: `scope re-check failed: ${scopeRejection}` };
+    cleanedIncidents.push(cleaned);
+  }
+
+  return {
+    confirmed: true,
+    reason,
+    incidents: cleanedIncidents,
+    incident: cleanedIncidents.length === 1 ? cleanedIncidents[0] : undefined,
   };
+}
 
-  const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: articleText, group: cleaned.group });
-  if (scopeRejection) return { confirmed: false, reason: `scope re-check failed: ${scopeRejection}` };
-
-  return { confirmed: true, reason: typeof parsed.reason === "string" ? parsed.reason : "confirmed", incident: cleaned };
+function normalizeEvidenceText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }

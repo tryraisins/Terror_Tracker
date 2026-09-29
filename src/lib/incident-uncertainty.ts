@@ -89,7 +89,8 @@ export function normalizeCasualtyAssessment(
 
   if (precision === "range") {
     min = min ?? normalizedValue ?? estimate ?? null;
-    max = max ?? normalizedValue ?? estimate ?? null;
+    const explicitlyOpenEnded = rawMeta != null && "max" in rawMeta && rawMeta.max === null;
+    max = explicitlyOpenEnded ? null : max ?? normalizedValue ?? estimate ?? null;
     if (min != null && max != null && min > max) [min, max] = [max, min];
     estimate = estimate ?? (min != null && max != null ? Math.round((min + max) / 2) : min ?? max ?? null);
   }
@@ -146,7 +147,7 @@ function boundsFor(value: number | null, meta?: CasualtyCountMetadata) {
   if (representative == null) return null;
   return {
     min: normalizeCasualtyValue(meta?.min) ?? representative,
-    max: normalizeCasualtyValue(meta?.max) ?? representative,
+    max: meta?.precision === "range" && meta.max == null ? null : normalizeCasualtyValue(meta?.max) ?? representative,
     estimate: normalizeCasualtyValue(meta?.estimate) ?? representative,
     precision: meta?.precision ?? (representative === 0 ? "not_reported" : "exact"),
   };
@@ -183,8 +184,10 @@ export function mergeCasualtyAssessments(
     }
 
     const min = Math.min(existingBounds.min, incomingBounds.min);
-    const max = Math.max(existingBounds.max, incomingBounds.max);
-    const sameNumber = min === max;
+    const max = existingBounds.max == null || incomingBounds.max == null
+      ? null
+      : Math.max(existingBounds.max, incomingBounds.max);
+    const sameNumber = max != null && min === max;
     const uncertain =
       existingBounds.precision === "range" ||
       incomingBounds.precision === "range" ||
@@ -209,7 +212,9 @@ export function mergeCasualtyAssessments(
       estimate,
       note: sameNumber
         ? "At least one cited source reports this as an approximate figure."
-        : "Conflicting credible victim counts are preserved as a range.",
+        : max == null
+          ? "At least one cited source reports a minimum count."
+          : "Conflicting credible victim counts are preserved as a range.",
     };
   }
 

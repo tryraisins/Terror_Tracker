@@ -49,6 +49,7 @@ export interface SearchLedReport {
   deepseekConfirmed: number;
   deepseekRejected: number;
   deepseekErrors: number;
+  deepseekReviewRequired: number;
 }
 
 export interface SearchLedIngestResult {
@@ -99,7 +100,8 @@ function hashFor(candidate: RawAttackData): string {
   const dateStr = new Date(candidate.date).toISOString().slice(0, 10);
   const state = (candidate.location.state || "").trim().toLowerCase();
   const lga = (candidate.location.lga || "").trim().toLowerCase();
-  return crypto.createHash("sha256").update(`${title}|${dateStr}|${state}|${lga}`).digest("hex");
+  const town = (candidate.location.town || "").trim().toLowerCase();
+  return crypto.createHash("sha256").update(`${title}|${dateStr}|${state}|${lga}|${town}`).digest("hex");
 }
 
 function escapeRegExp(value: string): string {
@@ -159,29 +161,55 @@ async function applyDeepSeekCleanup(
   report: SearchLedReport,
   minMs: number,
   maxMs: number,
-): Promise<RawAttackData | null> {
-  if (!isDeepSeekCleanupEnabled()) return candidate;
+): Promise<RawAttackData[] | null> {
+  const multiEventSignal = /\b(?:separate attacks?|separate incidents?|another separate|in separate|across (?:several|multiple|two|three|four) (?:communities|villages|states|locations)|in different (?:communities|villages|locations|states))\b/i.test(`${parts.title}. ${parts.lead}. ${parts.text}`);
+  if (!isDeepSeekCleanupEnabled()) {
+    if (multiEventSignal) {
+      report.deepseekReviewRequired++;
+      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Multiple incidents indicated but DeepSeek cleanup is disabled" });
+      return null;
+    }
+    return [candidate];
+  }
   report.deepseekCalls++;
   const result = await cleanAndConfirmIncident(candidate, `${parts.title}. ${parts.lead}. ${parts.text}`);
   if (result.fallback) {
     report.deepseekErrors++;
-    return result.incident ?? candidate;
+    if (multiEventSignal) {
+      report.deepseekReviewRequired++;
+      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Multiple incidents indicated but DeepSeek cleanup failed" });
+      return null;
+    }
+    return [result.incident ?? candidate];
   }
-  if (!result.confirmed || !result.incident) {
+  if (result.reviewRequired) {
+    report.deepseekReviewRequired++;
+    report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: result.reason });
+    return null;
+  }
+  const incidents = result.incidents || (result.incident ? [result.incident] : []);
+  if (!result.confirmed || incidents.length === 0) {
     report.deepseekRejected++;
     if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek rejected (${result.reason}): ${candidate.title}`);
     return null;
   }
-  const ts = new Date(result.incident.date).getTime();
-  // Allow a 24h grace window beyond the configured lookback for the event date
-  // when a recently published report describes a delayed-reported incident.
-  if (Number.isNaN(ts) || ts < minMs - 24 * 3_600_000 || ts > maxMs) {
-    report.deepseekRejected++;
-    if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek date outside window: ${candidate.title}`);
+  if (multiEventSignal && incidents.length < 2) {
+    report.deepseekReviewRequired++;
+    report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Article signals separate incidents but DeepSeek returned a single event" });
     return null;
   }
+  for (const incident of incidents) {
+    const ts = new Date(incident.date).getTime();
+    // Allow a 24h grace window beyond the configured lookback for the event date
+    // when a recently published report describes a delayed-reported incident.
+    if (Number.isNaN(ts) || ts < minMs - 24 * 3_600_000 || ts > maxMs) {
+      report.deepseekReviewRequired++;
+      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: `Event date outside the active scan window: ${incident.date}` });
+      return null;
+    }
+  }
   report.deepseekConfirmed++;
-  return result.incident;
+  return incidents;
 }
 
 async function fetchAndExtract(
@@ -217,8 +245,8 @@ async function fetchAndExtract(
         }
         const final = await applyDeepSeekCleanup(candidate, parts, report, minMs, maxMs);
         if (final) {
-          found.push(final);
-          report.candidates++;
+          found.push(...final);
+          report.candidates += final.length;
         } else {
           report.rejected++;
           const reason = "DeepSeek rejected or could not confirm candidate";
@@ -421,6 +449,7 @@ export async function collectSearchLedIncidents(
     deepseekConfirmed: 0,
     deepseekRejected: 0,
     deepseekErrors: 0,
+    deepseekReviewRequired: 0,
   };
   const attacks: RawAttackData[] = [];
   const budget = { braveCalls: 0 };
@@ -478,16 +507,19 @@ export async function ingestSearchLedAttacks(
       const hasSpecificTown = town !== "" && !/^(?:unknown|multiple|various|unspecified|n\/?a)$/i.test(town);
       const duplicateFilters: Record<string, unknown>[] = [
         { hash },
-        { "sources.url": { $in: (candidate.sources || []).map((s) => s.url) } },
       ];
       // State + LGA + date alone is too broad: separate attacks can happen in
       // the same LGA on the same day. Only use the location/date fallback when
       // both records identify the same specific town.
       if (hasSpecificTown) {
-        duplicateFilters.push({
+        const sameEventLocation = {
           "location.state": candidate.location.state,
+          "location.lga": candidate.location.lga || "Unknown",
+          "location.town": { $regex: `^${escapeRegExp(town)}$`, $options: "i" },
+        };
+        duplicateFilters.push({
           date,
-          "location.town": { $regex: `^${escapeRegExp(town)}(?:$|\\s|[,(/–—-])`, $options: "i" },
+          ...sameEventLocation,
         });
       }
       const existing = await Attack.findOne({

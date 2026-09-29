@@ -92,7 +92,7 @@ async function run() {
       `- Search provider errors: ${report.searchFailures.length}`,
       `- Candidates: ${report.candidates} admitted, ${report.reviewLeads.length} sent to review, ${report.rejected} rejected`,
       `- Database: ${ingest.inserted} inserted, ${ingest.merged} merged, ${ingest.errors} errors`,
-      `- DeepSeek: ${report.deepseekCalls} calls, ${report.deepseekConfirmed} confirmed, ${report.deepseekRejected} rejected, ${report.deepseekErrors} errors`,
+      `- DeepSeek: ${report.deepseekCalls} calls, ${report.deepseekConfirmed} confirmed, ${report.deepseekRejected} rejected, ${report.deepseekReviewRequired} held for review, ${report.deepseekErrors} errors`,
       "",
       "### Most common rejection reasons",
       "",

@@ -1,7 +1,33 @@
 # Project Handoff
 
-Last updated: 2026-09-24
-Branch: main
+Last updated: 2026-09-29
+Branch: codex/multi-incident-cleaner
+
+## Current Objective
+
+Maintain source-grounded, event-level incident records. DeepSeek cleanup now classifies one-event,
+multi-event, roundup/review, and non-incident articles; each accepted event needs text evidence for
+its date, location, and every non-null casualty field. Ambiguous multi-event articles fail closed to
+review. Search-led ingestion must allow several event records to share one article URL and must not
+use URL identity alone as a duplicate key.
+
+### 2026-09-29 Multi-Event Article Handling
+
+- `src/lib/deepseek.ts` returns event arrays with verbatim date, location, and casualty evidence.
+  Invalid classifications, missing evidence, or inseparable roundups are rejected or marked for
+  review. Open-ended casualty minima retain `range` metadata.
+- `src/lib/search-led-discovery.ts` holds articles with explicit multiple-event cues when DeepSeek
+  is disabled, fails, or returns only one event. Event hashes include town; fallback duplicate
+  matching requires the same date, state, LGA, and specific town.
+- `src/lib/incident-view.ts` displays open-ended minima as `N+`.
+- Flagged BBC article `c60m3e7jmwxgo` combines at least three reported events. The Mukura record is
+  to be corrected to the police-reported >20 abductions on 2026-09-27. The Rimi, Mariga event
+  (2026-09-26, at least 47 farmers) is a distinct record. The Yargada, Gusau event (2026-09-27,
+  40 women) already exists as `6aba77f92dacfb136e737dcc`; correct its date/location uncertainty and
+  add BBC/AFP evidence rather than inserting a duplicate. Keep unrelated impact claims out unless
+  the source ties them clearly to that event.
+- Verification before push: `npx tsc --noEmit` and targeted ESLint passed. Existing untracked
+  scripts and `scratch/` are user work; do not stage them.
 
 ## Recent Dashboard Update (2026-09-23)
 

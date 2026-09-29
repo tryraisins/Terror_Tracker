@@ -99,8 +99,10 @@ export function displayValue(
   if (value == null && meta?.precision !== "range" && meta?.precision !== "estimate") return "Unknown";
   if (meta?.precision === "range") {
     const min = meta.min ?? value ?? meta.estimate;
-    const max = meta.max ?? value ?? meta.estimate;
+    const max = meta.max ?? (meta.max === null ? null : value ?? meta.estimate);
     if (min == null && max == null) return "Unknown";
+    if (min != null && max == null) return `${min.toLocaleString("en-NG")}+`;
+    if (min == null && max != null) return `Up to ${max.toLocaleString("en-NG")}`;
     if (min != null && max != null && min !== max) return `${min.toLocaleString("en-NG")}-${max.toLocaleString("en-NG")}`;
     return (min ?? max ?? 0).toLocaleString("en-NG");
   }
@@ -112,6 +114,7 @@ export function displayValue(
 }
 
 export function casualtyDetail(value: number | null | undefined, meta?: CasualtyCountMetadata) {
+  if (meta?.precision === "range" && meta.max == null) return "minimum reported count";
   if (meta?.precision === "range") return "reported range";
   if (meta?.precision === "estimate") return "estimated figure";
   if (meta?.precision === "exact") return "exact reported figure";
@@ -130,7 +133,8 @@ export function impactParts(casualties: IncidentRecord["casualties"], casualtyMe
     const meta = casualtyMeta?.[field];
     const representative = casualtyRepresentativeValue(value, meta);
     if (representative != null && representative > 0) {
-      const qualifier = meta?.precision === "estimate" ? " est." : meta?.precision === "range" ? " range" : "";
+      const openRange = meta?.precision === "range" && meta.max == null;
+      const qualifier = meta?.precision === "estimate" ? " est." : meta?.precision === "range" && !openRange ? " range" : "";
       result.push(`${displayValue(value, undefined, meta)} ${label}${qualifier}`);
     }
     return result;
