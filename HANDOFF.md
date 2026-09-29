@@ -20,14 +20,19 @@ use URL identity alone as a duplicate key.
   is disabled, fails, or returns only one event. Event hashes include town; fallback duplicate
   matching requires the same date, state, LGA, and specific town.
 - `src/lib/incident-view.ts` displays open-ended minima as `N+`.
-- Flagged BBC article `c60m3e7jmwxgo` combines at least three reported events. The Mukura record is
-  to be corrected to the police-reported >20 abductions on 2026-09-27. The Rimi, Mariga event
-  (2026-09-26, at least 47 farmers) is a distinct record. The Yargada, Gusau event (2026-09-27,
-  40 women) already exists as `6aba77f92dacfb136e737dcc`; correct its date/location uncertainty and
-  add BBC/AFP evidence rather than inserting a duplicate. Keep unrelated impact claims out unless
-  the source ties them clearly to that event.
-- Verification before push: `npx tsc --noEmit` and targeted ESLint passed. Existing untracked
-  scripts and `scratch/` are user work; do not stage them.
+- Flagged BBC article `c60m3e7jmwxgo` combines multiple reported events. Updated Mukura record
+  `6abaa8bf423e2782fbbfe9c2` to its police-reported 27 Sep event and `21+` abducted; location is
+  Mukura village, Mariga LGA. Inserted separate Rimi, Mariga record `6abbaaef4590034d6d1fbc70`
+  (26 Sep, `47+` abducted), with BBC and AFP/Yahoo sources. Updated existing Yargada record
+  `6aba77f92dacfb136e737dcc` in place to 27 Sep, exact named community, `40+` abducted, and BBC/AFP
+  evidence; no duplicate was inserted. All three retain `developing` status and casualty source
+  text. The unsupported aggregate `60` was removed from the Mukura record.
+- Guarded DB artifact is in ignored `audit-2026/multi-event-sep28/`. A full Attack snapshot and
+  fingerprint guarded a transaction; two records were updated, one inserted, active count +1, and
+  post-write validation passed. The public API confirmed all three records after apply.
+- Verification: `npx tsc --noEmit`, targeted ESLint, and production `npm run build` passed. The
+  build required a process-only temporary `JWT_SECRET`. No tests were added or run. Existing
+  untracked scripts and `scratch/` are user work; do not stage them.
 
 ## Recent Dashboard Update (2026-09-23)
 
