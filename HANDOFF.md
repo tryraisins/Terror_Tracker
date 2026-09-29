@@ -11,6 +11,21 @@ its date, location, and every non-null casualty field. Ambiguous multi-event art
 review. Search-led ingestion must allow several event records to share one article URL and must not
 use URL identity alone as a duplicate key.
 
+### 2026-09-29 Full Displayed-Incident Reconciliation
+
+- Scanned the 496 active reports returned by the public API against the live
+  `TerrorTracker.attacks` collection. Source-supported group splits and corrections resulted
+  in 10 new active incident records, 12 existing-record updates, and 3 duplicate soft-deletes.
+- The collection now has 503 active and 5 soft-deleted documents. MongoDB and the public API
+  agree; all 10 inserted IDs are visible. Final active records have no duplicate event hashes
+  or exact date/state/LGA/town/group identity collisions.
+- The user-flagged 21 August Borgu record remains one explicitly aggregated incident because
+  available sources do not allocate casualties by village. It is not a duplicate of the
+  September Mukura report.
+- Audit evidence and snapshots are in ignored `audit-2026/all-displayed-audit-20260929/`.
+  This was a conservative candidate-led reconciliation, not source-by-source recertification of
+  all 496 records; ambiguous leads remain for later review. No application code was changed; this pass reconciled the live database.
+
 ### 2026-09-29 Multi-Event Article Handling
 
 - `src/lib/deepseek.ts` returns event arrays with verbatim date, location, and casualty evidence.
