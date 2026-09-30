@@ -38,6 +38,7 @@ function createAI(): GoogleGenAI {
 export interface RawAttackData {
   title: string;
   description: string;
+  /** Incident/event date. Article publication time belongs to the source entry. */
   date: string;
   datePrecision?: IncidentDatePrecision;
   dateRange?: { start: string | null; end: string | null };
@@ -60,6 +61,7 @@ export interface RawAttackData {
     url: string;
     title: string;
     publisher: string;
+    publishedAt?: string;
   }[];
   civilianCasualties: boolean;
   status: "confirmed" | "unconfirmed" | "developing";
@@ -1279,12 +1281,17 @@ export async function mergeIncidentStrategies(
     );
 
     // 2. Merge Sources (Unique by URL)
-    const sourceMap = new Map();
+    const sourceMap = new Map<string, any>();
     [...(existing.sources || []), ...(candidate.sources || [])].forEach((s) => {
         // Normalize URL to prevent slight variations (remove trailing slash)
         const normalizedUrl = s.url.trim().replace(/\/$/, "");
         if (!sourceMap.has(normalizedUrl)) {
-            sourceMap.set(normalizedUrl, s);
+            sourceMap.set(normalizedUrl, { ...s, ...(s.publishedAt ? { publishedAt: new Date(s.publishedAt) } : {}) });
+        } else {
+            const current = sourceMap.get(normalizedUrl);
+            if (!current.publishedAt && s.publishedAt) {
+                sourceMap.set(normalizedUrl, { ...current, publishedAt: new Date(s.publishedAt) });
+            }
         }
     });
     const mergedSources = Array.from(sourceMap.values());

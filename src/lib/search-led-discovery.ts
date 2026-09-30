@@ -56,6 +56,7 @@ export interface SearchLedIngestResult {
   inserted: number;
   merged: number;
   errors: number;
+  reviewRequired: Array<{ url: string; candidateTitle: string; existingId: string; reason: string }>;
 }
 
 interface ArticleParts {
@@ -102,6 +103,85 @@ function hashFor(candidate: RawAttackData): string {
   const lga = (candidate.location.lga || "").trim().toLowerCase();
   const town = (candidate.location.town || "").trim().toLowerCase();
   return crypto.createHash("sha256").update(`${title}|${dateStr}|${state}|${lga}|${town}`).digest("hex");
+}
+
+function normalizeSourceUrl(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref|source)$/i.test(key)) url.searchParams.delete(key);
+    }
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString().replace(/\/$/, "").toLowerCase();
+  } catch {
+    return value.trim().replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function normalizeLocationName(value: string): string[] {
+  const cleaned = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\([^)]*\)/g, " ")
+    .toLowerCase()
+    .replace(/\b(town|village|community|area|settlement|the)\b/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ");
+  const ignored = new Set(["near", "of", "in", "at"]);
+  return [...new Set(cleaned.split(/\s+/).filter((part) => part.length > 1 && !ignored.has(part)))].sort();
+}
+
+function sameSpecificLocation(a: string, b: string): boolean {
+  const left = normalizeLocationName(a);
+  const right = normalizeLocationName(b);
+  if (!left.length || !right.length) return false;
+  const shared = left.filter((part) => right.includes(part)).length;
+  const ratio = shared / Math.max(left.length, right.length);
+  return ratio >= 0.8 && Math.abs(left.length - right.length) <= 1;
+}
+
+function casualtiesCompatible(a: RawAttackData["casualties"], b: RawAttackData["casualties"]): boolean {
+  return (["killed", "injured", "kidnapped", "displaced"] as const).every((field) =>
+    a?.[field] == null || b?.[field] == null || a[field] === b[field],
+  );
+}
+
+function utcDay(value: Date): number {
+  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+}
+
+function sharedSourceUrl(candidateUrls: string[], existing: Array<{ url?: string }>): boolean {
+  const known = new Set((existing || []).map((source) => normalizeSourceUrl(source.url || "")));
+  return candidateUrls.some((url) => known.has(url));
+}
+
+function mergeSourceMetadata(
+  existing: Array<{ url: string; title?: string; publisher?: string; publishedAt?: Date | string | null; toObject?: () => Record<string, unknown> }>,
+  incoming: RawAttackData["sources"],
+): { sources: Array<Record<string, unknown>>; changed: boolean } {
+  const sources = (existing || []).map((source) =>
+    typeof source.toObject === "function" ? source.toObject() : { ...source },
+  );
+  let changed = false;
+  for (const source of incoming || []) {
+    const key = normalizeSourceUrl(source.url);
+    if (!key) continue;
+    const match = sources.find((item) => normalizeSourceUrl(String(item.url || "")) === key);
+    if (!match) {
+      sources.push({
+        url: source.url,
+        title: source.title || "",
+        publisher: source.publisher || "",
+        publishedAt: source.publishedAt ? new Date(source.publishedAt) : null,
+      });
+      changed = true;
+    } else if (!match.publishedAt && source.publishedAt) {
+      match.publishedAt = new Date(source.publishedAt);
+      changed = true;
+    }
+  }
+  return { sources, changed };
 }
 
 function escapeRegExp(value: string): string {
@@ -407,7 +487,7 @@ function buildCandidate(
     group,
     casualties: normalized.casualties,
     casualtyMeta: normalized.casualtyMeta,
-    sources: [{ url, title, publisher }],
+    sources: [{ url, title, publisher, publishedAt: publishedAt?.toISOString() }],
     civilianCasualties: true,
     status,
     tags,
@@ -498,13 +578,16 @@ export async function ingestSearchLedAttacks(
   let inserted = 0;
   let merged = 0;
   let errors = 0;
+  const reviewRequired: SearchLedIngestResult["reviewRequired"] = [];
 
   for (const candidate of candidates) {
     try {
       const hash = hashFor(candidate);
       const date = new Date(candidate.date);
       const town = (candidate.location.town || "").trim();
+      const lga = (candidate.location.lga || "Unknown").trim();
       const hasSpecificTown = town !== "" && !/^(?:unknown|multiple|various|unspecified|n\/?a)$/i.test(town);
+      const candidateUrls = [...new Set((candidate.sources || []).map((source) => normalizeSourceUrl(source.url)).filter(Boolean))];
       const duplicateFilters: Record<string, unknown>[] = [
         { hash },
       ];
@@ -528,15 +611,67 @@ export async function ingestSearchLedAttacks(
       });
 
       if (existing) {
-        const existingUrls = new Set((existing.sources || []).map((s) => s.url.replace(/\/$/, "")));
-        const newSources = (candidate.sources || []).filter((s) => s.url && !existingUrls.has(s.url.replace(/\/$/, "")));
-        if (newSources.length > 0) {
+        const sourceMerge = mergeSourceMetadata(existing.sources || [], candidate.sources || []);
+        if (sourceMerge.changed) {
           await Attack.findByIdAndUpdate(existing._id, {
-            $push: { sources: { $each: newSources } },
-            $set: { updatedAt: new Date() },
+            $set: { sources: sourceMerge.sources, updatedAt: new Date() },
           });
         }
         merged++;
+        continue;
+      }
+
+      // An article URL alone is not an event key: roundups and multi-event
+      // stories may legitimately support several records. Treat it as a strong
+      // duplicate signal only when the event location also matches, the event
+      // dates are within one day, and known casualty values do not conflict.
+      const dateWindowStart = new Date(utcDay(date) - 24 * 60 * 60 * 1000);
+      const dateWindowEnd = new Date(utcDay(date) + 2 * 24 * 60 * 60 * 1000 - 1);
+      const possibleMatches = await Attack.find({
+        _deleted: { $ne: true },
+        $or: [
+          ...(candidateUrls.length ? [{ "sources.url": { $in: (candidate.sources || []).map((source) => source.url) } }] : []),
+          {
+            "location.state": { $regex: `^${escapeRegExp(candidate.location.state)}$`, $options: "i" },
+            "location.lga": { $regex: `^${escapeRegExp(lga)}$`, $options: "i" },
+            date: { $gte: dateWindowStart, $lte: dateWindowEnd },
+          },
+        ],
+      }).lean();
+
+      const nearbySourceMatches = possibleMatches.filter((record) => {
+        const sameSource = sharedSourceUrl(candidateUrls, record.sources || []);
+        const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
+        const sameLga = normalizeLocationName(record.location?.lga || "").join(" ") === normalizeLocationName(lga).join(" ");
+        const sameTown = hasSpecificTown && sameSpecificLocation(town, record.location?.town || "");
+        const daysApart = Math.abs(utcDay(new Date(record.date)) - utcDay(date)) / (24 * 60 * 60 * 1000);
+        return sameSource && sameState && sameLga && sameTown && daysApart <= 1;
+      });
+
+      const sourceDuplicate = nearbySourceMatches.find((record) =>
+        utcDay(new Date(record.date)) === utcDay(date) && casualtiesCompatible(candidate.casualties, record.casualties),
+      );
+      if (sourceDuplicate) {
+        const sourceMerge = mergeSourceMetadata(sourceDuplicate.sources || [], candidate.sources || []);
+        if (sourceMerge.changed) {
+          await Attack.findByIdAndUpdate(sourceDuplicate._id, {
+            $set: { sources: sourceMerge.sources, updatedAt: new Date() },
+          });
+        }
+        merged++;
+        continue;
+      }
+
+      if (nearbySourceMatches.length) {
+        const dateDiffers = utcDay(new Date(nearbySourceMatches[0].date)) !== utcDay(date);
+        reviewRequired.push({
+          url: candidate.sources?.[0]?.url || "",
+          candidateTitle: candidate.title,
+          existingId: String(nearbySourceMatches[0]._id),
+          reason: dateDiffers
+            ? "Shared source and location match an incident on an adjacent date; held for event-date review instead of inserting a possible duplicate."
+            : "Shared source and event identity match an existing incident, but casualty values conflict; held instead of inserting a possible duplicate.",
+        });
         continue;
       }
 
@@ -559,6 +694,7 @@ export async function ingestSearchLedAttacks(
           url: s.url,
           title: s.title || "",
           publisher: s.publisher || "",
+          publishedAt: s.publishedAt ? new Date(s.publishedAt) : null,
         })),
         status: candidate.status || "unconfirmed",
         tags: candidate.tags || [],
@@ -572,5 +708,5 @@ export async function ingestSearchLedAttacks(
     }
   }
 
-  return { inserted, merged, errors };
+  return { inserted, merged, errors, reviewRequired };
 }

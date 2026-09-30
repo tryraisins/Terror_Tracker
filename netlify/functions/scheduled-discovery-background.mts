@@ -20,7 +20,7 @@ const handler: BackgroundHandler = async () => {
 
     const ingest = attacks.length > 0
       ? await ingestSearchLedAttacks(attacks, "ScheduledDiscovery/48h")
-      : { inserted: 0, merged: 0, errors: 0 };
+      : { inserted: 0, merged: 0, errors: 0, reviewRequired: [] };
     console.log("[Scheduled Discovery] ingest", ingest);
 
     // Duplicate check on the same schedule (report-only heuristic, no AI).

@@ -342,6 +342,7 @@ export async function ingestAttacks(
           url: sanitizeString(s.url),
           title: sanitizeString(s.title || ""),
           publisher: sanitizeString(s.publisher || ""),
+          publishedAt: s.publishedAt ? new Date(s.publishedAt) : null,
         })),
         status: dateEvidence.datePrecision === "exact_day" ? (rawAttack.status || "unconfirmed") : "developing",
         tags: Array.from(new Set([...(rawAttack.tags || []).map(sanitizeString), ...(dateEvidence.datePrecision === "exact_day" ? [] : ["date-uncertainty"])])),

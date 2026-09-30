@@ -39,7 +39,7 @@ async function run() {
 
   const ingest = attacks.length > 0
     ? await ingestSearchLedAttacks(attacks, `SearchLedScan/${lookbackHours}h`)
-    : { inserted: 0, merged: 0, errors: 0 };
+    : { inserted: 0, merged: 0, errors: 0, reviewRequired: [] };
   console.log("Ingest:", JSON.stringify(ingest));
 
   const since = new Date(Date.now() - Math.max(5 * 24, lookbackHours) * 60 * 60 * 1000);
@@ -49,7 +49,7 @@ async function run() {
 
   const coverageStatus = report.queriesRun !== states.length || report.fetchFailures.length > 0 || report.searchFailures.length > 0 || ingest.errors > 0
     ? "INCOMPLETE"
-    : report.reviewLeads.length > 0
+    : report.reviewLeads.length > 0 || ingest.reviewRequired.length > 0
       ? "REVIEW_REQUIRED"
       : "COMPLETE";
   const result = {
@@ -91,7 +91,7 @@ async function run() {
       `- URLs: ${report.urlsDiscovered} found, ${report.urlsFetched} fetched, ${report.fetchRetries} retry attempts, ${report.errors} unresolved fetch errors`,
       `- Search provider errors: ${report.searchFailures.length}`,
       `- Candidates: ${report.candidates} admitted, ${report.reviewLeads.length} sent to review, ${report.rejected} rejected`,
-      `- Database: ${ingest.inserted} inserted, ${ingest.merged} merged, ${ingest.errors} errors`,
+      `- Database: ${ingest.inserted} inserted, ${ingest.merged} merged, ${ingest.reviewRequired.length} duplicate conflicts held for review, ${ingest.errors} errors`,
       `- DeepSeek: ${report.deepseekCalls} calls, ${report.deepseekConfirmed} confirmed, ${report.deepseekRejected} rejected, ${report.deepseekReviewRequired} held for review, ${report.deepseekErrors} errors`,
       "",
       "### Most common rejection reasons",

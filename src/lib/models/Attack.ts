@@ -36,6 +36,7 @@ export interface IAttack extends Document {
     url: string;
     title: string;
     publisher: string;
+    publishedAt?: Date | null;
   }[];
   status: "confirmed" | "unconfirmed" | "developing";
   tags: string[];
@@ -162,6 +163,7 @@ const AttackSchema = new Schema<IAttack>(
         url: { type: String, required: true, trim: true },
         title: { type: String, trim: true, default: "" },
         publisher: { type: String, trim: true, default: "" },
+        publishedAt: { type: Date, default: null },
       },
     ],
     status: {

@@ -1,7 +1,15 @@
 # Project Handoff
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 Branch: main
+
+## 2026-09-30 Duplicate Event Reconciliation
+
+- Live API snapshot covered all 509 active records (514 total documents). A candidate-led scan found 26 near-date/source/location pairs and 40 repeated-source groups. Three duplicate pairs were confirmed and merged: Bungudu (kept event date 27 Sep), Yargada (kept 27 Sep), and Efeyi, Benue (kept the police-confirmed 13 deaths and joined the Daily Post source). The three duplicate documents were soft-deleted; public active count is now 506. Other repeated article URLs describe distinct locations/events and remain separate.
+- `src/lib/search-led-discovery.ts` now canonicalizes source URLs and matches a shared article only when state, LGA, specific town, event date, and non-conflicting casualty values also agree. If the candidate date differs by one day or casualties conflict, it is held without inserting and reported for review. Article publication time is stored on the source entry separately from the incident event date. URL equality alone never merges multi-event articles. The scan workflow reports held conflicts as `REVIEW_REQUIRED`.
+- Guarded transaction, full MongoDB before/after snapshots, candidate list, and validation are in ignored `audit-2026/duplicate-event-reconciliation-20260930/`. Validation passed: 514 documents retained, active count 509 → 506, all three primary rows active, all three duplicate rows soft-deleted. The public API confirmed all six IDs after apply.
+- Candidate-led audit only: the 26 close pairs were reviewed for same-event evidence; the repeated-source scan is recorded in `shared-source-url-groups.json`. The Trustur Katsina rescue/operation record `6ab7af42449947594916c5c9` remains a separate scope review lead, not auto-merged as a duplicate. Search coverage is not a proof that every possible duplicate exists in the candidate set.
+- Focused ESLint, `npx tsc --noEmit`, and `git diff --check` passed. The ingestion fix is local to this checkout and must be deployed before scheduled ingestion uses it. No unrelated untracked scripts or `scratch/` files were changed.
 
 ## Incident Sharing and Social Previews
 
