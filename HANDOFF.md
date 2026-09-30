@@ -105,8 +105,22 @@ in Lagos time. Search coverage remains non-exhaustive.
 - Rate-limit mitigation now serializes Brave requests with a 5-second minimum interval,
   retries one transient 429 using Brave reset headers, and stops further requests when
   Brave reports exhausted monthly quota. The workflow also serializes scheduled/manual
-  runs. TypeScript, targeted ESLint, and `git diff --check` passed; a fresh scan is still
-  needed to verify the provider response and new pacing against production.
+  runs. TypeScript, targeted ESLint, and `git diff --check` passed; run `36720293883`
+  below verifies the provider response with the new pacing in the production workflow.
+- Manual run `36720293883` on `c986a6e` confirmed a monthly Brave quota block, not a
+  burst-rate issue: the scan attempted all 37 states, discovered/fetched 0 URLs, and
+  inserted/merged 0 records. The monthly quota circuit breaker prevented repeated 429s.
+  The scheduled retry guard is now being tightened to allow only one scheduled scan per
+  Lagos day, with the second slot reserved for days when no scan ran at all.
+- Public API reconciliation and manual source search found no confidently new record to
+  admit: Niger's 47 abducted in Rimi and Zamfara's 40 in Yargada are already recorded;
+  the five abducted in Tsafe has conflicting reported dates and an existing nearby record.
+  A 27 Sep Iburu Hanya (Kajuru, Kaduna) report describes one killed and one injured, but
+  only one accessible report was found and the abducted count is unclear, so it remains a
+  review lead. No writes were made during this manual review.
+- The 09:30 UTC schedule guard now checks for any completed or running scan on the same
+  Lagos date, so the backup only runs when no scan has run. This avoids repeating a scan
+  after a quota/provider failure while retaining recovery when GitHub misses the primary.
 
 ### Recent Scan Reconciliation (2026-09-24)
 
