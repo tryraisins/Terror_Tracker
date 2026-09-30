@@ -59,6 +59,7 @@ type ProviderResponse = {
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_MAX_RESULTS = 20;
 const DEFAULT_MIN_DELAY_MS = 3_000;
+const DEFAULT_BRAVE_MIN_DELAY_MS = 1_000;
 const DEFAULT_USER_AGENT = "NigeriaAttackTracker/1.0 (+multi-engine incident discovery)";
 const SEARCH_HOSTS = new Set([
   "bing.com",
@@ -70,6 +71,7 @@ const SEARCH_HOSTS = new Set([
 
 const providerQueues = new Map<NewsDiscoveryProvider, Promise<void>>();
 const providerLastCall = new Map<NewsDiscoveryProvider, number>();
+let braveQuotaExhaustedForProcess = false;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -197,6 +199,9 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
 async function braveSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY;
   if (!apiKey) return { status: "SKIPPED", httpStatus: null, results: [], reason: "BRAVE_SEARCH_API_KEY is not configured." };
+  if (braveQuotaExhaustedForProcess) {
+    return { status: "BLOCKED", httpStatus: 429, results: [], reason: "Brave Search monthly quota was exhausted earlier in this scan; skipping further requests." };
+  }
 
   const endpoint = new URL("https://api.search.brave.com/res/v1/web/search");
   endpoint.searchParams.set("q", query);
@@ -211,20 +216,50 @@ async function braveSearch(query: string, options: ResolvedDiscoveryOptions): Pr
   }
 
   try {
-    const response = await fetchWithTimeout(endpoint.toString(), {
-      headers: {
-        accept: "application/json",
-        "accept-encoding": "gzip",
-        "x-subscription-token": apiKey,
-        "user-agent": options.userAgent,
-      },
-    }, options.timeoutMs);
+    const headers = {
+      accept: "application/json",
+      "accept-encoding": "gzip",
+      "x-subscription-token": apiKey,
+      "user-agent": options.userAgent,
+    };
+    let response: Response | null = null;
+    let recoveredFromRateLimit = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      response = await fetchWithTimeout(endpoint.toString(), { headers }, options.timeoutMs);
+      if (response.status !== 429) break;
+
+      const resetValues = (response.headers.get("x-ratelimit-reset") || "").split(",").map((value) => Number(value.trim()));
+      const remainingValues = (response.headers.get("x-ratelimit-remaining") || "").split(",").map((value) => Number(value.trim()));
+      const retryAfter = Number(response.headers.get("retry-after"));
+      const errorBody: unknown = await response.clone().json().catch(() => null);
+      const error = isRecord(errorBody) && isRecord(errorBody.error) ? errorBody.error : null;
+      const errorCode = error && typeof error.code === "string" ? error.code : "";
+      const monthlyQuotaExhausted = (remainingValues.length > 1 && remainingValues[1] === 0) || errorCode === "QUOTA_LIMITED";
+      if (monthlyQuotaExhausted) braveQuotaExhaustedForProcess = true;
+      if (attempt > 0 || monthlyQuotaExhausted) break;
+
+      const headerWaitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1_000
+        : Number.isFinite(resetValues[0]) && resetValues[0] > 0
+          ? resetValues[0] * 1_000
+          : 1_000;
+      const waitMs = Math.min(30_000, Math.max(1_000, headerWaitMs + 250));
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      recoveredFromRateLimit = true;
+    }
+    if (!response) throw new Error("Brave Search returned no response.");
     if (!response.ok) {
+      const resetHint = response.headers.get("x-ratelimit-reset");
+      const remainingHint = response.headers.get("x-ratelimit-remaining");
+      const monthlyQuotaExhausted = remainingHint?.split(",")[1]?.trim() === "0";
+      const errorBody: unknown = response.status === 429 ? await response.clone().json().catch(() => null) : null;
+      const error = isRecord(errorBody) && isRecord(errorBody.error) ? errorBody.error : null;
+      const errorCode = error && typeof error.code === "string" ? error.code : "";
       return {
         status: response.status === 401 || response.status === 403 || response.status === 429 ? "BLOCKED" : "FAIL",
         httpStatus: response.status,
         results: [],
-        reason: `Brave Search returned HTTP ${response.status}.`,
+        reason: `Brave Search returned HTTP ${response.status}${monthlyQuotaExhausted || errorCode === "QUOTA_LIMITED" ? " (monthly quota exhausted)" : errorCode ? ` (${errorCode})` : resetHint ? ` (rate-limit reset: ${resetHint})` : ""}.`,
       };
     }
     const data: unknown = await response.json();
@@ -239,7 +274,12 @@ async function braveSearch(query: string, options: ResolvedDiscoveryOptions): Pr
       }))
       .filter((result) => Boolean(result.url && result.title && !isSearchHost(result.url)))
       .slice(0, options.maxResults);
-    return { status: "PASS", httpStatus: response.status, results, reason: `Brave returned ${results.length} result(s).` };
+    return {
+      status: "PASS",
+      httpStatus: response.status,
+      results,
+      reason: `Brave returned ${results.length} result(s)${recoveredFromRateLimit ? " after a rate-limit retry" : ""}.`,
+    };
   } catch (error) {
     return { status: "FAIL", httpStatus: null, results: [], reason: `Brave request failed: ${error instanceof Error ? error.message : String(error)}.` };
   }
@@ -333,7 +373,10 @@ async function scheduleProvider<T>(provider: NewsDiscoveryProvider, minDelayMs: 
 }
 
 async function runProvider(provider: NewsDiscoveryProvider, query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
-  return scheduleProvider(provider, options.minDelayMs, () => {
+  const configuredBraveMinDelayMs = Number(process.env.BRAVE_SEARCH_MIN_DELAY_MS || DEFAULT_BRAVE_MIN_DELAY_MS);
+  const braveMinDelayMs = Math.max(options.minDelayMs, Number.isFinite(configuredBraveMinDelayMs) ? configuredBraveMinDelayMs : DEFAULT_BRAVE_MIN_DELAY_MS);
+  const minDelayMs = provider === "brave" ? braveMinDelayMs : options.minDelayMs;
+  return scheduleProvider(provider, minDelayMs, () => {
     if (provider === "brave") return braveSearch(query, options);
     if (provider === "duckduckgo") return duckDuckGoSearch(query, options);
     return bingSearch(query, options);

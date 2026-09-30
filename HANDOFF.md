@@ -86,6 +86,28 @@ now requires a same-town match instead of merging unrelated incidents solely bec
 state, LGA, and date match. Relative weekday dates resolve against the publication date
 in Lagos time. Search coverage remains non-exhaustive.
 
+### 2026-09-30 Scheduled Scan Follow-up
+
+- The scheduled run did trigger on `main`, but GitHub created it at 12:50 UTC, 6h20
+  after the 06:30 UTC primary slot. Its backup-guard step was skipped, consistent with
+  the primary schedule; no 09:30 retry run was present in history at 13:04 UTC. It
+  failed the coverage gate after 116/118 URLs fetched; two publishers timed out.
+  Discovery covered all 37 states, and ingest merged one source into an existing record.
+  Run: `36717434884`.
+- A manual `workflow_dispatch` run (`36718308516`) was triggered at 12:58 UTC. It fetched
+  all 78 discovered URLs, but Brave Search returned HTTP 429 for 13 state queries, so
+  coverage was incomplete and the job failed. Ingest merged one source and inserted no
+  incident. This confirms a provider rate limit, not a missing MongoDB secret.
+- GitHub documents that scheduled events can be delayed or dropped during Actions load.
+  Five extra daily scan slots are not a safe fix: they could increase Brave 429s and
+  repeat full scans. Current evidence supports a late schedule event plus independent
+  publisher/provider coverage failures; it does not establish a specific GitHub outage.
+- Rate-limit mitigation now serializes Brave requests with a 5-second minimum interval,
+  retries one transient 429 using Brave reset headers, and stops further requests when
+  Brave reports exhausted monthly quota. The workflow also serializes scheduled/manual
+  runs. TypeScript, targeted ESLint, and `git diff --check` passed; a fresh scan is still
+  needed to verify the provider response and new pacing against production.
+
 ### Recent Scan Reconciliation (2026-09-24)
 
 - Manual workflow run `35975794590` (`68f5d80`): 37/37 states, 144/144 URLs fetched,

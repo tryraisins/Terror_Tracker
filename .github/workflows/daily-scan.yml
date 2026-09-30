@@ -19,6 +19,10 @@ on:
           - "120"
           - "168"
 
+concurrency:
+  group: daily-nigeria-incident-scan
+  cancel-in-progress: false
+
 permissions:
   contents: read
   actions: read
@@ -38,6 +42,7 @@ jobs:
       SEARCH_PUBLICATION_MAX_AGE_HOURS: "168"
       STATE_SCAN_CONCURRENCY: "3"
       BRAVE_SEARCH_MAX_CALLS_PER_RUN: "40"
+      BRAVE_SEARCH_MIN_DELAY_MS: "5000"
       SEARCH_RESULTS_PER_QUERY: "10"
       SOURCE_FETCH_TIMEOUT_MS: "10000"
       SCAN_REPORT_PATH: ${{ github.workspace }}/incident-scan-report.json
