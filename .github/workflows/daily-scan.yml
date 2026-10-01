@@ -2,9 +2,12 @@ name: Daily Nigeria incident scan
 
 on:
   schedule:
-    # Primary run plus a guarded daily retry in case GitHub misses the first schedule event.
+    # Stagger retries away from the top of the hour; later runs proceed only if
+    # earlier same-day scans failed or never started.
     - cron: "30 6 * * *"
     - cron: "30 9 * * *"
+    - cron: "30 12 * * *"
+    - cron: "30 15 * * *"
   workflow_dispatch:
     inputs:
       lookback_hours:
@@ -55,13 +58,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           today="$(TZ=Africa/Lagos date +%F)"
-          runs="$(gh run list --workflow daily-scan.yml --limit 100 --json databaseId,createdAt,status --jq '.[] | [.databaseId, .createdAt, .status] | @tsv')"
-          while IFS=$'\t' read -r run_id created_at status; do
+          runs="$(gh run list --workflow daily-scan.yml --limit 100 --json databaseId,createdAt,status,conclusion --jq '.[] | [.databaseId, .createdAt, .status, .conclusion] | @tsv')"
+          while IFS=$'\t' read -r run_id created_at status conclusion; do
             [ -n "$run_id" ] || continue
             [ "$run_id" = "$GITHUB_RUN_ID" ] && continue
             run_day="$(TZ=Africa/Lagos date -d "$created_at" +%F)"
-            if [ "$run_day" = "$today" ] && { [ "$status" = "completed" ] || [ "$status" = "in_progress" ]; }; then
-              echo "Today's scan already ran or is running (run $run_id); skipping scheduled duplicate."
+            if [ "$run_day" = "$today" ] && { [ "$status" = "in_progress" ] || { [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; }; }; then
+              echo "Today's scan succeeded or is running (run $run_id); skipping scheduled duplicate."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi

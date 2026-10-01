@@ -1,7 +1,14 @@
 # Project Handoff
 
-Last updated: 2026-09-30
+Last updated: 2026-10-01
 Branch: main
+
+## 2026-10-01 Paced Incident Scan
+
+- Manually dispatched [GitHub Actions run 36858745867](https://github.com/tryraisins/Terror_Tracker/actions/runs/36858745867) on `baa2a28578d64e080290c21db0d0da21fa441518`. It succeeded in 5m02s: all 37 state queries ran, 128 URLs were discovered and fetched, with no search/fetch failures or Brave 429. The configured 5-second minimum delay was active. The prior run failed because Brave reported its monthly quota exhausted; this run shows the key can search again, but does not establish whether the quota reset or pacing alone resolved it.
+- `.github/workflows/daily-scan.yml` now schedules attempts at 06:30, 09:30, 12:30, and 15:30 UTC (07:30, 10:30, 13:30, and 16:30 Lagos). The guard skips later attempts only when a same-Lagos-day scan is still running or succeeded; it allows another attempt after a failed run. This adds retry opportunities but cannot force GitHub to deliver a scheduled event.
+- Scan coverage is `REVIEW_REQUIRED`: 1 candidate was DeepSeek-confirmed and inserted, 127 rejected, 8 held for review, and 22 duplicate candidate pairs were reported. Public API verification confirms inserted record `6abe4c1c7912b75cb9145e78`, “Sea robbers kidnap two victims in Ibeno, Akwa Ibom” (2 abducted, unconfirmed).
+- Review the inserted Ibeno event date before treating it as source-certified: the underlying NAN report ([People’s Gazette](https://gazettengr.com/navy-rescues-two-kidnap-victims-recovers-stolen-engines-in-akwa-ibom/)) establishes the Ibeno kidnapping and rescue but describes the commander’s disclosure as Wednesday without explicitly dating when the abduction occurred. The ingest assigned 30 Sep from the article date. Keep this as a date-evidence review item.
 
 ## 2026-09-30 Duplicate Event Reconciliation
 
