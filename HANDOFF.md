@@ -9,7 +9,7 @@ Branch: main
 - `scripts/search-led-scan.ts` now computes a fetch-failure budget = `max(SCAN_MAX_FETCH_FAILURES (default 3), ceil(urlsFetched * SCAN_FETCH_FAILURE_TOLERANCE_RATIO (default 0.1)))`. `INCOMPLETE` (exit 1) now triggers only on `queriesRun !== states.length`, `searchFailures.length > 0`, `ingest.errors > 0`, or `fetchFailures.length > budget`.
 - Status precedence is now `INCOMPLETE` > `DEGRADED` > `REVIEW_REQUIRED` > `COMPLETE`. `DEGRADED` means fetch failures were non-zero but within budget; it exits 0 and is visible in the step summary. `fetchFailureBudget` is included in the JSON report, and the summary shows `N unresolved fetch errors (budget B)`.
 - `.github/workflows/daily-scan.yml` sets `SCAN_MAX_FETCH_FAILURES: "3"` and `SCAN_FETCH_FAILURE_TOLERANCE_RATIO: "0.1"` explicitly. Retry crons (09:30/12:30/15:30 UTC) still fire only after an `INCOMPLETE` (failed) run, so genuine provider outages still retry while isolated flaky fetches no longer do.
-- Verified: `npx tsc --noEmit`, `npx eslint scripts/search-led-scan.ts`, and `git diff --check` pass. Full E2E is the next manual dispatch; no test framework exists in the repo.
+- Verified in commit `d88f39a`: `npx tsc --noEmit`, `npx eslint scripts/search-led-scan.ts`, and `git diff --check` pass, and E2E dispatch of [run 37114326068](https://github.com/tryraisins/Terror_Tracker/actions/runs/37114326068) succeeded. That run reproduced the original trigger (1 unresolved fetch failure) and reported `coverageStatus: DEGRADED` with `fetchFailureBudget: 13` (from 129 fetched, `max(3, ceil(129 × 0.1))`), 0 search failures, 0 ingest errors. No test framework exists in the repo.
 
 ## 2026-10-01 Paced Incident Scan
 
