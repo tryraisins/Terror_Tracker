@@ -21,6 +21,13 @@ import { VALID_STATE_NAMES } from "../src/lib/normalize-state";
 import { collectSearchLedIncidents, ingestSearchLedAttacks } from "../src/lib/search-led-discovery";
 import { DuplicateCheckerService } from "../src/lib/duplicate-checker";
 
+function readPositiveNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 async function run() {
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI not set");
   const lookbackHours = Number(process.env.INCIDENT_LOOKBACK_HOURS || 96);
@@ -47,15 +54,27 @@ async function run() {
   const dupCount = dup.reduce((n, d) => n + d.candidates.length, 0);
   console.log(`Duplicate candidates: ${dupCount} across ${dup.length} state(s)`);
 
-  const coverageStatus = report.queriesRun !== states.length || report.fetchFailures.length > 0 || report.searchFailures.length > 0 || ingest.errors > 0
+  const fetchFailureBudget = Math.max(
+    readPositiveNumber("SCAN_MAX_FETCH_FAILURES", 3),
+    Math.ceil(report.urlsFetched * readPositiveNumber("SCAN_FETCH_FAILURE_TOLERANCE_RATIO", 0.1)),
+  );
+
+  const hardIncomplete = report.queriesRun !== states.length
+    || report.searchFailures.length > 0
+    || ingest.errors > 0
+    || report.fetchFailures.length > fetchFailureBudget;
+  const coverageStatus = hardIncomplete
     ? "INCOMPLETE"
-    : report.reviewLeads.length > 0 || ingest.reviewRequired.length > 0
-      ? "REVIEW_REQUIRED"
-      : "COMPLETE";
+    : report.fetchFailures.length > 0
+      ? "DEGRADED"
+      : report.reviewLeads.length > 0 || ingest.reviewRequired.length > 0
+        ? "REVIEW_REQUIRED"
+        : "COMPLETE";
   const result = {
     runStartedAt,
     runFinishedAt: new Date().toISOString(),
     coverageStatus,
+    fetchFailureBudget,
     statesScanned: states,
     report,
     candidates: attacks.map((attack) => ({
@@ -88,7 +107,7 @@ async function run() {
       `- Window: ${report.windowStart} to ${report.windowEnd} (${lookbackHours} hours)`,
       `- Coverage status: **${coverageStatus}**`,
       `- Jurisdictions: ${report.queriesRun}/${states.length}`,
-      `- URLs: ${report.urlsDiscovered} found, ${report.urlsFetched} fetched, ${report.fetchRetries} retry attempts, ${report.errors} unresolved fetch errors`,
+      `- URLs: ${report.urlsDiscovered} found, ${report.urlsFetched} fetched, ${report.fetchRetries} retry attempts, ${report.fetchFailures.length} unresolved fetch errors (budget ${fetchFailureBudget})`,
       `- Search provider errors: ${report.searchFailures.length}`,
       `- Candidates: ${report.candidates} admitted, ${report.reviewLeads.length} sent to review, ${report.rejected} rejected`,
       `- Database: ${ingest.inserted} inserted, ${ingest.merged} merged, ${ingest.reviewRequired.length} duplicate conflicts held for review, ${ingest.errors} errors`,
@@ -100,7 +119,7 @@ async function run() {
       "",
       "### Fetch failures",
       "",
-      report.fetchFailures.length ? `- ${report.fetchFailures.length} failures. Full URLs and errors are in the uploaded artifact.` : "- None",
+      report.fetchFailures.length ? `- ${report.fetchFailures.length} unresolved fetch failures (budget ${fetchFailureBudget}). Full URLs and errors are in the uploaded artifact.` : "- None",
       "",
     ].join("\n"), "utf8");
   }
