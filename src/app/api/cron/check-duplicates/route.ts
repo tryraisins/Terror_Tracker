@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
           reportB: candidate.reportB._id,
           score: candidate.heuristicScore,
           reason: candidate.reason,
+          deepSeekClassification: candidate.deepSeekClassification,
+          deepSeekReason: candidate.deepSeekReason,
         })),
         })
       );
@@ -94,6 +96,8 @@ export async function GET(req: NextRequest) {
         reportB: candidate.reportB._id,
         score: candidate.heuristicScore,
         reason: candidate.reason,
+        deepSeekClassification: candidate.deepSeekClassification,
+        deepSeekReason: candidate.deepSeekReason,
       })),
       })
     );

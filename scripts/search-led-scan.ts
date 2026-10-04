@@ -86,7 +86,20 @@ async function run() {
       sources: attack.sources,
     })),
     ingest,
-    duplicateCheck: { candidatePairs: dupCount, statesWithCandidates: dup.length },
+    duplicateCheck: {
+      candidatePairs: dupCount,
+      statesWithCandidates: dup.length,
+      deepSeekAssessments: dup.flatMap((stateResult) => stateResult.candidates).filter((candidate) => candidate.deepSeekClassification).length,
+      candidates: dup.flatMap((stateResult) => stateResult.candidates.map((candidate) => ({
+        state: stateResult.state,
+        reportA: { id: String(candidate.reportA._id), title: candidate.reportA.title, date: candidate.reportA.date, town: candidate.reportA.location.town },
+        reportB: { id: String(candidate.reportB._id), title: candidate.reportB.title, date: candidate.reportB.date, town: candidate.reportB.location.town },
+        heuristicScore: candidate.heuristicScore,
+        heuristicReason: candidate.reason,
+        deepSeekClassification: candidate.deepSeekClassification || "not_assessed",
+        deepSeekReason: candidate.deepSeekReason || "",
+      }))),
+    },
   };
 
   if (process.env.SCAN_REPORT_PATH) {

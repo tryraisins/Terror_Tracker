@@ -39,6 +39,8 @@ jobs:
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       DEEPSEEK_CLEANUP_ENABLED: "true"
+      DEEPSEEK_DUPLICATE_CHECK_ENABLED: "true"
+      DEEPSEEK_DUPLICATE_MAX_PAIRS: "30"
       DEEPSEEK_MODEL: deepseek-chat
       NEWS_DISCOVERY_ENABLE_BING: "false"
       INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '96' }}

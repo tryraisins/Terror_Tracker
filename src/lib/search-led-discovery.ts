@@ -5,7 +5,7 @@
  * that mirrors the whole-year backfill: DuckDuckGo/Bing HTML search for free,
  * Brave Search API only as a fallback, direct article fetch with a Jina reader
  * fallback for 403s, and regex extraction of the incident fields. Ingestion
- * uses a SHA-256 dedup guard with source-URL and same-town/date checks. Optional
+ * uses a SHA-256 dedup guard with source-URL and normalized same-town/date checks. Optional
  * DeepSeek cleanup can confirm candidates when configured.
  */
 
@@ -149,11 +149,6 @@ function casualtiesCompatible(a: RawAttackData["casualties"], b: RawAttackData["
 
 function utcDay(value: Date): number {
   return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
-}
-
-function sharedSourceUrl(candidateUrls: string[], existing: Array<{ url?: string }>): boolean {
-  const known = new Set((existing || []).map((source) => normalizeSourceUrl(source.url || "")));
-  return candidateUrls.some((url) => known.has(url));
 }
 
 function mergeSourceMetadata(
@@ -591,26 +586,21 @@ export async function ingestSearchLedAttacks(
       const duplicateFilters: Record<string, unknown>[] = [
         { hash },
       ];
-      // State + LGA + date alone is too broad: separate attacks can happen in
-      // the same LGA on the same day. Only use the location/date fallback when
-      // both records identify the same specific town.
-      if (hasSpecificTown) {
-        const sameEventLocation = {
-          "location.state": candidate.location.state,
-          "location.lga": candidate.location.lga || "Unknown",
-          "location.town": { $regex: `^${escapeRegExp(town)}$`, $options: "i" },
-        };
-        duplicateFilters.push({
-          date,
-          ...sameEventLocation,
-        });
-      }
       const existing = await Attack.findOne({
         _deleted: { $ne: true },
         $or: duplicateFilters,
       });
 
       if (existing) {
+        if (!casualtiesCompatible(candidate.casualties, existing.casualties)) {
+          reviewRequired.push({
+            url: candidate.sources?.[0]?.url || "",
+            candidateTitle: candidate.title,
+            existingId: String(existing._id),
+            reason: "Incident identity matches an existing record, but casualty values conflict; held for review instead of merging.",
+          });
+          continue;
+        }
         const sourceMerge = mergeSourceMetadata(existing.sources || [], candidate.sources || []);
         if (sourceMerge.changed) {
           await Attack.findByIdAndUpdate(existing._id, {
@@ -622,9 +612,10 @@ export async function ingestSearchLedAttacks(
       }
 
       // An article URL alone is not an event key: roundups and multi-event
-      // stories may legitimately support several records. Treat it as a strong
-      // duplicate signal only when the event location also matches, the event
-      // dates are within one day, and known casualty values do not conflict.
+      // stories may legitimately support several records. Compare all records
+      // with the same normalized state/LGA/town in the one-day window so that
+      // independent reports with town aliases (for example, "Babban Saura PW"
+      // and "Babban Saura") are not inserted as separate incidents.
       const dateWindowStart = new Date(utcDay(date) - 24 * 60 * 60 * 1000);
       const dateWindowEnd = new Date(utcDay(date) + 2 * 24 * 60 * 60 * 1000 - 1);
       const possibleMatches = await Attack.find({
@@ -639,22 +630,21 @@ export async function ingestSearchLedAttacks(
         ],
       }).lean();
 
-      const nearbySourceMatches = possibleMatches.filter((record) => {
-        const sameSource = sharedSourceUrl(candidateUrls, record.sources || []);
+      const nearbyEventMatches = possibleMatches.filter((record) => {
         const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
         const sameLga = normalizeLocationName(record.location?.lga || "").join(" ") === normalizeLocationName(lga).join(" ");
         const sameTown = hasSpecificTown && sameSpecificLocation(town, record.location?.town || "");
         const daysApart = Math.abs(utcDay(new Date(record.date)) - utcDay(date)) / (24 * 60 * 60 * 1000);
-        return sameSource && sameState && sameLga && sameTown && daysApart <= 1;
+        return sameState && sameLga && sameTown && daysApart <= 1;
       });
 
-      const sourceDuplicate = nearbySourceMatches.find((record) =>
+      const sameDayDuplicate = nearbyEventMatches.find((record) =>
         utcDay(new Date(record.date)) === utcDay(date) && casualtiesCompatible(candidate.casualties, record.casualties),
       );
-      if (sourceDuplicate) {
-        const sourceMerge = mergeSourceMetadata(sourceDuplicate.sources || [], candidate.sources || []);
+      if (sameDayDuplicate) {
+        const sourceMerge = mergeSourceMetadata(sameDayDuplicate.sources || [], candidate.sources || []);
         if (sourceMerge.changed) {
-          await Attack.findByIdAndUpdate(sourceDuplicate._id, {
+          await Attack.findByIdAndUpdate(sameDayDuplicate._id, {
             $set: { sources: sourceMerge.sources, updatedAt: new Date() },
           });
         }
@@ -662,15 +652,16 @@ export async function ingestSearchLedAttacks(
         continue;
       }
 
-      if (nearbySourceMatches.length) {
-        const dateDiffers = utcDay(new Date(nearbySourceMatches[0].date)) !== utcDay(date);
+      if (nearbyEventMatches.length) {
+        const possibleMatch = nearbyEventMatches[0];
+        const dateDiffers = utcDay(new Date(possibleMatch.date)) !== utcDay(date);
         reviewRequired.push({
           url: candidate.sources?.[0]?.url || "",
           candidateTitle: candidate.title,
-          existingId: String(nearbySourceMatches[0]._id),
+          existingId: String(possibleMatch._id),
           reason: dateDiffers
-            ? "Shared source and location match an incident on an adjacent date; held for event-date review instead of inserting a possible duplicate."
-            : "Shared source and event identity match an existing incident, but casualty values conflict; held instead of inserting a possible duplicate.",
+            ? "Location matches an incident on an adjacent date; held for event-date review instead of inserting a possible duplicate."
+            : "Location and event date match an existing incident, but casualty values conflict; held instead of inserting a possible duplicate.",
         });
         continue;
       }

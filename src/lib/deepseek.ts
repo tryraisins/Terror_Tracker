@@ -28,9 +28,104 @@ export interface DeepSeekCleanupResult {
   fallback?: boolean;
 }
 
+export type DeepSeekDuplicateClassification = "same_event" | "distinct_events" | "review_required";
+
+export interface DeepSeekDuplicateAssessment {
+  classification: DeepSeekDuplicateClassification;
+  reason: string;
+}
+
+export interface DuplicateCheckIncident {
+  title: string;
+  description: string;
+  date: Date | string;
+  location: { state: string; lga: string; town: string };
+  group: string;
+  casualties: { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
+  sources?: Array<{ title?: string; publisher?: string }>;
+}
+
 export function isDeepSeekCleanupEnabled(): boolean {
   if (process.env.DEEPSEEK_CLEANUP_ENABLED === "false") return false;
   return Boolean(process.env.DEEPSEEK_API_KEY);
+}
+
+export function isDeepSeekDuplicateCheckEnabled(): boolean {
+  return process.env.DEEPSEEK_DUPLICATE_CHECK_ENABLED !== "false" && Boolean(process.env.DEEPSEEK_API_KEY);
+}
+
+/**
+ * Compare two incident records semantically. Source URLs are intentionally not
+ * part of identity: independent outlets commonly report the same event.
+ * Unavailable or ambiguous model results fail closed to review_required.
+ */
+export async function assessIncidentDuplicate(
+  reportA: DuplicateCheckIncident,
+  reportB: DuplicateCheckIncident,
+): Promise<DeepSeekDuplicateAssessment> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!isDeepSeekDuplicateCheckEnabled() || !apiKey) {
+    return { classification: "review_required", reason: "DeepSeek duplicate check is disabled or unconfigured" };
+  }
+
+  const view = (incident: DuplicateCheckIncident) => ({
+    title: incident.title,
+    description: incident.description,
+    eventDate: incident.date instanceof Date ? incident.date.toISOString() : incident.date,
+    location: incident.location,
+    group: incident.group,
+    casualties: incident.casualties,
+    sourceReports: (incident.sources || []).map(({ title, publisher }) => ({ title, publisher })),
+  });
+
+  try {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are a conservative Nigerian security incident deduplication analyst. Reply with one JSON object only.",
+          },
+          {
+            role: "user",
+            content: `Decide whether REPORT A and REPORT B describe the same real-world attack or abduction episode. Independent news URLs and different headlines are expected and MUST NOT count as evidence that events are distinct. Compare the original event date (allow a one-day reporting/date-resolution discrepancy), specific town and LGA, victim counts, named victims/participants, and event descriptions. Events in the same state or LGA, or involving the same armed group, are not duplicates without a specific event-level link. If evidence is incomplete or conflicts materially, choose review_required. Never infer facts absent from these records.\n\nReturn JSON: {"classification":"same_event"|"distinct_events"|"review_required","reason":"short evidence-based reason"}\n\nREPORT A:\n${JSON.stringify(view(reportA), null, 2)}\n\nREPORT B:\n${JSON.stringify(view(reportB), null, 2)}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 400,
+        response_format: { type: "json_object" },
+      }),
+      signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return { classification: "review_required", reason: `DeepSeek duplicate check returned HTTP ${response.status}` };
+    }
+    const data: unknown = await response.json();
+    const content = data && typeof data === "object" && Array.isArray((data as { choices?: unknown[] }).choices)
+      ? (data as { choices: Array<{ message?: { content?: unknown } }> }).choices[0]?.message?.content
+      : undefined;
+    if (typeof content !== "string" || !content.trim()) {
+      return { classification: "review_required", reason: "DeepSeek duplicate check returned an empty response" };
+    }
+    const parsed = JSON.parse(content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()) as Record<string, unknown>;
+    const classification = parsed.classification;
+    const reason = typeof parsed.reason === "string" && parsed.reason.trim()
+      ? parsed.reason.trim().slice(0, 500)
+      : "DeepSeek returned no duplicate rationale";
+    if (classification === "same_event" || classification === "distinct_events" || classification === "review_required") {
+      return { classification, reason };
+    }
+    return { classification: "review_required", reason: "DeepSeek returned an invalid duplicate classification" };
+  } catch (error) {
+    return {
+      classification: "review_required",
+      reason: `DeepSeek duplicate check failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+    };
+  }
 }
 
 const VALID_STATUSES = new Set(["confirmed", "unconfirmed", "developing"]);

@@ -1,5 +1,6 @@
 import Attack, { IAttack } from "./models/Attack";
-import { checkDuplicateAttack, mergeIncidentStrategies } from "./gemini";
+import { assessIncidentDuplicate, DeepSeekDuplicateClassification, isDeepSeekDuplicateCheckEnabled } from "./deepseek";
+import { mergeIncidentStrategies } from "./gemini";
 import { normalizeStateName, statesMatch } from "./normalize-state";
 
 // --- Utility: Levenshtein Distance for simple fuzzy matching ---
@@ -179,6 +180,8 @@ interface DuplicateCandidate {
   reportB: IAttack;
   heuristicScore: number;
   reason: string;
+  deepSeekClassification?: DeepSeekDuplicateClassification;
+  deepSeekReason?: string;
 }
 
 /**
@@ -189,6 +192,40 @@ export class DuplicateCheckerService {
   private static DATE_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days (aligned with COMPARISON_WINDOW_MS)
   private static COMPARISON_WINDOW_MS = 8 * 24 * 60 * 60 * 1000; // 8 days for comparison window
   private static SCORE_THRESHOLD = 0.55;
+
+  private static async assessWithDeepSeek(candidates: DuplicateCandidate[]): Promise<DuplicateCandidate[]> {
+    if (!isDeepSeekDuplicateCheckEnabled() || candidates.length === 0) return candidates;
+
+    const configuredLimit = Number(process.env.DEEPSEEK_DUPLICATE_MAX_PAIRS || 30);
+    const maxPairs = Number.isFinite(configuredLimit) ? Math.max(1, Math.floor(configuredLimit)) : 30;
+    const prioritized = candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .sort((a, b) => b.candidate.heuristicScore - a.candidate.heuristicScore)
+      .slice(0, maxPairs);
+    const assessed = [...candidates];
+    const concurrency = 4;
+
+    for (let offset = 0; offset < prioritized.length; offset += concurrency) {
+      const batch = prioritized.slice(offset, offset + concurrency);
+      const results = await Promise.all(batch.map(({ candidate }) =>
+        assessIncidentDuplicate(candidate.reportA, candidate.reportB),
+      ));
+      batch.forEach(({ candidate, index }, batchIndex) => {
+        assessed[index] = {
+          ...candidate,
+          deepSeekClassification: results[batchIndex].classification,
+          deepSeekReason: results[batchIndex].reason,
+        };
+      });
+    }
+
+    const counts = assessed.reduce<Record<string, number>>((acc, candidate) => {
+      if (candidate.deepSeekClassification) acc[candidate.deepSeekClassification] = (acc[candidate.deepSeekClassification] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(`[Duplicate Check] DeepSeek assessments: ${JSON.stringify(counts)}${candidates.length > prioritized.length ? `; ${candidates.length - prioritized.length} lower-scored pair(s) not assessed (limit ${maxPairs})` : ""}`);
+    return assessed;
+  }
 
   /**
    * Shared heuristic scoring logic used by both cron and manual paths.
@@ -381,6 +418,7 @@ export class DuplicateCheckerService {
     // 1. Fetch all incidents added since the last run
     const newIncidents = await Attack.find({
       createdAt: { $gte: sinceDate },
+      _deleted: { $ne: true },
     }).sort({ date: 1 });
 
     console.log(
@@ -424,6 +462,7 @@ export class DuplicateCheckerService {
       const stateIncidents = await Attack.find({
         "location.state": { $regex: stateRegex },
         date: { $gte: earliestDate, $lte: latestDate },
+        _deleted: { $ne: true },
       }).sort({ date: 1 });
 
       const candidates: DuplicateCandidate[] = [];
@@ -470,6 +509,13 @@ export class DuplicateCheckerService {
       }
     }
 
+    const allCandidates = results.flatMap((result) => result.candidates);
+    const assessedCandidates = await this.assessWithDeepSeek(allCandidates);
+    let cursor = 0;
+    for (const result of results) {
+      result.candidates = assessedCandidates.slice(cursor, cursor + result.candidates.length);
+      cursor += result.candidates.length;
+    }
     return results;
   }
 
@@ -487,6 +533,7 @@ export class DuplicateCheckerService {
     const stateRegex = new RegExp(`^${normalized}(\\s+State)?$`, "i");
     const attacks = await Attack.find({
       "location.state": { $regex: stateRegex },
+      _deleted: { $ne: true },
     }).sort({ date: 1 });
 
     if (attacks.length < 2) {
@@ -525,11 +572,11 @@ export class DuplicateCheckerService {
       }
     }
 
-    return candidates;
+    return this.assessWithDeepSeek(candidates);
   }
 
   /**
-   * Process a batch of duplicates using Gemini to confirm, then MERGE
+   * Legacy manual merge implementation using Gemini to confirm, then MERGE
    * instead of deleting. The primary (kept) record absorbs:
    *   - All unique sources from both reports
    *   - Only agreed or otherwise non-conflicting casualty values
@@ -563,10 +610,12 @@ export class DuplicateCheckerService {
       }
 
       try {
-        // Ask Gemini whether the pair is truly the same incident
-        const geminiResult = await checkDuplicateAttack(reportA.toObject(), [
-          reportB.toObject(),
-        ]);
+        // This legacy mutation method is retained for explicit/manual callers.
+        // The scheduled checker uses DeepSeek assessments and never auto-merges.
+        const geminiResult = await (async () => {
+          const { checkDuplicateAttack } = await import("./gemini");
+          return checkDuplicateAttack(reportA.toObject(), [reportB.toObject()]);
+        })();
 
         if (geminiResult.isDuplicate) {
           console.log(

@@ -1,7 +1,23 @@
 # Project Handoff
 
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 Branch: main
+
+## 2026-10-04 Pen Redesign Proposal
+
+- Created 16 editable design views plus a system board in the user-opened native file `C:/Users/nubiaville/.pencil/documents/ac777916-4cc5-4906-9eaf-0ab64eb8a3ea/pencil-new.pen`. Use Pen tools to access it. The connector cannot export a native `.pen` copy into the repository.
+- `DESIGN.md`, `design/README.md` and `design/metrics.md` record direction, view IDs, evidence and metric definitions. Local review PDF/PNGs are in `output/pen-redesign/`; snapshots and a rerunnable summary are in `output/design-audit-20261004/`. Outputs are not Git-ignored and should stay out of commits.
+- Addressed phone Unknown-value overflow, state lookup, filter sheets, partial months, source context and missing reporting metadata. Preserved fonts, route responsibilities, sharing/history and safe admin contracts. Final values use the refreshed 510-record snapshot after the separate reconciliation below.
+- Rendered desktop/phone views, a 320px detail and a 1024px tablet overview were inspected. Selected text/control palette pairs meet 4.5:1 / 3:1 respectively. Static canvases do not verify runtime behavior or accessibility. This task changed no app source, deployment or database; concurrent ingestion edits were preserved.
+- Next: select the direction, then integrate real common-scope aggregation, quality metrics and responsive components. Verify keyboard, zoom, filters, sources/sharing and authenticated admin actions end to end. Never ship the design snapshot as live data.
+
+## 2026-10-04 Duplicate Detection Follow-up
+
+- The Oct 4 scheduled run `37202785728` inserted a third report of the Oct 1 Babban Saura attack (one killed, nine abducted). The Oct 2 discovery run `36993326707` inserted two reports in one scan because it compared town names by exact equality. A later Oct 2-published report was assigned Oct 2 as the event date, so it evaded the prior same-day match. The separate same-day event guard skipped the later Oct 4 slots as intended.
+- `src/lib/search-led-discovery.ts` now compares normalized town aliases in the one-day event window even when source URLs differ. Same-day casualty conflicts and adjacent-date matches are held for review; only compatible same-day events merge their sources.
+- `src/lib/deepseek.ts` and `src/lib/duplicate-checker.ts` now add conservative pairwise DeepSeek assessments to heuristic duplicate candidates. Source URLs are excluded from event identity. The workflow enables the check for up to 30 high-scoring pairs per run; results are review metadata only and do not auto-merge records. The scheduled scan report and duplicate-check API expose the classification and rationale.
+- Source review confirms the underlying event occurred around 1 a.m. Thursday, Oct 1, in Babban Saura (PW), Chikun LGA; Punch reports nine people initially abducted and one rescued. Production reconciliation kept `6abf827e18c8ba906b5cf96f`, merged all five independent source links, and soft-deleted `6abf827e18c8ba906b5cf974` and `6ac24a028c4d3dddfe82882f` in a guarded MongoDB transaction. Snapshots, plan, and post-write validation are in ignored `audit-2026/duplicate-reconciliation-babban-saura-20261004/`.
+- Live API confirms the canonical Oct 1 record is active with five sources and both duplicate IDs return 404. The collection moved from 512 to 510 active records (520 total). `npx tsc --noEmit`, focused ESLint, and `git diff --check` passed. No scan/E2E run was performed. The workflow changes remain local and must be pushed to `main` before future scheduled runs use them.
 
 ## 2026-10-03 Scan Coverage Tolerance + DEGRADED Status
 
