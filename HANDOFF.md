@@ -1,15 +1,41 @@
 # Project Handoff
 
-Last updated: 2026-10-04
+## 2026-10-05 Production UI Improvement Implementation
+
+- User selected Newsreader headings + Geist interface text and asked for incremental improvements to the existing production design, followed by a GitHub push. Preserve the dark/red shell, routes, data behavior and unrelated local work.
+- First slice updates the font imports/tokens, changes incident wording to “Last updated,” fits text-valued impact metrics, marks the in-progress month in both chart views and tooltips, adds keyboard/touch-readable chart controls plus a disclosure table, and raises small-link contrast using the existing light-red token.
+- Files in this implementation: `src/app/globals.css`, `src/app/page.tsx`, `src/app/api/stats/route.ts`, `src/app/incidents/[id]/IncidentDetailClient.tsx`, `src/components/BarChart.tsx`. `DESIGN.md` records the chosen font system. Do not stage the existing `design/`, `output/`, `scratch/`, or incident maintenance scripts without a direct reason.
+- Branch: `codex/newsreader-geist-ui-improvements`; commit `68938ef` (push pending). `npx tsc --noEmit`, targeted ESLint on the changed TS/TSX files and `npm run build` pass; the build requires a disposable local `JWT_SECRET` because the module validates it at import time. Repo-wide `npm run lint` remains blocked by 495 existing errors and 80 warnings, mostly in archived audit scripts and unrelated source files. Local production preview showed live dashboard/detail data, both chart modes, October partial labeling, table values matching the API, and “Last updated” wording. Mobile viewport was not verified.
+- Next slice: filter URL persistence and map state-index search. Reporting-quality aggregation still needs metric definitions plus backend scope validation.
+
+Last updated: 2026-10-05
 Branch: main
 
-## 2026-10-04 Pen Redesign Proposal
+## 2026-10-05 Homepage Font Comparison
 
-- Created 16 editable design views plus a system board in the user-opened native file `C:/Users/nubiaville/.pencil/documents/ac777916-4cc5-4906-9eaf-0ab64eb8a3ea/pencil-new.pen`. Use Pen tools to access it. The connector cannot export a native `.pen` copy into the repository.
+- Added `design/font-study.html`, a standalone homepage specimen with four switchable pairs: current Source Serif 4 + Source Sans 3, Newsreader + Inter, IBM Plex Serif + IBM Plex Sans, and Newsreader + Geist. The production dark/red theme and 4 October snapshot content remain fixed so the type can be compared fairly.
+- Local preview: `http://127.0.0.1:4173/font-study.html` (Python server PID 9384). The initial combined Google Fonts URL returned HTTP 400 because the two optical-size axes were malformed, leaving every option on fallback fonts. Replaced it with a valid weights-only family request; the stylesheet now returns HTTP 200, all four controls switch state and URL, and Newsreader, IBM Plex and Geist render visibly differently in desktop screenshots. Mobile CSS breakpoints are present but no mobile viewport was verified.
+- No app source, API, data, commit, or deployment changed. The page is a review artifact; implementation should wait for the user's font choice.
+
+## 2026-10-05 Focused Pen Improvement Proposal
+
+- User asked to clear the previous Pen design and show incremental improvements to production. Deleted all 18 earlier canvas roots and created five focused views plus proposal notes and a desktop viewport crop in the same user-opened native file. `design/README.md` lists current IDs and the native path; `output/production-proposal/export.pdf` is the current review export. Older exports are superseded.
+- Preserved production dark/red styling, serif headings, gradients, masthead, route responsibilities and record evidence/history. Proposed partial-month labeling, word-value fit, compact filters, state-index search/numeric legend and an expandable reporting-context panel. Rendered chart/filter and 390/320px impact views were inspected. Counts use the 4 October 510-record snapshot, including source-checked unconfirmed totals and state counts.
+- Static Pen states do not prove runtime interactions. No app source, database, commit or deployment changes occurred. Next: user reviews this focused proposal, then implement selected improvements with real queries and end-to-end validation.
+
+## 2026-10-04 Production Design Improvement Direction
+
+- User rejected the replacement Pen direction and explicitly prefers the existing production theme. Preserve the dark/red palette, serif headings, floating navigation, card style, current charts and map structure. `DESIGN.md` now records this direction; `design/production-improvements.md` contains the ranked audit and acceptance criteria.
+- Fresh production inspection confirmed phone Unknown overflow (161px text in a 132px value region at 390px), expanded filters pushing the result count to y=743px, absent partial-month labeling and small red links at 4.12:1 contrast. Existing lighter-red token gives 6.56:1 on the panel background. Other source findings include incomplete filter URL/chip state and Last reviewed derived from updatedAt.
+- Next: implement a focused first slice of impact-card fit, truthful timestamp wording, link contrast and partial-month context using existing tokens/components. Then improve filter persistence and state-index search; quality analytics require scoped server aggregation. This audit changed no app code or production behavior.
+
+## 2026-10-04 Pen Redesign Proposal (Superseded)
+
+- Previously created 16 design views plus a system board in the user-opened native file. Those roots were deleted on 5 October at the user's request; the same file now contains the focused improvement proposal above. The connector cannot export a native `.pen` copy into the repository.
 - `DESIGN.md`, `design/README.md` and `design/metrics.md` record direction, view IDs, evidence and metric definitions. Local review PDF/PNGs are in `output/pen-redesign/`; snapshots and a rerunnable summary are in `output/design-audit-20261004/`. Outputs are not Git-ignored and should stay out of commits.
 - Addressed phone Unknown-value overflow, state lookup, filter sheets, partial months, source context and missing reporting metadata. Preserved fonts, route responsibilities, sharing/history and safe admin contracts. Final values use the refreshed 510-record snapshot after the separate reconciliation below.
 - Rendered desktop/phone views, a 320px detail and a 1024px tablet overview were inspected. Selected text/control palette pairs meet 4.5:1 / 3:1 respectively. Static canvases do not verify runtime behavior or accessibility. This task changed no app source, deployment or database; concurrent ingestion edits were preserved.
-- Next: select the direction, then integrate real common-scope aggregation, quality metrics and responsive components. Verify keyboard, zoom, filters, sources/sharing and authenticated admin actions end to end. Never ship the design snapshot as live data.
+- This direction was rejected by the user. Retain its artifacts as historical proposals; do not integrate its palette or layouts. Metric definitions can inform the incremental production improvements above. Never ship a design snapshot as live data.
 
 ## 2026-10-04 Duplicate Detection Follow-up
 

@@ -7,10 +7,11 @@ import BarChart from "@/components/BarChart";
 import { IncidentRecord, incidentDateLabel, impactParts } from "@/lib/incident-view";
 
 interface StatsData {
+  period: { timezone: string; month: number; throughDay: number };
   overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; year: number };
   byState: { state: string; count: number }[];
   byGroup: { group: string; count: number }[];
-  byMonth: { month: number; count: number; killed: number; kidnapped: number }[];
+  byMonth: { month: number; count: number; killed: number; kidnapped: number; partial: boolean }[];
   recentAttacks: IncidentRecord[];
 }
 
@@ -40,6 +41,10 @@ export default function DashboardPage() {
 
   const { overview } = data;
   const months = data.byMonth;
+  const partialMonth = months.find((item) => item.partial);
+  const periodNote = partialMonth
+    ? `${monthName(partialMonth.month)} is incomplete; this snapshot was retrieved ${data.period.throughDay} ${monthName(partialMonth.month)}. Fewer records so far do not establish a decline.`
+    : "All months shown are complete calendar months.";
   const maxState = Math.max(...data.byState.map((item) => item.count), 1);
   return <div className="page-wrap">
     <header className="page-header page-header--simple">
@@ -53,8 +58,8 @@ export default function DashboardPage() {
       <Metric label="People abducted" value={overview.totalKidnapped} detail="reported count, estimate or midpoint" className="metric-card--evidence" />
     </section>
     <section className="dashboard-grid dashboard-grid--single">
-      <section className="panel chart-panel"><div className="panel-heading"><div><h2>{chartView === "incidents" ? "Reported incidents by month" : "Reported human impact by month"}</h2><p className="panel-subtitle">{chartView === "incidents" ? `Monthly incident records in ${overview.year}; months with fewer reports stand out clearly.` : "Deaths and abductions use a separate scale from incident counts. Figures are reported counts, estimates or midpoints."}</p></div><div className="chart-switch" role="group" aria-label="Monthly chart measure"><button type="button" aria-pressed={chartView === "incidents"} onClick={() => setChartView("incidents")}>Incidents</button><button type="button" aria-pressed={chartView === "impact"} onClick={() => setChartView("impact")}>Human impact</button></div></div>
-        {months.length ? <BarChart mode={chartView} data={months.map((item) => ({ label: monthName(item.month), value: item.count, killed: item.killed, kidnapped: item.kidnapped }))} /> : <p className="supporting">No monthly records are available.</p>}
+      <section className="panel chart-panel"><div className="panel-heading"><div><h2>{chartView === "incidents" ? "Reported incidents by month" : "Reported human impact by month"}</h2><p className="panel-subtitle">{chartView === "incidents" ? `Monthly incident records in ${overview.year}. ${periodNote}` : `Deaths and abductions share a people scale, separate from incident counts. ${periodNote}`}</p></div><div className="chart-switch" role="group" aria-label="Monthly chart measure"><button type="button" aria-pressed={chartView === "incidents"} onClick={() => setChartView("incidents")}>Incidents</button><button type="button" aria-pressed={chartView === "impact"} onClick={() => setChartView("impact")}>Human impact</button></div></div>
+        {months.length ? <BarChart mode={chartView} partialNote={periodNote} data={months.map((item) => ({ label: monthName(item.month), value: item.count, killed: item.killed, kidnapped: item.kidnapped, partial: item.partial }))} /> : <p className="supporting">No monthly records are available.</p>}
       </section>
     </section>
     <section className="dashboard-grid">

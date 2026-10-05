@@ -6,7 +6,7 @@ import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
 
 const NIGERIA_TIMEZONE = "Africa/Lagos";
 
-function nigeriaCalendarPart(date: Date, part: "year" | "month"): number {
+function nigeriaCalendarPart(date: Date, part: "year" | "month" | "day"): number {
   const value = new Intl.DateTimeFormat("en-GB", {
     timeZone: NIGERIA_TIMEZONE,
     [part]: "numeric",
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const nigeriaYear = nigeriaCalendarPart(now, "year");
     const nigeriaMonth = nigeriaCalendarPart(now, "month");
+    const nigeriaDay = nigeriaCalendarPart(now, "day");
     // Nigeria is UTC+1 year-round. This makes the dashboard's year filter use
     // the same calendar boundary as its Nigeria-focused incident reporting.
     const startOfYear = new Date(`${nigeriaYear}-01-01T00:00:00.000+01:00`);
@@ -124,6 +125,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     const response = NextResponse.json({
+      period: { timezone: NIGERIA_TIMEZONE, month: nigeriaMonth, throughDay: nigeriaDay },
       overview: {
         totalAttacks,
         totalKilled: totalKilled[0]?.total || 0,
@@ -161,6 +163,7 @@ export async function GET(req: NextRequest) {
             count: data?.count || 0,
             killed: data?.killed || 0,
             kidnapped: data?.kidnapped || 0,
+            partial: i === currentMonth,
           });
         }
         return allMonths;
