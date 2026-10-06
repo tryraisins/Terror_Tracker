@@ -38,7 +38,7 @@ async function run() {
   // Load collectors after dotenv so their configuration reflects this run.
   const { collectSearchLedIncidents, ingestSearchLedAttacks } = await import("../src/lib/search-led-discovery");
   const { DuplicateCheckerService } = await import("../src/lib/duplicate-checker");
-  const { persistIncidentReviews, retryIncidentReviews } = await import("../src/lib/incident-review");
+  const { persistIncidentReviews, persistDuplicateReviewPairs, retryIncidentReviews } = await import("../src/lib/incident-review");
   const { default: ScanRun } = await import("../src/lib/models/ScanRun");
   const { assertActiveAttackDateIntegrity } = await import("../src/lib/attack-data-integrity");
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -68,12 +68,14 @@ async function run() {
       ? await ingestSearchLedAttacks(attacks, `SearchLedScan/${lookbackHours}h`)
       : { inserted: 0, merged: 0, errors: 0, reviewRequired: [] };
     console.log("Ingest:", JSON.stringify(ingest));
-    const reviewQueued = await persistIncidentReviews(report, ingest, attacks);
+    let reviewQueued = await persistIncidentReviews(report, ingest, attacks);
     await assertActiveAttackDateIntegrity("Search-led postflight");
 
     const since = new Date(Date.now() - Math.max(5 * 24, lookbackHours) * 60 * 60 * 1000);
     const dup = await DuplicateCheckerService.findDuplicatesForRecentIncidents(since);
     const dupCount = dup.reduce((n, d) => n + d.candidates.length, 0);
+    const storedDuplicateReviews = await persistDuplicateReviewPairs(dup.flatMap((stateResult) => stateResult.candidates));
+    reviewQueued += storedDuplicateReviews;
     console.log(`Duplicate candidates: ${dupCount} across ${dup.length} state(s)`);
 
     const fetchFailureBudget = Math.max(
@@ -92,7 +94,7 @@ async function run() {
       ? "INCOMPLETE"
       : report.fetchFailures.length > 0 || report.feedFailures.length > 0 || report.jurisdictions.some((item) => item.status === "DEGRADED")
         ? "DEGRADED"
-        : report.reviewLeads.length > 0 || ingest.reviewRequired.length > 0
+        : report.reviewLeads.length > 0 || ingest.reviewRequired.length > 0 || storedDuplicateReviews > 0
           ? "REVIEW_REQUIRED"
           : "COMPLETE";
     const result = {
@@ -138,7 +140,7 @@ async function run() {
       counts: { urlsDiscovered: report.urlsDiscovered, urlsFetched: report.urlsFetched, fetchRetries: report.fetchRetries,
         fetchFailures: report.fetchFailures.length, searchFailures: report.searchFailures.length, feedFailures: report.feedFailures.length,
         admitted: report.candidates, rejected: report.rejected, inserted: ingest.inserted + reviewRetries.inserted, merged: ingest.merged + reviewRetries.merged,
-        reviewQueued, duplicateReviews: ingest.reviewRequired.length, ingestErrors: ingest.errors + reviewRetries.errors,
+        reviewQueued, duplicateReviews: ingest.reviewRequired.length + storedDuplicateReviews, ingestErrors: ingest.errors + reviewRetries.errors,
         braveFallbackCalls: report.braveFallbackCalls, deepseekCalls: report.deepseekCalls, deepseekConfirmed: report.deepseekConfirmed,
         deepseekRejected: report.deepseekRejected, deepseekReviewRequired: report.deepseekReviewRequired, deepseekErrors: report.deepseekErrors },
     } }, { runValidators: true });

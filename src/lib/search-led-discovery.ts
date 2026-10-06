@@ -27,7 +27,7 @@ import {
 import { screenIncidentCandidate } from "./incident-scope";
 import { CasualtyMetadata, normalizeCasualtyFields } from "./incident-uncertainty";
 import { isSuppressedSourceHost } from "./news-source-registry";
-import { cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
+import { assessIncidentDuplicate, cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
 import { incidentDateIntervalsOverlap, incidentDateKey, normalizeIncidentDate } from "./incident-date";
 import { discoverRegisteredFeedArticles, type DiscoveryFeedFailure } from "./discovery-feeds";
 
@@ -203,6 +203,10 @@ function normalizeLocationName(value: string): string[] {
 }
 
 function sameSpecificLocation(a: string, b: string): boolean {
+  const compact = (value: string) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\([^)]*\)/g, " ").toLowerCase().replace(/\b(town|village|community|area|settlement|the)\b/g, " ").replace(/[^a-z0-9]/g, "");
+  // Publishers spell compound place names with or without spaces/hyphens.
+  if (compact(a) && compact(a) === compact(b)) return true;
   const left = normalizeLocationName(a);
   const right = normalizeLocationName(b);
   if (!left.length || !right.length) return false;
@@ -742,6 +746,9 @@ export async function ingestSearchLedAttacks(
   let merged = 0;
   let errors = 0;
   const reviewRequired: SearchLedIngestResult["reviewRequired"] = [];
+  const configuredAssessmentLimit = Number(process.env.DEEPSEEK_DUPLICATE_MAX_PAIRS || 30);
+  const assessmentLimit = Number.isFinite(configuredAssessmentLimit) ? Math.max(0, Math.min(100, Math.floor(configuredAssessmentLimit))) : 30;
+  let assessments = 0;
 
   for (const candidate of candidates) {
     try {
@@ -802,7 +809,6 @@ export async function ingestSearchLedAttacks(
           ...(candidateUrls.length ? [{ "sources.url": { $in: (candidate.sources || []).map((source) => source.url) } }] : []),
           {
             "location.state": { $regex: `^${escapeRegExp(candidate.location.state)}$`, $options: "i" },
-            "location.lga": { $regex: `^${escapeRegExp(lga)}$`, $options: "i" },
             $or: [
               { date: { $gte: dateWindowStart, $lte: dateWindowEnd } },
               { "dateRange.start": { $lte: dateWindowEnd }, "dateRange.end": { $gte: dateWindowStart } },
@@ -846,6 +852,38 @@ export async function ingestSearchLedAttacks(
         });
         continue;
       }
+
+      // A city-level label or a multi-community report can refer to an already
+      // recorded neighbourhood. Compare event evidence before inserting it.
+      const semanticMatches = possibleMatches.filter((record) => {
+        const recordDate = normalizeIncidentDate(record);
+        const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
+        const recordLga = normalizeLocationName(record.location?.lga || "").join(" ");
+        const candidateLga = normalizeLocationName(lga).join(" ");
+        const compatibleLga = recordLga === candidateLga || /^(unknown|unspecified|n a|)$/.test(recordLga) || /^(unknown|unspecified|n a|)$/.test(candidateLga);
+        return Boolean(recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
+      });
+      let semanticMerged = false;
+      let semanticHeld = false;
+      for (const record of semanticMatches) {
+        const assessment = assessments < assessmentLimit
+          ? await assessIncidentDuplicate(candidate, record)
+          : { classification: "review_required", reason: "Pre-insert semantic duplicate assessment budget exhausted" };
+        assessments++;
+        if (assessment.classification === "distinct_events") continue;
+        if (assessment.classification === "same_event" && incidentDateKey(record) === incidentDateKey(candidate) && casualtiesCompatible(candidate.casualties, record.casualties)) {
+          const sourceMerge = mergeSourceMetadata(record.sources || [], candidate.sources || []);
+          if (sourceMerge.changed) await Attack.findByIdAndUpdate(record._id, { $set: { sources: sourceMerge.sources, updatedAt: new Date() } });
+          merged++;
+          semanticMerged = true;
+          break;
+        }
+        reviewRequired.push({ url: candidate.sources?.[0]?.url || "", candidateTitle: candidate.title, existingId: String(record._id),
+          reason: `Nearby event identity requires review before insertion: ${assessment.reason}` });
+        semanticHeld = true;
+        break;
+      }
+      if (semanticMerged || semanticHeld) continue;
 
       await Attack.create({
         title: candidate.title,

@@ -1,6 +1,32 @@
 import IncidentReview, { createIncidentReviewKey, normalizeIncidentReviewSourceUrl, MAX_INCIDENT_REVIEW_ATTEMPTS } from "./models/IncidentReview";
 import { ingestSearchLedAttacks, reextractSearchLedSource, type SearchLedReport, type SearchLedIngestResult, type SearchLedReviewLead } from "./search-led-discovery";
 import type { RawAttackData } from "./free-news";
+import type { IAttack } from "./models/Attack";
+
+/** Semantic findings on stored records also belong in the permanent queue. */
+export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttack; reportB: IAttack; deepSeekClassification?: string; deepSeekReason?: string }>) {
+  let queued = 0;
+  for (const pair of pairs) {
+    if (pair.deepSeekClassification === "distinct_events") continue;
+    const ordered = [pair.reportA, pair.reportB].sort((a, b) => String(a._id).localeCompare(String(b._id)));
+    const source = ordered[1].sources?.[0] || ordered[0].sources?.[0];
+    if (!source || !/^https?:\/\//i.test(source.url)) continue;
+    const ids = [String(pair.reportA._id), String(pair.reportB._id)].sort();
+    const sourceUrl = normalizeIncidentReviewSourceUrl(source.url);
+    const reviewKey = createIncidentReviewKey({ sourceUrl, kind: "duplicate", reason: `Stored event pair ${ids.join("/")}` });
+    const now = new Date();
+    const outcome = await IncidentReview.updateOne({ reviewKey }, {
+      $set: { title: pair.reportB.title, publisher: source.publisher || "", state: pair.reportB.location.state,
+        reason: `${pair.deepSeekClassification || "not_assessed"}: ${pair.deepSeekReason || "Possible duplicate requires event-level review."}`,
+        lastSeenAt: now, publishedAt: source.publishedAt || null,
+        sourceEvidence: { existingId: String(pair.reportA._id), candidateId: String(pair.reportB._id), classification: pair.deepSeekClassification || "not_assessed" },
+        candidates: [pair.reportA, pair.reportB] },
+      $setOnInsert: { sourceUrl, kind: "duplicate", status: "pending", attempts: 0, retryable: false, nextRetryAt: null },
+    }, { upsert: true, runValidators: true });
+    queued += outcome.upsertedCount;
+  }
+  return queued;
+}
 
 function reviewKind(lead: SearchLedReviewLead): "extraction" | "fetch" | "late_report" {
   if (/fetch|http|reader|timeout/i.test(lead.reason) && !lead.articleText) return "fetch";
