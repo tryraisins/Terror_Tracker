@@ -7,7 +7,7 @@ import type { IAttack } from "./models/Attack";
 export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttack; reportB: IAttack; deepSeekClassification?: string; deepSeekReason?: string }>) {
   let queued = 0;
   for (const pair of pairs) {
-    if (pair.deepSeekClassification === "distinct_events") continue;
+    if (pair.deepSeekClassification !== "review_required" && pair.deepSeekClassification !== "not_assessed") continue;
     const ordered = [pair.reportA, pair.reportB].sort((a, b) => String(a._id).localeCompare(String(b._id)));
     const source = ordered[1].sources?.[0] || ordered[0].sources?.[0];
     if (!source || !/^https?:\/\//i.test(source.url)) continue;
