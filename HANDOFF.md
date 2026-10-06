@@ -1,5 +1,27 @@
 # Project Handoff
 
+## 2026-10-06 Incident Coverage and Review Recovery
+
+- Objective: implement all six coverage recommendations and push to GitHub. Working branch `main`, based on `981d269`.
+- Every existing daily slot now runs; GitHub concurrency serializes overlapping attempts. Daily discovery covers seven days, and Sunday 19:30 UTC adds fourteen-day catch-up. Manual dispatch supports 336 hours. Search queries use publication freshness without a current-month keyword that could exclude September events.
+- `IncidentReview` stores source evidence, candidates, reason, publication metadata and disposition in `incident_reviews`. Repeated sightings preserve decisions and retry budgets. Each scan retries up to five due extraction/fetch leads, at most three attempts per source/kind. Resolved sources must pass the same extraction, admission and duplicate gates; normal scans can also settle captured leads. Duplicate/casualty conflicts and older late reports remain for admin review.
+- `ScanRun` stores each attempt and state coverage in `scan_runs`. Recovery uses provider receipts, including successful empty searches; errors are attributed to their own state. Registered publisher RSS supplements search through identical article gates. Failed feeds are coverage metadata, while failed article fetches enter review.
+- Date ranges, supporting date excerpts and publication-anchored relative dates now pass through extraction, DeepSeek and storage. Invalid/future dates fail closed. Legacy exact-day hashes stay compatible; overlapping/adjacent date intervals are conservatively held for duplicate review. Dashboard recent-record projection includes range metadata; calendar-day labels avoid adding a day when UTC range-end instants are formatted in Lagos.
+- Public `/api/scan-health` and dashboard show last completed coverage, latest attempt, failed states, errors and pending reviews. No completed scan within 18 hours, an incomplete/failed attempt, or a run stuck over 90 minutes produces a warning. Article evidence stays private. Protected admin review actions support dismissal, reopening and bounded retry requests.
+- Verification: TypeScript, focused ESLint and production build pass (local build needs disposable `JWT_SECRET`). Isolated MongoDB E2E proves 37-state collection, provider recovery, RSS, range storage, late/ambiguous review, idempotency, preserved dispositions, bounded retries and failed-scan persistence. HTTP checks prove admin authorization/dispositions and sanitized stale/failed health. Rerunnable scripts, logs and reports are uncommitted under `scratch/incident-coverage-e2e/`; database is `codex_incident_coverage_20261006`, never the production fixture target.
+- Rendered verification passed in headless Edge at 1440px and 390px: health warnings, correct Borno range, real admin sign-in, queue dismissal/reopening, no page errors and no horizontal overflow. Browser-use IAB and native browser connector were unavailable. Release checks pending: GitHub push and real-provider workflow run.
+- Preserve unrelated `design/`, `output/`, existing `scratch/` work and existing untracked maintenance scripts. Do not commit E2E artifacts or credentials.
+
+## 2026-10-06 Manual Incident Catch-up
+
+- Interpreted the invalid requested start date "September 31" as October 1. A 132-hour report-only search scanned all 37 state/jurisdiction queries from 2026-09-30 20:10 UTC through 2026-10-06 08:10 UTC. It discovered 185 URLs, fetched 180, admitted 14 candidates, and left 82 review leads. Search coverage was incomplete: both DuckDuckGo and Brave failed for Borno and Oyo; five article fetches and three DeepSeek calls also failed.
+- Live API initially contained only two active event records from October 1: Kaduna and Imo. Added four source-reviewed incidents in MongoDB: Marte, Borno (at least 15 killed; event date range Sep 30-Oct 1); Bukuru/Jos South, Plateau (one reported killed and seven injured, marked developing); Owo-Eba, Osogbo (two killed Oct 2); and Arowomole, Osogbo (one injured Oct 4). Borno's three missing residents were not counted as abducted. IDs and before/after evidence are in ignored `audit-2026/daily/manual-incident-audit-20261006/`.
+- Production API now returns eight active records dated/ranged Sep 30 onward. `assertActiveAttackDateIntegrity` passed after the inserts. No code or workflow deployment was changed. Existing conflicting Imo abduction counts remain unmodified.
+- Root causes: the schedule guard in `.github/workflows/daily-scan.yml` skips every later same-Lagos-day scan after any successful or in-progress scan, including after an early manual dispatch. The Oct 5 dispatch ran at 02:01 Lagos, before reports on later events were published, then suppressed later scheduled runs. The normal scan also uses a rolling 96-hour event-date window, only 10 results per state query, and a 40-call Brave cap; review leads are report-only, not queued for adjudication. The DeepSeek prompt requires one ISO event date and the discovery/ingest path writes `exact_day`, despite MongoDB supporting date ranges. These limits explain late-report and multi-day-event misses. The Oct 6 manual scan itself remained incomplete because Borno and Oyo search providers failed.
+- Known unresolved review: the Imo NYSC abduction is already recorded, but reports conflict on the number abducted (roughly 18-20); no count was changed. Several same-event Kaduna and Plateau candidate variants were deduplicated or excluded. Review the resulting app display for the Borno date range and the developing Plateau death count.
+
+Last updated: 2026-10-06
+
 ## 2026-10-05 Production UI Improvement Implementation
 
 - User selected Newsreader headings + Geist interface text and asked for incremental improvements to the existing production design, followed by a GitHub push. Preserve the dark/red shell, routes, data behavior and unrelated local work.
@@ -8,7 +30,6 @@
 - Branch: `codex/newsreader-geist-ui-improvements`; implementation commit `d5eac6a` is pushed to `origin` (no PR opened). `npx tsc --noEmit`, targeted ESLint on the changed TS/TSX files and `npm run build` pass; the build requires a disposable local `JWT_SECRET` because the module validates it at import time. Repo-wide `npm run lint` remains blocked by 495 existing errors and 80 warnings, mostly in archived audit scripts and unrelated source files. Local production preview showed live dashboard/detail data, both chart modes, October partial labeling, table values matching the API, and “Last updated” wording. Mobile viewport was not verified.
 - Next slice: filter URL persistence and map state-index search. Reporting-quality aggregation still needs metric definitions plus backend scope validation.
 
-Last updated: 2026-10-05
 Branch: main
 
 ## 2026-10-05 Homepage Font Comparison

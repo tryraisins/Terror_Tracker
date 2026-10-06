@@ -14,7 +14,7 @@ import Attack from "./models/Attack";
 import { NewsDiscoveryProvider, NewsDiscoveryResult, searchNews } from "./news-discovery";
 import {
   RawAttackData,
-  dateFromText,
+  dateEvidenceFromText,
   extractArticleParts,
   extractCasualtyAssessment,
   extractGroup,
@@ -28,6 +28,28 @@ import { screenIncidentCandidate } from "./incident-scope";
 import { CasualtyMetadata, normalizeCasualtyFields } from "./incident-uncertainty";
 import { isSuppressedSourceHost } from "./news-source-registry";
 import { cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
+import { incidentDateIntervalsOverlap, incidentDateKey, normalizeIncidentDate } from "./incident-date";
+import { discoverRegisteredFeedArticles, type DiscoveryFeedFailure } from "./discovery-feeds";
+
+export type SearchLedReviewLead = {
+  url: string;
+  title: string;
+  publisher: string;
+  reason: string;
+  retryable: boolean;
+  articleText?: string;
+  publishedAt?: string;
+  state?: string;
+  candidates?: RawAttackData[];
+};
+
+export type SearchLedJurisdictionReport = {
+  state: string;
+  status: "PASS" | "RECOVERED" | "DEGRADED" | "FAILED";
+  errors: string[];
+  retries: number;
+  resultCount: number;
+};
 
 export interface SearchLedReport {
   windowStart: string;
@@ -37,12 +59,15 @@ export interface SearchLedReport {
   urlsDiscovered: number;
   urlsFetched: number;
   fetchRetries: number;
-  fetchFailures: Array<{ url: string; error: string }>;
+  fetchFailures: Array<{ url: string; title: string; publisher: string; error: string; retryable: boolean }>;
   searchFailures: Array<{ state: string; provider: NewsDiscoveryProvider; status: string; reason: string }>;
   candidates: number;
   rejected: number;
   rejectionReasons: Record<string, number>;
-  reviewLeads: Array<{ url: string; title: string; publisher: string; reason: string }>;
+  reviewLeads: SearchLedReviewLead[];
+  jurisdictions: SearchLedJurisdictionReport[];
+  feedFailures: DiscoveryFeedFailure[];
+  feedUrlsDiscovered: number;
   errors: number;
   braveFallbackCalls: number;
   deepseekCalls: number;
@@ -66,6 +91,8 @@ interface ArticleParts {
   text: string;
 }
 
+type DiscoverySource = { url: string; title: string; publisher: string; publishedAt?: Date };
+
 const FETCH_TIMEOUT_MS = Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8000);
 const SEARCH_RESULTS_PER_QUERY = Number(process.env.SEARCH_RESULTS_PER_QUERY || 10);
 const SEARCH_FRESHNESS = (process.env.SEARCH_FRESHNESS as "day" | "week" | "month" | undefined) || "week";
@@ -75,12 +102,52 @@ const STATE_SCAN_CONCURRENCY = Math.max(1, Number(process.env.STATE_SCAN_CONCURR
 const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 40);
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+search-led OSINT collector)";
 
+function createReport(lookbackHours: number, windowEnd = new Date()): SearchLedReport {
+  const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
+  return {
+    windowStart: new Date(minMs).toISOString(),
+    windowEnd: windowEnd.toISOString(),
+    lookbackHours,
+    queriesRun: 0,
+    urlsDiscovered: 0,
+    urlsFetched: 0,
+    fetchRetries: 0,
+    fetchFailures: [],
+    searchFailures: [],
+    candidates: 0,
+    rejected: 0,
+    rejectionReasons: {},
+    reviewLeads: [],
+    jurisdictions: [],
+    feedFailures: [],
+    feedUrlsDiscovered: 0,
+    errors: 0,
+    braveFallbackCalls: 0,
+    deepseekCalls: 0,
+    deepseekConfirmed: 0,
+    deepseekRejected: 0,
+    deepseekErrors: 0,
+    deepseekReviewRequired: 0,
+  };
+}
+
+function addReviewLead(report: SearchLedReport, lead: SearchLedReviewLead): void {
+  if (report.reviewLeads.length >= 1000) return;
+  const key = `${normalizeSourceUrl(lead.url)}|${lead.reason}`;
+  if (report.reviewLeads.some((item) => `${normalizeSourceUrl(item.url)}|${item.reason}` === key)) return;
+  report.reviewLeads.push({
+    ...lead,
+    articleText: lead.articleText?.slice(0, 12_000),
+    candidates: lead.candidates?.map((candidate) => ({ ...candidate })),
+  });
+}
+
 function buildQuery(state: string): string {
   // Keep the query Nigeria-specific and include victim outcomes as well as
   // attacker/event terms so reports are not missed when headlines omit "attack".
-  const now = new Date();
-  const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
-  return `Nigeria "${state}" attack OR ambush OR kidnapping OR abduction OR killed OR injured ${month} ${now.getUTCFullYear()}`;
+  // Provider freshness filters publication time. A current-month keyword would
+  // hide late reports and catch-up events spanning a calendar boundary.
+  return `Nigeria "${state}" attack OR ambush OR kidnapping OR abduction OR killed OR injured`;
 }
 
 export function isPublishedWithinDiscoveryHorizon(
@@ -98,7 +165,10 @@ export function isTransientArticleFetchStatus(status: number): boolean {
 
 function hashFor(candidate: RawAttackData): string {
   const title = (candidate.title || "").trim().toLowerCase();
-  const dateStr = new Date(candidate.date).toISOString().slice(0, 10);
+  const normalizedDate = normalizeIncidentDate(candidate);
+  const dateStr = normalizedDate?.datePrecision === "date_range"
+    ? incidentDateKey(candidate)
+    : new Date(candidate.date).toISOString().slice(0, 10);
   const state = (candidate.location.state || "").trim().toLowerCase();
   const lga = (candidate.location.lga || "").trim().toLowerCase();
   const town = (candidate.location.town || "").trim().toLowerCase();
@@ -147,10 +217,6 @@ function casualtiesCompatible(a: RawAttackData["casualties"], b: RawAttackData["
   );
 }
 
-function utcDay(value: Date): number {
-  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
-}
-
 function mergeSourceMetadata(
   existing: Array<{ url: string; title?: string; publisher?: string; publishedAt?: Date | string | null; toObject?: () => Record<string, unknown> }>,
   incoming: RawAttackData["sources"],
@@ -189,31 +255,36 @@ async function discoverForQuery(
   providers: NewsDiscoveryProvider[],
   budget: { braveCalls: number },
   report: SearchLedReport,
-): Promise<{ results: NewsDiscoveryResult[]; braveFallbackUsed: boolean }> {
+): Promise<{ results: NewsDiscoveryResult[]; braveFallbackUsed: boolean; hadFailure: boolean; succeeded: boolean }> {
+  let hadFailure = false;
+  let succeeded = false;
   for (const provider of providers) {
     if (provider === "brave" && (!process.env.BRAVE_SEARCH_API_KEY || budget.braveCalls >= BRAVE_CALL_LIMIT)) continue;
     if (provider === "brave") budget.braveCalls++;
     const res = await searchNews(query, { providers: provider, maxResults: SEARCH_RESULTS_PER_QUERY, freshness: SEARCH_FRESHNESS });
     for (const receipt of res.receipts) {
+      if (receipt.status === "PASS") succeeded = true;
       if (receipt.status === "FAIL" || receipt.status === "BLOCKED") {
+        hadFailure = true;
         report.searchFailures.push({ state, provider: receipt.provider, status: receipt.status, reason: receipt.reason });
       }
     }
-    if (res.results.length > 0) return { results: res.results, braveFallbackUsed: provider === "brave" };
+    if (res.results.length > 0) return { results: res.results, braveFallbackUsed: provider === "brave", hadFailure, succeeded };
   }
-  return { results: [], braveFallbackUsed: false };
+  return { results: [], braveFallbackUsed: false, hadFailure, succeeded };
 }
 
 function absorbResults(
   results: NewsDiscoveryResult[],
   seenUrls: Set<string>,
   report: SearchLedReport,
-): Array<{ url: string; title: string; publisher: string }> {
-  const urls: Array<{ url: string; title: string; publisher: string }> = [];
+): DiscoverySource[] {
+  const urls: DiscoverySource[] = [];
   for (const r of results) {
-    if (seenUrls.has(r.url)) continue;
+    const key = normalizeSourceUrl(r.url);
+    if (!key || seenUrls.has(key)) continue;
     if (isSuppressedSourceHost(r.url)) continue;
-    seenUrls.add(r.url);
+    seenUrls.add(key);
     report.urlsDiscovered++;
     urls.push({ url: r.url, title: r.title, publisher: r.publisher });
   }
@@ -234,14 +305,22 @@ async function applyDeepSeekCleanup(
   candidate: RawAttackData,
   parts: ArticleParts,
   report: SearchLedReport,
-  minMs: number,
-  maxMs: number,
 ): Promise<RawAttackData[] | null> {
+  const source = candidate.sources[0];
+  const reviewContext = {
+    url: source?.url || "",
+    title: candidate.title,
+    publisher: source?.publisher || "",
+    articleText: parts.text,
+    publishedAt: source?.publishedAt,
+    state: candidate.location.state,
+    candidates: [candidate],
+  };
   const multiEventSignal = /\b(?:separate attacks?|separate incidents?|another separate|in separate|across (?:several|multiple|two|three|four) (?:communities|villages|states|locations)|in different (?:communities|villages|locations|states))\b/i.test(`${parts.title}. ${parts.lead}. ${parts.text}`);
   if (!isDeepSeekCleanupEnabled()) {
     if (multiEventSignal) {
       report.deepseekReviewRequired++;
-      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Multiple incidents indicated but DeepSeek cleanup is disabled" });
+      addReviewLead(report, { ...reviewContext, reason: "Multiple incidents indicated but DeepSeek cleanup is disabled", retryable: true });
       return null;
     }
     return [candidate];
@@ -252,43 +331,38 @@ async function applyDeepSeekCleanup(
     report.deepseekErrors++;
     if (multiEventSignal) {
       report.deepseekReviewRequired++;
-      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Multiple incidents indicated but DeepSeek cleanup failed" });
+      addReviewLead(report, { ...reviewContext, reason: "Multiple incidents indicated but DeepSeek cleanup failed", retryable: true });
       return null;
     }
     return [result.incident ?? candidate];
   }
   if (result.reviewRequired) {
     report.deepseekReviewRequired++;
-    report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: result.reason });
+    addReviewLead(report, { ...reviewContext, reason: result.reason, retryable: true });
     return null;
   }
   const incidents = result.incidents || (result.incident ? [result.incident] : []);
   if (!result.confirmed || incidents.length === 0) {
     report.deepseekRejected++;
+    addReviewLead(report, {
+      ...reviewContext,
+      reason: `DeepSeek ${result.classification || "rejection"}: ${result.reason}`,
+      retryable: false,
+    });
     if (process.env.SEARCH_LED_DEBUG === "true") console.log(`[search-led] deepseek rejected (${result.reason}): ${candidate.title}`);
     return null;
   }
   if (multiEventSignal && incidents.length < 2) {
     report.deepseekReviewRequired++;
-    report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: "Article signals separate incidents but DeepSeek returned a single event" });
+    addReviewLead(report, { ...reviewContext, reason: "Article signals separate incidents but DeepSeek returned a single event", retryable: true });
     return null;
-  }
-  for (const incident of incidents) {
-    const ts = new Date(incident.date).getTime();
-    // Allow a 24h grace window beyond the configured lookback for the event date
-    // when a recently published report describes a delayed-reported incident.
-    if (Number.isNaN(ts) || ts < minMs - 24 * 3_600_000 || ts > maxMs) {
-      report.deepseekReviewRequired++;
-      report.reviewLeads.push({ url: candidate.sources[0]?.url || "", title: candidate.title, publisher: candidate.sources[0]?.publisher || "", reason: `Event date outside the active scan window: ${incident.date}` });
-      return null;
-    }
   }
   report.deepseekConfirmed++;
   return incidents;
 }
 
 async function fetchAndExtract(
-  urls: Array<{ url: string; title: string; publisher: string }>,
+  urls: DiscoverySource[],
   report: SearchLedReport,
   minMs: number,
   maxMs: number,
@@ -302,26 +376,67 @@ async function fetchAndExtract(
         report.fetchRetries += article.retries;
         if (!article.html) {
           report.errors++;
-          report.fetchFailures.push({ url: u.url, error: article.error });
+          const failure = { url: u.url, title: u.title, publisher: u.publisher, error: article.error, retryable: true };
+          report.fetchFailures.push(failure);
+          addReviewLead(report, { ...failure, reason: `Article fetch failed: ${article.error}` });
           return;
         }
         report.urlsFetched++;
         const parts = article.viaJina ? partsFromMarkdown(u.title, article.html) : extractArticleParts(article.html, u.title);
-        const publishedAt = article.viaJina ? readerPublishedAt(article.html) : extractPublishedAt(article.html);
-        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, minMs, maxMs, report.lookbackHours, (reason) => {
+        const publishedAt = (article.viaJina ? readerPublishedAt(article.html) : extractPublishedAt(article.html)) || u.publishedAt || null;
+        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, maxMs, report.lookbackHours, (reason) => {
           report.rejected++;
           report.rejectionReasons[reason] = (report.rejectionReasons[reason] || 0) + 1;
           if (isReviewableRejection(reason) && report.reviewLeads.length < 1000) {
-            report.reviewLeads.push({ url: u.url, title: u.title, publisher: u.publisher, reason });
+            addReviewLead(report, {
+              url: u.url,
+              title: parts.title || u.title,
+              publisher: u.publisher,
+              reason,
+              retryable: /publication date|relative incident date|no explicit incident date|no Nigerian state/i.test(reason),
+              articleText: parts.text,
+              publishedAt: publishedAt?.toISOString(),
+              state: extractState(parts.lead) || undefined,
+            });
           }
         });
         if (!candidate) {
           return;
         }
-        const final = await applyDeepSeekCleanup(candidate, parts, report, minMs, maxMs);
+        const final = await applyDeepSeekCleanup(candidate, parts, report);
         if (final) {
-          found.push(...final);
-          report.candidates += final.length;
+          for (const incident of final) {
+            const normalized = normalizeIncidentDate(incident);
+            if (!normalized) {
+              report.rejected++;
+              addReviewLead(report, {
+                url: u.url, title: incident.title, publisher: u.publisher,
+                reason: "Incident has ambiguous or invalid date evidence", retryable: false,
+                articleText: parts.text, publishedAt: publishedAt?.toISOString(),
+                state: incident.location.state, candidates: [incident],
+              });
+              continue;
+            }
+            const inWindow = incidentDateIntervalsOverlap(normalized, {
+              interval: { start: new Date(minMs), end: new Date(maxMs) },
+            });
+            if (!inWindow) {
+              report.rejected++;
+              const lateReport = normalized.interval.end.getTime() < minMs;
+              const reason = lateReport
+                ? `Recent publication reports a supported event date outside the ${report.lookbackHours}-hour event window; retained as a late-report review lead`
+                : "Supported event date is after the active scan window; retained for review";
+              report.rejectionReasons[reason] = (report.rejectionReasons[reason] || 0) + 1;
+              addReviewLead(report, {
+                url: u.url, title: incident.title, publisher: u.publisher, reason, retryable: false,
+                articleText: parts.text, publishedAt: publishedAt?.toISOString(),
+                state: incident.location.state, candidates: [incident],
+              });
+              continue;
+            }
+            found.push(incident);
+            report.candidates++;
+          }
         } else {
           report.rejected++;
           const reason = "DeepSeek rejected or could not confirm candidate";
@@ -413,9 +528,8 @@ function buildCandidate(
   url: string,
   publisher: string,
   publishedAt: Date | null,
-  minMs: number,
   maxMs: number,
-  lookbackHours: number,
+  publicationMaxAgeHours: number,
   onReject: (reason: string) => void,
 ): RawAttackData | null {
   const { title, description, lead, text } = parts;
@@ -433,7 +547,7 @@ function buildCandidate(
   // update. Bound its age to the search horizon, then use the reported event
   // date for admission. Explicit event dates remain usable without publish
   // metadata; relative dates still require a reliable publication timestamp.
-  if (publishedAt && !isPublishedWithinDiscoveryHorizon(publishedAt, maxMs)) {
+  if (publishedAt && !isPublishedWithinDiscoveryHorizon(publishedAt, maxMs, publicationMaxAgeHours)) {
     return reject("published outside the configured discovery horizon");
   }
 
@@ -443,7 +557,7 @@ function buildCandidate(
   const state = extractState(lead);
   if (!state) return reject("no Nigerian state");
 
-  const incidentDate = dateFromText(lead, publishedAt);
+  const incidentDate = dateEvidenceFromText(lead, publishedAt);
   if (!incidentDate) {
     return reject(publishedAt && /\b(?:today|yesterday)\b/i.test(lead)
       ? "no explicit incident date"
@@ -451,8 +565,6 @@ function buildCandidate(
         ? "relative incident date requires a reliable publication date"
         : "no explicit incident date");
   }
-  const ts = incidentDate.getTime();
-  if (ts < minMs || ts > maxMs) return reject(`incident date outside the ${lookbackHours}-hour window`);
 
   const location = extractLocation(title, lead, state);
   const narrative = `${title}. ${lead}`;
@@ -476,27 +588,32 @@ function buildCandidate(
   return {
     title,
     description: (description || lead || text).slice(0, 5000),
-    date: incidentDate.toISOString(),
-    datePrecision: "exact_day",
+    date: incidentDate.date.toISOString(),
+    datePrecision: incidentDate.datePrecision,
+    dateRange: incidentDate.dateRange ? {
+      start: incidentDate.dateRange.start.toISOString(),
+      end: incidentDate.dateRange.end.toISOString(),
+    } : undefined,
+    dateEvidence: incidentDate.evidence,
     location,
     group,
     casualties: normalized.casualties,
     casualtyMeta: normalized.casualtyMeta,
     sources: [{ url, title, publisher, publishedAt: publishedAt?.toISOString() }],
     civilianCasualties: true,
-    status,
-    tags,
+    status: incidentDate.datePrecision === "exact_day" ? status : "developing",
+    tags: incidentDate.datePrecision === "exact_day" ? tags : [...tags, "date-uncertainty"],
   };
 }
 
 /**
  * Discover candidate incidents across the given states within the trailing
- * `lookbackHours` window (default 96). Returns candidates plus a report; no
+ * `lookbackHours` window (default 168). Returns candidates plus a report; no
  * database writes happen here.
  */
 export async function collectSearchLedIncidents(
   states: string[],
-  lookbackHours = 96,
+  lookbackHours = 168,
 ): Promise<{ attacks: RawAttackData[]; report: SearchLedReport }> {
   if (!Number.isFinite(lookbackHours) || lookbackHours < 1 || lookbackHours > 336) {
     throw new Error("lookbackHours must be between 1 and 336");
@@ -504,28 +621,7 @@ export async function collectSearchLedIncidents(
   const windowEnd = new Date();
   const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
   const maxMs = windowEnd.getTime() + 2 * 3_600_000;
-  const report: SearchLedReport = {
-    windowStart: new Date(minMs).toISOString(),
-    windowEnd: windowEnd.toISOString(),
-    lookbackHours,
-    queriesRun: 0,
-    urlsDiscovered: 0,
-    urlsFetched: 0,
-    fetchRetries: 0,
-    fetchFailures: [],
-    candidates: 0,
-    rejected: 0,
-    rejectionReasons: {},
-    reviewLeads: [],
-    errors: 0,
-    searchFailures: [],
-    braveFallbackCalls: 0,
-    deepseekCalls: 0,
-    deepseekConfirmed: 0,
-    deepseekRejected: 0,
-    deepseekErrors: 0,
-    deepseekReviewRequired: 0,
-  };
+  const report = createReport(lookbackHours, windowEnd);
   const attacks: RawAttackData[] = [];
   const budget = { braveCalls: 0 };
   const seenUrls = new Set<string>();
@@ -541,24 +637,96 @@ export async function collectSearchLedIncidents(
       batch.map(async (state) => {
         report.queriesRun++;
         const query = buildQuery(state);
+        let retries = 0;
+        let fallback: Awaited<ReturnType<typeof discoverForQuery>> | null = null;
 
         // Free-first lane.
         const free = await discoverForQuery(query, state, ["duckduckgo"], budget, report);
         let found = await fetchAndExtract(absorbResults(free.results, seenUrls, report), report, minMs, maxMs);
 
-        // Brave recency fallback: free HTML search does not reliably honor a
-        // date filter, so only reach for Brave when the free lane found nothing.
-        if (found.length === 0) {
-          const brave = await discoverForQuery(query, state, ["brave"], budget, report);
-          if (brave.braveFallbackUsed) report.braveFallbackCalls++;
-          found = await fetchAndExtract(absorbResults(brave.results, seenUrls, report), report, minMs, maxMs);
+        // Retry only states where the primary search failed or produced no
+        // admissible direct-source candidate. Brave is preferred when budgeted;
+        // Bing remains the no-key provider fallback.
+        if (free.hadFailure || found.length === 0) {
+          retries++;
+          const fallbackProviders: NewsDiscoveryProvider[] = process.env.BRAVE_SEARCH_API_KEY
+            ? ["brave", "bing"]
+            : ["bing"];
+          fallback = await discoverForQuery(query, state, fallbackProviders, budget, report);
+          if (fallback.braveFallbackUsed) report.braveFallbackCalls++;
+          found = [...found, ...await fetchAndExtract(absorbResults(fallback.results, seenUrls, report), report, minMs, maxMs)];
         }
+        const errors = report.searchFailures
+          .filter((failure) => failure.state === state)
+          .map((failure) => `${failure.provider}: ${failure.reason}`);
+        const status: SearchLedJurisdictionReport["status"] = !free.succeeded
+          ? (fallback?.succeeded ? "RECOVERED" : "FAILED")
+          : fallback && !fallback.succeeded && fallback.hadFailure
+            ? "DEGRADED"
+            : "PASS";
+        report.jurisdictions.push({
+          state,
+          status,
+          errors,
+          retries,
+          resultCount: found.length,
+        });
         return found;
       }),
     );
     attacks.push(...batchResults.flat());
   }
 
+  // Registered publisher feeds supplement search recall. Every item still
+  // passes the same direct-article, date, scope and DeepSeek gates above.
+  const feedDiscovery = process.env.SEARCH_LED_FEEDS_ENABLED === "false"
+    ? { articles: [], failures: [], feedsChecked: 0 }
+    : await discoverRegisteredFeedArticles(lookbackHours, windowEnd);
+  report.feedFailures.push(...feedDiscovery.failures);
+  const feedSources = feedDiscovery.articles.filter((article) => {
+    const key = normalizeSourceUrl(article.url);
+    if (!key || seenUrls.has(key) || isSuppressedSourceHost(article.url)) return false;
+    seenUrls.add(key);
+    report.urlsDiscovered++;
+    report.feedUrlsDiscovered++;
+    return true;
+  });
+  const feedAttacks = await fetchAndExtract(feedSources, report, minMs, maxMs);
+  attacks.push(...feedAttacks);
+  for (const attack of feedAttacks) {
+    const jurisdiction = report.jurisdictions.find((item) => item.state.toLowerCase() === attack.location.state.toLowerCase());
+    if (jurisdiction) jurisdiction.resultCount++;
+  }
+  report.jurisdictions.sort((a, b) => a.state.localeCompare(b.state));
+
+  return { attacks, report };
+}
+
+/** Re-run one queued URL through the normal guarded extraction path. */
+export async function reextractSearchLedSource(
+  source: { url: string; title: string; publisher: string },
+  lookbackHours = 336,
+): Promise<{ attacks: RawAttackData[]; report: SearchLedReport }> {
+  if (!Number.isFinite(lookbackHours) || lookbackHours < 1 || lookbackHours > 336) {
+    throw new Error("lookbackHours must be between 1 and 336");
+  }
+  const windowEnd = new Date();
+  const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
+  const maxMs = windowEnd.getTime() + 2 * 3_600_000;
+  const report = createReport(lookbackHours, windowEnd);
+  report.urlsDiscovered = 1;
+  const attacks = await fetchAndExtract([source], report, minMs, maxMs);
+  const states = new Set([
+    ...attacks.map((attack) => attack.location.state),
+    ...report.reviewLeads.map((lead) => lead.state).filter((state): state is string => Boolean(state)),
+  ]);
+  report.jurisdictions = [...states].map((state) => ({
+    state,
+    status: attacks.some((attack) => attack.location.state === state) ? "PASS" : "DEGRADED",
+    errors: report.fetchFailures.map((failure) => failure.error),
+    retries: report.fetchRetries,
+    resultCount: attacks.filter((attack) => attack.location.state === state).length,
+  }));
   return { attacks, report };
 }
 
@@ -577,8 +745,18 @@ export async function ingestSearchLedAttacks(
 
   for (const candidate of candidates) {
     try {
+      const candidateDate = normalizeIncidentDate(candidate);
+      if (!candidateDate) {
+        reviewRequired.push({
+          url: candidate.sources?.[0]?.url || "",
+          candidateTitle: candidate.title,
+          existingId: "",
+          reason: "Candidate has invalid or ambiguous event-date evidence; held for review.",
+        });
+        continue;
+      }
       const hash = hashFor(candidate);
-      const date = new Date(candidate.date);
+      const date = candidateDate.date;
       const town = (candidate.location.town || "").trim();
       const lga = (candidate.location.lga || "Unknown").trim();
       const hasSpecificTown = town !== "" && !/^(?:unknown|multiple|various|unspecified|n\/?a)$/i.test(town);
@@ -616,8 +794,8 @@ export async function ingestSearchLedAttacks(
       // with the same normalized state/LGA/town in the one-day window so that
       // independent reports with town aliases (for example, "Babban Saura PW"
       // and "Babban Saura") are not inserted as separate incidents.
-      const dateWindowStart = new Date(utcDay(date) - 24 * 60 * 60 * 1000);
-      const dateWindowEnd = new Date(utcDay(date) + 2 * 24 * 60 * 60 * 1000 - 1);
+      const dateWindowStart = new Date(candidateDate.interval.start.getTime() - 24 * 60 * 60 * 1000);
+      const dateWindowEnd = new Date(candidateDate.interval.end.getTime() + 24 * 60 * 60 * 1000);
       const possibleMatches = await Attack.find({
         _deleted: { $ne: true },
         $or: [
@@ -625,7 +803,10 @@ export async function ingestSearchLedAttacks(
           {
             "location.state": { $regex: `^${escapeRegExp(candidate.location.state)}$`, $options: "i" },
             "location.lga": { $regex: `^${escapeRegExp(lga)}$`, $options: "i" },
-            date: { $gte: dateWindowStart, $lte: dateWindowEnd },
+            $or: [
+              { date: { $gte: dateWindowStart, $lte: dateWindowEnd } },
+              { "dateRange.start": { $lte: dateWindowEnd }, "dateRange.end": { $gte: dateWindowStart } },
+            ],
           },
         ],
       }).lean();
@@ -634,12 +815,12 @@ export async function ingestSearchLedAttacks(
         const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
         const sameLga = normalizeLocationName(record.location?.lga || "").join(" ") === normalizeLocationName(lga).join(" ");
         const sameTown = hasSpecificTown && sameSpecificLocation(town, record.location?.town || "");
-        const daysApart = Math.abs(utcDay(new Date(record.date)) - utcDay(date)) / (24 * 60 * 60 * 1000);
-        return sameState && sameLga && sameTown && daysApart <= 1;
+        const recordDate = normalizeIncidentDate(record);
+        return Boolean(recordDate && sameState && sameLga && sameTown && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
       });
 
       const sameDayDuplicate = nearbyEventMatches.find((record) =>
-        utcDay(new Date(record.date)) === utcDay(date) && casualtiesCompatible(candidate.casualties, record.casualties),
+        incidentDateKey(record) === incidentDateKey(candidate) && casualtiesCompatible(candidate.casualties, record.casualties),
       );
       if (sameDayDuplicate) {
         const sourceMerge = mergeSourceMetadata(sameDayDuplicate.sources || [], candidate.sources || []);
@@ -654,13 +835,13 @@ export async function ingestSearchLedAttacks(
 
       if (nearbyEventMatches.length) {
         const possibleMatch = nearbyEventMatches[0];
-        const dateDiffers = utcDay(new Date(possibleMatch.date)) !== utcDay(date);
+        const dateDiffers = incidentDateKey(possibleMatch) !== incidentDateKey(candidate);
         reviewRequired.push({
           url: candidate.sources?.[0]?.url || "",
           candidateTitle: candidate.title,
           existingId: String(possibleMatch._id),
           reason: dateDiffers
-            ? "Location matches an incident on an adjacent date; held for event-date review instead of inserting a possible duplicate."
+            ? "Location matches an incident on an overlapping or adjacent date interval; held for event-date review instead of inserting a possible duplicate."
             : "Location and event date match an existing incident, but casualty values conflict; held instead of inserting a possible duplicate.",
         });
         continue;
@@ -670,7 +851,12 @@ export async function ingestSearchLedAttacks(
         title: candidate.title,
         description: candidate.description,
         date,
-        datePrecision: candidate.datePrecision || "exact_day",
+        datePrecision: candidateDate.datePrecision,
+        dateEvidence: candidate.dateEvidence?.slice(0, 1000) || "",
+        dateRange: candidateDate.dateRange ? {
+          start: candidateDate.dateRange.start,
+          end: candidateDate.dateRange.end,
+        } : undefined,
         location: {
           state: candidate.location.state,
           lga: candidate.location.lga || "Unknown",

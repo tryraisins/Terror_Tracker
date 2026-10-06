@@ -21,6 +21,8 @@ export interface RawAttackData {
   date: string;
   datePrecision?: IncidentDatePrecision;
   dateRange?: { start: string | null; end: string | null };
+  /** Source excerpt supporting date/dateRange. Kept on review candidates; storage may omit it. */
+  dateEvidence?: string;
   location: { state: string; lga: string; town: string; precision?: LocationPrecision; notes?: string };
   group: string;
   casualties: { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
@@ -112,7 +114,11 @@ export function extractPublishedAt(html: string): Date | null {
     /<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:article:published_time|og:published_time|published_time|pubdate|publish-date|date)["']/i,
     /<meta[^>]+itemprop=["']datePublished["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+itemprop=["']datePublished["']/i,
-    /<time[^>]+datetime=["']([^"']+)["']/i,
+    /["']datePublished["']\s*:\s*["']([^"']+)["']/i,
+    /<time[^>]+itemprop=["']datePublished["'][^>]+datetime=["']([^"']+)["']/i,
+    /<time[^>]+datetime=["']([^"']+)["'][^>]+itemprop=["']datePublished["']/i,
+    /<time[^>]+class=["'][^"']*(?:publish|posted|entry-date)[^"']*["'][^>]+datetime=["']([^"']+)["']/i,
+    /<(?:article|div)[^>]+data-(?:published|publish-date|date-published)=["']([^"']+)["']/i,
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
@@ -156,38 +162,119 @@ export function isFreeSourceIngestionEnabled(): boolean {
   return FREE_SOURCE_INGEST_ENABLED;
 }
 
-export function dateFromText(text: string, publishedAt: Date | null = null): Date | null {
+export type ExtractedIncidentDate = {
+  date: Date;
+  datePrecision: "exact_day" | "date_range";
+  dateRange?: { start: Date; end: Date };
+  evidence: string;
+};
+
+const MONTH_INDEX: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+};
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+};
+
+function lagosPublicationDay(publishedAt: Date): Date {
+  const lagosDate = new Date(publishedAt.getTime() + 60 * 60 * 1000);
+  return new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate()));
+}
+
+function recentWeekday(name: string, publishedAt: Date, forcePreviousWeek = false): Date {
+  const publicationDay = lagosPublicationDay(publishedAt);
+  let offset = (publicationDay.getUTCDay() - WEEKDAY_INDEX[name.toLowerCase()] + 7) % 7;
+  if (forcePreviousWeek && offset === 0) offset = 7;
+  return new Date(publicationDay.getTime() - offset * 86_400_000);
+}
+
+function validUtcDate(year: number, month: number, day: number): Date | null {
+  const value = new Date(Date.UTC(year, month, day));
+  return value.getUTCFullYear() === year && value.getUTCMonth() === month && value.getUTCDate() === day ? value : null;
+}
+
+/**
+ * Extract an exact event day or bounded event period. Relative expressions are
+ * accepted only when a reliable source publication timestamp is available.
+ */
+export function dateEvidenceFromText(text: string, publishedAt: Date | null = null): ExtractedIncidentDate | null {
+  const monthName = "January|February|March|April|May|June|July|August|September|October|November|December";
+  const datePart = `(?:(?:${monthName})\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+20\\d{2})?|\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthName})(?:,?\\s+20\\d{2})?)`;
+  const range = text.match(new RegExp(`\\b(?:between|from|during)\\s+(${datePart})\\s*(?:-|–|—|to|through|until|and)\\s*(${datePart})\\b`, "i"))
+    || text.match(new RegExp(`\\b(${datePart})\\s*(?:-|–|—|to|through|until)\\s*(${datePart})\\b`, "i"));
+  if (range) {
+    const explicitYears = [...range[0].matchAll(/20\d{2}/g)].map((match) => Number(match[0]));
+    const anchorYear = explicitYears.at(-1) ?? (publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt).getUTCFullYear() : null);
+    if (anchorYear) {
+      const parsePart = (value: string) => {
+        const monthFirst = value.match(new RegExp(`(${monthName})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(20\\d{2}))?`, "i"));
+        const dayFirst = value.match(new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthName})(?:,?\\s+(20\\d{2}))?`, "i"));
+        const month = monthFirst?.[1] || dayFirst?.[2];
+        const day = Number(monthFirst?.[2] || dayFirst?.[1]);
+        const year = Number(monthFirst?.[3] || dayFirst?.[3] || anchorYear);
+        return month ? validUtcDate(year, MONTH_INDEX[month.toLowerCase()], day) : null;
+      };
+      let start = parsePart(range[1]);
+      const end = parsePart(range[2]);
+      if (start && end && start > end && !/20\d{2}/.test(range[1])) {
+        start = validUtcDate(end.getUTCFullYear() - 1, start.getUTCMonth(), start.getUTCDate());
+      }
+      const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;
+      if (start && end && start <= end && (!publicationDay || end <= publicationDay)) {
+        return { date: start, datePrecision: "date_range", dateRange: { start, end }, evidence: range[0] };
+      }
+    }
+    return null;
+  }
+
+  const weekdayRange = text.match(/\b(?:overnight|between|from)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+night)?\s+(?:into|through|to|until|and)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)
+    || text.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+night)?\s+(?:into|through|to|until)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  if (weekdayRange && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
+    const end = recentWeekday(weekdayRange[2], publishedAt);
+    let start = recentWeekday(weekdayRange[1], publishedAt);
+    if (start > end) start = new Date(start.getTime() - 7 * 86_400_000);
+    if ((end.getTime() - start.getTime()) / 86_400_000 <= 2) {
+      return { date: start, datePrecision: "date_range", dateRange: { start, end }, evidence: weekdayRange[0] };
+    }
+    return null;
+  }
+
   const absolute = text.match(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/i);
   if (absolute) {
-    const parsed = new Date(`${absolute[1].replace(/(st|nd|rd|th)/i, "")} UTC`);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const cleaned = absolute[1].replace(/(\d)(?:st|nd|rd|th)\b/i, "$1");
+    const pieces = cleaned.match(new RegExp(`^(?:(${monthName})\\s+(\\d{1,2}),?\\s+(20\\d{2})|(\\d{1,2})\\s+(${monthName}),?\\s+(20\\d{2}))$`, "i"));
+    const month = pieces ? (pieces[1] || pieces[5]) : "";
+    const day = pieces ? Number(pieces[2] || pieces[4]) : NaN;
+    const year = pieces ? Number(pieces[3] || pieces[6]) : NaN;
+    const parsed = month ? validUtcDate(year, MONTH_INDEX[month.toLowerCase()], day) : null;
+    const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;
+    if (parsed && (!publicationDay || parsed <= publicationDay)) return { date: parsed, datePrecision: "exact_day", evidence: absolute[0] };
+    return null;
   }
   const relative = text.match(/\b(today|yesterday)\b/i);
   if (relative && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
-    const lagosDate = new Date(publishedAt.getTime() + 60 * 60 * 1000);
+    const lagosDate = lagosPublicationDay(publishedAt);
     const dayOffset = relative[1].toLowerCase() === "yesterday" ? 1 : 0;
-    return new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
+    const date = new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
+    return { date, datePrecision: "exact_day", evidence: relative[0] };
   }
   const weekday = text.match(/\b(last|this|next)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
   if (weekday && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
     const qualifier = (weekday[1] || "").toLowerCase();
     if (qualifier === "next") return null;
-    const weekdayIndex: Record<string, number> = {
-      sunday: 0,
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6,
-    };
-    const lagosDate = new Date(publishedAt.getTime() + 60 * 60 * 1000);
-    let dayOffset = (lagosDate.getUTCDay() - weekdayIndex[weekday[2].toLowerCase()] + 7) % 7;
-    if (qualifier === "last") dayOffset += 7;
-    if (qualifier === "this" && dayOffset > 0) return null;
-    return new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
+    const date = recentWeekday(weekday[2], publishedAt, qualifier === "last");
+    const publicationDay = lagosPublicationDay(publishedAt);
+    const daysSinceMonday = (publicationDay.getUTCDay() + 6) % 7;
+    const currentWeekStart = new Date(publicationDay.getTime() - daysSinceMonday * 86_400_000);
+    if (qualifier === "this" && date < currentWeekStart) return null;
+    return { date, datePrecision: "exact_day", evidence: weekday[0] };
   }
   return null;
+}
+
+export function dateFromText(text: string, publishedAt: Date | null = null): Date | null {
+  return dateEvidenceFromText(text, publishedAt)?.date || null;
 }
 export function hasSecurityIncidentSignal(text: string): boolean {
   if (!SECURITY_INCIDENT_PATTERN.test(text)) return false;
@@ -405,12 +492,14 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   if (!hasSecurityIncidentSignal(lead)) { await record(item, publisher, "rejected", "No armed/security-incident language in the article headline and lead."); return "rejected"; }
   const scopeRejection = screenIncidentCandidate({ title, description: lead, group: extractGroup(lead) });
   if (scopeRejection) { await record(item, publisher, "rejected", `Non-incident scope gate: ${scopeRejection}.`); return "rejected"; }
-  const state = extractState(lead); const incidentDate = dateFromText(lead, item.publishedAt); const group = extractGroup(lead);
-  if (!state || !incidentDate) { await record(item, publisher, "rejected", "Missing an explicit incident date or Nigerian state; publication date is never used as the incident date.", incidentDate); return "rejected"; }
-  const validatedIncidentDate = parseIncidentDate(incidentDate, `Free Collector: ${title}`);
-  const incidentAgeDays = (Date.now() - validatedIncidentDate.getTime()) / 86_400_000;
+  const state = extractState(lead); const incidentDateEvidence = dateEvidenceFromText(lead, item.publishedAt); const group = extractGroup(lead);
+  if (!state || !incidentDateEvidence) { await record(item, publisher, "rejected", "Missing an explicit incident date or Nigerian state; publication date is never used as the incident date.", incidentDateEvidence?.date); return "rejected"; }
+  const validatedIncidentDate = parseIncidentDate(incidentDateEvidence.date, `Free Collector: ${title}`);
+  const incidentLatestDate = incidentDateEvidence.dateRange?.end || validatedIncidentDate;
+  const incidentAgeDays = (Date.now() - incidentLatestDate.getTime()) / 86_400_000;
   if (incidentAgeDays > MAX_INCIDENT_AGE_DAYS || incidentAgeDays < -1 || RETROSPECTIVE_PATTERN.test(text)) {
-    if (!await addAsReference(item, publisher, state, validatedIncidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", validatedIncidentDate);
+    if (incidentDateEvidence.datePrecision === "exact_day" && !await addAsReference(item, publisher, state, validatedIncidentDate, group)) await record(item, publisher, "reference", "Retrospective or older incident: evidence only, never a new incident.", validatedIncidentDate);
+    else if (incidentDateEvidence.datePrecision !== "exact_day") await record(item, publisher, "reference", "Older incident has a bounded date range and requires review before linking.", validatedIncidentDate);
     return "reference";
   }
   const location = extractLocation(title, lead, state);
@@ -424,7 +513,7 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
   const tags = ["source-led", group.toLowerCase().replace(/\W+/g, "-")];
   if (location.precision && location.precision !== "exact") tags.push("approximate-location");
   if (Object.values(casualtyMeta).some((meta) => meta?.precision === "estimate" || meta?.precision === "range")) tags.push("casualty-uncertainty");
-  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: validatedIncidentDate.toISOString(), datePrecision: "exact_day", location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher, publishedAt: item.publishedAt.toISOString() }], status: Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags };
+  const attack: RawAttackData = { title, description: (description || articleLead(html) || articleText(html)).slice(0, 5000), date: validatedIncidentDate.toISOString(), datePrecision: incidentDateEvidence.datePrecision, dateRange: incidentDateEvidence.dateRange ? { start: incidentDateEvidence.dateRange.start.toISOString(), end: incidentDateEvidence.dateRange.end.toISOString() } : undefined, dateEvidence: incidentDateEvidence.evidence, location, group, casualties: normalizedImpact.casualties, casualtyMeta: normalizedImpact.casualtyMeta, civilianCasualties: true, sources: [{ url: item.url, title, publisher, publishedAt: item.publishedAt.toISOString() }], status: incidentDateEvidence.datePrecision !== "exact_day" || Object.values(casualtyMeta).some((meta) => meta?.precision === "range" || meta?.precision === "unknown") || location.precision !== "exact" ? "developing" : "unconfirmed", tags: incidentDateEvidence.datePrecision === "exact_day" ? tags : [...tags, "date-uncertainty"] };
   const hash = hashFor(attack); const existing = await Attack.findOne({ hash });
   if (existing) {
     const existingSource = existing.sources.find((source: { url: string; publishedAt?: Date | null }) => source.url.replace(/\/$/, "") === item.url.replace(/\/$/, ""));
@@ -436,7 +525,7 @@ async function processItem(item: FeedItem, publisher: string): Promise<"publishe
         { $set: { "sources.$.publishedAt": item.publishedAt, updatedAt: new Date() } },
       );
     }
-    await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", incidentDate, existing._id);
+    await record(item, publisher, "merged", "Same incident fingerprint from another trusted source.", validatedIncidentDate, existing._id);
     return "merged";
   }
   const saved = await Attack.create({

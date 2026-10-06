@@ -9,9 +9,10 @@
  * normalizer, never a source of new URLs.
  */
 
-import { RawAttackData } from "./free-news";
+import { RawAttackData, dateEvidenceFromText } from "./free-news";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
+import { normalizeIncidentDate } from "./incident-date";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -21,6 +22,7 @@ const MAX_ARTICLE_CHARS = 6000;
 export interface DeepSeekCleanupResult {
   confirmed: boolean;
   reason: string;
+  classification?: "single_event" | "multiple_events" | "review_required" | "not_incident";
   incident?: RawAttackData;
   incidents?: RawAttackData[];
   reviewRequired?: boolean;
@@ -39,6 +41,8 @@ export interface DuplicateCheckIncident {
   title: string;
   description: string;
   date: Date | string;
+  datePrecision?: RawAttackData["datePrecision"];
+  dateRange?: { start?: Date | string | null; end?: Date | string | null };
   location: { state: string; lga: string; town: string };
   group: string;
   casualties: { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
@@ -72,6 +76,8 @@ export async function assessIncidentDuplicate(
     title: incident.title,
     description: incident.description,
     eventDate: incident.date instanceof Date ? incident.date.toISOString() : incident.date,
+    datePrecision: incident.datePrecision || "exact_day",
+    dateRange: incident.dateRange || null,
     location: incident.location,
     group: incident.group,
     casualties: incident.casualties,
@@ -91,7 +97,7 @@ export async function assessIncidentDuplicate(
           },
           {
             role: "user",
-            content: `Decide whether REPORT A and REPORT B describe the same real-world attack or abduction episode. Independent news URLs and different headlines are expected and MUST NOT count as evidence that events are distinct. Compare the original event date (allow a one-day reporting/date-resolution discrepancy), specific town and LGA, victim counts, named victims/participants, and event descriptions. Events in the same state or LGA, or involving the same armed group, are not duplicates without a specific event-level link. If evidence is incomplete or conflicts materially, choose review_required. Never infer facts absent from these records.\n\nReturn JSON: {"classification":"same_event"|"distinct_events"|"review_required","reason":"short evidence-based reason"}\n\nREPORT A:\n${JSON.stringify(view(reportA), null, 2)}\n\nREPORT B:\n${JSON.stringify(view(reportB), null, 2)}`,
+            content: `Decide whether REPORT A and REPORT B describe the same real-world attack or abduction episode. Independent news URLs and different headlines are expected and MUST NOT count as evidence that events are distinct. Compare the original event date or supported date interval, specific town and LGA, victim counts, named victims/participants, and event descriptions. An exact day inside a broader range is only compatible evidence, not proof of identity. Adjacent or overlapping dates with incomplete identity evidence require review_required. Events in the same state or LGA, or involving the same armed group, are not duplicates without a specific event-level link. If evidence is incomplete or conflicts materially, choose review_required. Never infer facts absent from these records.\n\nReturn JSON: {"classification":"same_event"|"distinct_events"|"review_required","reason":"short evidence-based reason"}\n\nREPORT A:\n${JSON.stringify(view(reportA), null, 2)}\n\nREPORT B:\n${JSON.stringify(view(reportB), null, 2)}`,
           },
         ],
         temperature: 0,
@@ -147,6 +153,9 @@ function buildPrompt(candidate: RawAttackData, articleText: string): string {
   const candidateView = {
     title: candidate.title,
     date: candidate.date,
+    datePrecision: candidate.datePrecision || "exact_day",
+    dateRange: candidate.dateRange || null,
+    sourcePublishedAt: candidate.sources?.[0]?.publishedAt || null,
     location: candidate.location,
     group: candidate.group,
     casualties: candidate.casualties,
@@ -181,7 +190,8 @@ the evidence for a field is absent or ambiguous, use null for a casualty count o
 date/location. RULES:
 - Count VICTIMS only (civilians, soldiers, police, vigilantes). NEVER count attacker/bandit/insurgent deaths.
 - Use null when a count is not stated. Do not invent numbers.
-- "date" must be the original event date in ISO 8601 (YYYY-MM-DD or full ISO); never the publication date.
+- Resolve relative event dates such as "yesterday" or a named weekday only against sourcePublishedAt. If sourcePublishedAt is absent or the relative phrase remains ambiguous, request review.
+- Use "exact_day" only when one original event day is supported. Use "date_range" when the source supports a bounded multi-day period. In that case date is the range start and dateRange contains both bounds. Never substitute the publication date.
 - "state" must be one canonical Nigerian state. "lga"/"town" use "Unknown" if not stated.
 - Keep "status": "confirmed" if two+ independent sources clearly agree, "developing" if casualty figures conflict, otherwise "unconfirmed".
 
@@ -192,6 +202,8 @@ Respond with JSON only:
   "incidents": [{
     "title": string,
     "date": string,
+    "datePrecision": "exact_day" | "date_range",
+    "dateRange": { "start": string | null, "end": string | null },
     "dateEvidence": string,
     "state": string,
     "lga": string,
@@ -272,8 +284,8 @@ export async function cleanAndConfirmIncident(
 
   const classification = parsed.classification;
   const reason = typeof parsed.reason === "string" ? parsed.reason : "DeepSeek could not establish event identity";
-  if (classification === "review_required") return { confirmed: false, reviewRequired: true, reason };
-  if (classification === "not_incident") return { confirmed: false, reason };
+  if (classification === "review_required") return { confirmed: false, reviewRequired: true, reason, classification };
+  if (classification === "not_incident") return { confirmed: false, reason, classification };
   if (classification !== "single_event" && classification !== "multiple_events") {
     return { confirmed: false, reviewRequired: true, reason: "DeepSeek returned an invalid event classification" };
   }
@@ -291,13 +303,42 @@ export async function cleanAndConfirmIncident(
     const event = raw as Record<string, unknown>;
     const evidence = (field: string) => typeof event[field] === "string" ? normalizeEvidenceText(event[field] as string) : "";
     const date = toDateString(event.date);
+    const datePrecision = event.datePrecision === "date_range" ? "date_range" : event.datePrecision === "exact_day" ? "exact_day" : null;
+    const rangeValue = event.dateRange && typeof event.dateRange === "object" ? event.dateRange as Record<string, unknown> : null;
+    const rangeStart = toDateString(rangeValue?.start);
+    const rangeEnd = toDateString(rangeValue?.end);
     const stateValue = typeof event.state === "string" ? event.state.trim() : "";
     const lga = typeof event.lga === "string" ? event.lga.trim() : "";
     const town = typeof event.town === "string" ? event.town.trim() : "";
     const dateEvidence = evidence("dateEvidence");
     const locationEvidence = evidence("locationEvidence");
-    if (!date || !stateValue || !lga || !town || !dateEvidence || !locationEvidence ||
+    const normalizedDate = datePrecision ? normalizeIncidentDate({
+      date,
+      datePrecision,
+      dateRange: datePrecision === "date_range" ? { start: rangeStart, end: rangeEnd } : undefined,
+    }) : null;
+    const sourcePublishedAt = candidate.sources?.[0]?.publishedAt ? new Date(candidate.sources[0].publishedAt) : null;
+    const reparsedEvidence = dateEvidence
+      ? dateEvidenceFromText(`${dateEvidence} attack`, sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null)
+      : null;
+    const reparsedDate = reparsedEvidence ? normalizeIncidentDate({
+      date: reparsedEvidence.date,
+      datePrecision: reparsedEvidence.datePrecision,
+      dateRange: reparsedEvidence.dateRange,
+    }) : null;
+    const now = new Date();
+    const latestSupportedDay = sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : now;
+    const lagosAnchor = new Date(latestSupportedDay.getTime() + 60 * 60 * 1000);
+    const latestSupportedDayEnd = Date.UTC(lagosAnchor.getUTCFullYear(), lagosAnchor.getUTCMonth(), lagosAnchor.getUTCDate(), 23, 59, 59, 999);
+    const unsupportedFuture = Boolean(normalizedDate && normalizedDate.interval.end.getTime() > latestSupportedDayEnd);
+    const evidenceMismatch = Boolean(reparsedDate && normalizedDate && (
+      reparsedDate.datePrecision !== normalizedDate.datePrecision ||
+      reparsedDate.interval.start.toISOString().slice(0, 10) !== normalizedDate.interval.start.toISOString().slice(0, 10) ||
+      reparsedDate.interval.end.toISOString().slice(0, 10) !== normalizedDate.interval.end.toISOString().slice(0, 10)
+    ));
+    if (!date || !normalizedDate || !stateValue || !lga || !town || !dateEvidence || !locationEvidence ||
         !normalizedArticle.includes(dateEvidence) || !normalizedArticle.includes(locationEvidence) ||
+        unsupportedFuture || evidenceMismatch || (datePrecision === "date_range" && !reparsedDate) ||
         /^(unknown|unspecified|n\/a)$/i.test(lga) || /^(unknown|unspecified|n\/a)$/i.test(town)) {
       return { confirmed: false, reviewRequired: true, reason: "Event date or location lacks specific supporting article text" };
     }
@@ -336,8 +377,13 @@ export async function cleanAndConfirmIncident(
       ...candidate,
       title,
       description: `${title}. ${typeof event.description === "string" ? event.description.trim() : event.locationEvidence}`.slice(0, 5000),
-      date,
-      datePrecision: "exact_day",
+      date: normalizedDate.date.toISOString(),
+      datePrecision: normalizedDate.datePrecision,
+      dateRange: normalizedDate.dateRange ? {
+        start: normalizedDate.dateRange.start.toISOString(),
+        end: normalizedDate.dateRange.end.toISOString(),
+      } : undefined,
+      dateEvidence: typeof event.dateEvidence === "string" ? event.dateEvidence.trim().slice(0, 300) : candidate.dateEvidence,
       location: {
         state: normalizeStateName(stateValue), lga: lga.slice(0, 120), town: town.slice(0, 160),
         precision: candidate.location.precision, notes: `Event location supported by source text: ${event.locationEvidence}`.slice(0, 500),
@@ -345,8 +391,8 @@ export async function cleanAndConfirmIncident(
       group,
       casualties: counts as RawAttackData["casualties"],
       casualtyMeta,
-      status,
-      tags: Array.from(new Set([...(candidate.tags || []), ...(Array.isArray(event.tags) ? event.tags.filter((t): t is string => typeof t === "string") : []), "deepseek-verified"])),
+      status: normalizedDate.datePrecision === "exact_day" ? status : "developing",
+      tags: Array.from(new Set([...(candidate.tags || []), ...(Array.isArray(event.tags) ? event.tags.filter((t): t is string => typeof t === "string") : []), "deepseek-verified", ...(normalizedDate.datePrecision === "exact_day" ? [] : ["date-uncertainty"])])),
     };
     const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });
     if (scopeRejection) return { confirmed: false, reason: `scope re-check failed: ${scopeRejection}` };
@@ -356,6 +402,7 @@ export async function cleanAndConfirmIncident(
   return {
     confirmed: true,
     reason,
+    classification,
     incidents: cleanedIncidents,
     incident: cleanedIncidents.length === 1 ? cleanedIncidents[0] : undefined,
   };

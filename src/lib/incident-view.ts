@@ -55,7 +55,9 @@ export function incidentDateLabel(record: Pick<IncidentRecord, "date" | "datePre
   const start = record.dateRange?.start;
   const end = record.dateRange?.end;
   if (!start || !end) return long ? formatDateLong(record.date) : formatDate(record.date);
-  return `${formatDateLong(start)} to ${formatDateLong(end)}`;
+  // Stored range bounds represent UTC calendar days, including 23:59:59.999
+  // on the final day. Formatting that instant in Lagos would add a false day.
+  return `${formatDateLong(start.slice(0, 10))} to ${formatDateLong(end.slice(0, 10))}`;
 }
 
 export function locationLabel(location: IncidentRecord["location"], compact = false) {

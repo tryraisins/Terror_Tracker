@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
       Attack.find(active)
         .sort({ date: -1 })
         .limit(5)
-        .select("title date location group casualties casualtyMeta status sources")
+        .select("title date datePrecision dateRange location group casualties casualtyMeta status sources")
         .lean(),
 
     ]);

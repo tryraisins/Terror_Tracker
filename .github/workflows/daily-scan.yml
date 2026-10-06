@@ -2,25 +2,27 @@ name: Daily Nigeria incident scan
 
 on:
   schedule:
-    # Stagger retries away from the top of the hour; later runs proceed only if
-    # earlier same-day scans failed or never started.
+    # Each slot scans new reports. Concurrency serializes runs; ingestion deduplicates events.
     - cron: "30 6 * * *"
     - cron: "30 9 * * *"
     - cron: "30 12 * * *"
     - cron: "30 15 * * *"
+    # Weekly catch-up covers late reporting over fourteen days.
+    - cron: "30 19 * * 0"
   workflow_dispatch:
     inputs:
       lookback_hours:
         description: Incident-date lookback window
         type: choice
         required: true
-        default: "96"
+        default: "168"
         options:
           - "48"
           - "72"
           - "96"
           - "120"
           - "168"
+          - "336"
 
 concurrency:
   group: daily-nigeria-incident-scan
@@ -43,8 +45,13 @@ jobs:
       DEEPSEEK_DUPLICATE_MAX_PAIRS: "30"
       DEEPSEEK_MODEL: deepseek-chat
       NEWS_DISCOVERY_ENABLE_BING: "false"
-      INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '96' }}
-      SEARCH_PUBLICATION_MAX_AGE_HOURS: "168"
+      INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || (github.event.schedule == '30 19 * * 0' && '336') || '168' }}
+      SEARCH_PUBLICATION_MAX_AGE_HOURS: ${{ (github.event.inputs.lookback_hours == '336' || github.event.schedule == '30 19 * * 0') && '336' || '168' }}
+      SEARCH_FRESHNESS: ${{ (github.event.inputs.lookback_hours == '336' || github.event.schedule == '30 19 * * 0') && 'month' || 'week' }}
+      SCAN_SOURCE: ${{ github.event_name }}
+      INCIDENT_REVIEW_RETRY_LIMIT: "5"
+      INCIDENT_REVIEW_MAX_ATTEMPTS: "3"
+      SEARCH_LED_FEEDS_ENABLED: "true"
       STATE_SCAN_CONCURRENCY: "3"
       BRAVE_SEARCH_MAX_CALLS_PER_RUN: "40"
       BRAVE_SEARCH_MIN_DELAY_MS: "5000"
@@ -54,38 +61,14 @@ jobs:
       SCAN_FETCH_FAILURE_TOLERANCE_RATIO: "0.1"
       SCAN_REPORT_PATH: ${{ github.workspace }}/incident-scan-report.json
     steps:
-      - name: Skip scheduled run if today's scan already ran
-        id: backup_guard
-        if: github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          today="$(TZ=Africa/Lagos date +%F)"
-          runs="$(gh run list --workflow daily-scan.yml --limit 100 --json databaseId,createdAt,status,conclusion --jq '.[] | [.databaseId, .createdAt, .status, .conclusion] | @tsv')"
-          while IFS=$'\t' read -r run_id created_at status conclusion; do
-            [ -n "$run_id" ] || continue
-            [ "$run_id" = "$GITHUB_RUN_ID" ] && continue
-            run_day="$(TZ=Africa/Lagos date -d "$created_at" +%F)"
-            if [ "$run_day" = "$today" ] && { [ "$status" = "in_progress" ] || { [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; }; }; then
-              echo "Today's scan succeeded or is running (run $run_id); skipping scheduled duplicate."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done <<< "$runs"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        if: steps.backup_guard.outputs.skip != 'true'
       - uses: actions/setup-node@v4
-        if: steps.backup_guard.outputs.skip != 'true'
         with:
           node-version: 20
           cache: npm
       - name: Install dependencies
-        if: steps.backup_guard.outputs.skip != 'true'
         run: npm ci
       - name: Run search-led discovery + ingest + duplicate check
-        if: steps.backup_guard.outputs.skip != 'true'
         run: npx -y tsx scripts/search-led-scan.ts
       - name: Upload scan report and review leads
         if: always()
@@ -95,3 +78,9 @@ jobs:
           path: ${{ github.workspace }}/incident-scan-report.json
           if-no-files-found: ignore
           retention-days: 30
+      - name: Explain scan failure
+        if: failure()
+        run: |
+          echo "::error::Incident collection needs attention. Inspect scan health in the app and this run's report."
+          echo "### Collection needs attention" >> "$GITHUB_STEP_SUMMARY"
+          echo "This scan failed. The dashboard retains the last verified coverage and flags overdue scans." >> "$GITHUB_STEP_SUMMARY"

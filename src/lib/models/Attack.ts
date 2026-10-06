@@ -12,6 +12,7 @@ export interface IAttack extends Document {
   description: string;
   date: Date;
   datePrecision?: IncidentDatePrecision;
+  dateEvidence?: string;
   dateRange?: { start: Date; end: Date };
   location: {
     state: string;
@@ -75,6 +76,7 @@ const AttackSchema = new Schema<IAttack>(
       default: "exact_day",
       index: true,
     },
+    dateEvidence: { type: String, default: "", trim: true, maxlength: 1000 },
     dateRange: {
       start: { type: Date, default: null },
       end: { type: Date, default: null },
