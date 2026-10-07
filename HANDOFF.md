@@ -1,5 +1,11 @@
 # Project Handoff
 
+## 2026-10-07 Admin Login CAPTCHA
+
+- Added Cloudflare Turnstile to `/admin` sign-in. The browser sends a single-use token; `/api/auth/login` validates it with Siteverify before database access and requires the `admin_login` action plus a hostname in `TURNSTILE_ALLOWED_HOSTNAMES`.
+- Configure `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and comma-separated `TURNSTILE_ALLOWED_HOSTNAMES` in local/deployment environments. Missing configuration and provider errors fail closed. `.env.example` and README document setup.
+- Verification: `npx tsc --noEmit`, focused ESLint on the changed TypeScript files, `git diff --check`, and `npm run build` pass. Build used a disposable process-only `JWT_SECRET` because the auth module requires it during page-data collection. Live challenge behavior and production environment configuration are not verified.
+
 ## 2026-10-06 Incident Coverage and Review Recovery
 
 - Objective: implement all six coverage recommendations and push to GitHub. Feature commit `52bca04` is pushed on `main` and deployed by Netlify (`6ac4c91d9423130008fc70e5`).

@@ -99,10 +99,15 @@ Follow these instructions to set up the project locally for development and test
     # Security
     CRON_SECRET=your_random_secure_string_for_cron_jobs
     API_KEY=your_public_api_key_if_needed
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY=your_turnstile_site_key
+    TURNSTILE_SECRET_KEY=your_turnstile_secret_key
+    TURNSTILE_ALLOWED_HOSTNAMES=localhost,127.0.0.1,terrortracker.tryraisins.dev
 
     # App Config
     NEXT_PUBLIC_APP_URL=http://localhost:3000
     ```
+
+    Create a Cloudflare Turnstile widget for each hostname used by the app. Add its site key and secret to the local environment and deployment environment. `TURNSTILE_ALLOWED_HOSTNAMES` must contain the exact widget hostnames, separated by commas. Admin sign-in fails closed when these settings are missing or Turnstile cannot verify the response.
 
 4.  **Run the development server:**
     ```bash

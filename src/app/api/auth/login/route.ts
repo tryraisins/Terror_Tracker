@@ -3,6 +3,7 @@ import dbConnect from "@/lib/db";
 import User from "@/lib/models/User";
 import { hashPassword, verifyPassword, createSession } from "@/lib/auth";
 import { applySecurityChecks, getClientIP, rateLimit } from "@/lib/security";
+import { verifyAdminLoginChallenge } from "@/lib/turnstile";
 
 const DEFAULT_ADMIN_USERNAME = process.env.DEFAULT_ADMIN_USERNAME?.trim();
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD;
@@ -14,6 +15,49 @@ export async function POST(req: NextRequest) {
       rateLimitWindow: 15 * 60_000, // 10 requests per 15 minutes per IP
     });
     if (securityError) return securityError;
+
+    const body: unknown = await req.json();
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid sign-in request" }, { status: 400 });
+    }
+    const { username, password, turnstileToken } = body as Record<string, unknown>;
+
+    if (
+      typeof username !== "string" || username.length === 0 || username.length > 100 ||
+      typeof password !== "string" || password.length === 0 || password.length > 1024
+    ) {
+      return NextResponse.json(
+        { error: "Username and password are required" },
+        { status: 400 }
+      );
+    }
+
+    const challenge = await verifyAdminLoginChallenge(turnstileToken);
+    if (challenge === "misconfigured" || challenge === "unavailable") {
+      return NextResponse.json(
+        { error: "The security check is temporarily unavailable. Please try again later." },
+        { status: 503 }
+      );
+    }
+    if (challenge !== "valid") {
+      return NextResponse.json(
+        { error: "Please complete the security check and try again." },
+        { status: 400 }
+      );
+    }
+
+    // Additional rate limit per username to slow brute-force attempts
+    const ip = getClientIP(req);
+    const userKey = `${ip}:${String(username).toLowerCase()}`;
+    const userLimit = await rateLimit(userKey, 5, 15 * 60_000);
+    if (!userLimit.allowed) {
+      const res = NextResponse.json(
+        { error: "Too many login attempts. Please try again later." },
+        { status: 429 }
+      );
+      res.headers.set("Retry-After", String(Math.ceil(userLimit.resetIn / 1000)));
+      return res;
+    }
 
     await dbConnect();
 
@@ -37,28 +81,6 @@ export async function POST(req: NextRequest) {
         role: "admin",
       });
       console.log("Default admin user created from environment.");
-    }
-
-    const { username, password } = await req.json();
-
-    if (!username || !password) {
-      return NextResponse.json(
-        { error: "Username and password are required" },
-        { status: 400 }
-      );
-    }
-
-    // Additional rate limit per username to slow brute-force attempts
-    const ip = getClientIP(req);
-    const userKey = `${ip}:${String(username).toLowerCase()}`;
-    const userLimit = await rateLimit(userKey, 5, 15 * 60_000);
-    if (!userLimit.allowed) {
-      const res = NextResponse.json(
-        { error: "Too many login attempts. Please try again later." },
-        { status: 429 }
-      );
-      res.headers.set("Retry-After", String(Math.ceil(userLimit.resetIn / 1000)));
-      return res;
     }
 
     const user = await User.findOne({ username });
