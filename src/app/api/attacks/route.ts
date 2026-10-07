@@ -7,6 +7,13 @@ import { AttackQuerySchema } from "@/lib/validators";
 import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
 import { PUBLIC_ATTACK_FIELDS } from "@/lib/incident-public";
 
+const PUBLIC_ATTACK_AGGREGATE_PROJECTION = PUBLIC_ATTACK_FIELDS
+  .split(/\s+/)
+  .reduce<Record<string, 1>>((projection, field) => {
+    projection[field] = 1;
+    return projection;
+  }, { _id: 1 });
+
 export async function GET(req: NextRequest) {
   // Security checks: rate limit 100 req/min for reads
   const securityError = await applySecurityChecks(req, {
@@ -129,7 +136,8 @@ export async function GET(req: NextRequest) {
           { $sort: { _totalAffected: -1, date: -1 } },
           { $skip: skip },
           { $limit: limit },
-          { $unset: ["hash", "_deleted", "_deletedReason", "_deletedAt", "_deletedBy", "__v"] },
+          // Keep aggregate responses on the same public allowlist as find queries.
+          { $project: PUBLIC_ATTACK_AGGREGATE_PROJECTION },
         ]),
         Attack.countDocuments(filter),
       ]);

@@ -13,6 +13,8 @@ export async function POST(req: NextRequest) {
     const securityError = await applySecurityChecks(req, {
       rateLimit: 10,
       rateLimitWindow: 15 * 60_000, // 10 requests per 15 minutes per IP
+      // Login throttling must be shared across serverless instances in prod.
+      requireDistributedRateLimit: process.env.NODE_ENV === "production",
     });
     if (securityError) return securityError;
 
@@ -55,7 +57,15 @@ export async function POST(req: NextRequest) {
     // Additional rate limit per username to slow brute-force attempts
     const ip = getClientIP(req);
     const userKey = `${ip}:${String(username).toLowerCase()}`;
-    const userLimit = await rateLimit(userKey, 5, 15 * 60_000);
+    const userLimit = await rateLimit(userKey, 5, 15 * 60_000, {
+      requireDistributed: process.env.NODE_ENV === "production",
+    });
+    if (userLimit.unavailable) {
+      return NextResponse.json(
+        { error: "Sign-in is temporarily unavailable. Please try again later." },
+        { status: 503 }
+      );
+    }
     if (!userLimit.allowed) {
       const res = NextResponse.json(
         { error: "Too many login attempts. Please try again later." },

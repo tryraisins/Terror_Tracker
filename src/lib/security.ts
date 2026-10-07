@@ -17,6 +17,13 @@ interface RateLimitEntry {
   resetTime: number;
 }
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetIn: number;
+  unavailable?: boolean;
+}
+
 const rateLimitMap = new Map<string, RateLimitEntry>();
 
 const redis =
@@ -78,12 +85,20 @@ function getUpstashLimiter(limit: number, windowMs: number): Ratelimit {
 export async function rateLimit(
   key: string,
   limit: number = 60,
-  windowMs: number = 60_000
-): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
+  windowMs: number = 60_000,
+  options: { requireDistributed?: boolean } = {}
+): Promise<RateLimitResult> {
+  if (!redis && options.requireDistributed) {
+    return { allowed: false, remaining: 0, resetIn: 0, unavailable: true };
+  }
+
   if (redis) {
     const limiter = getUpstashLimiter(limit, windowMs);
     try {
       const result = await limiter.limit(key);
+      if (result.reason === "timeout" && options.requireDistributed) {
+        return { allowed: false, remaining: 0, resetIn: 0, unavailable: true };
+      }
       return {
         allowed: result.success,
         remaining: result.remaining,
@@ -91,6 +106,9 @@ export async function rateLimit(
       };
     } catch (error) {
       console.warn("Upstash rate limit failed, falling back to in-memory.", error);
+      if (options.requireDistributed) {
+        return { allowed: false, remaining: 0, resetIn: 0, unavailable: true };
+      }
     }
   }
 
@@ -167,6 +185,7 @@ export async function applySecurityChecks(
   options: {
     rateLimit?: number;
     rateLimitWindow?: number;
+    requireDistributedRateLimit?: boolean;
     requireApiKey?: boolean;
     requireCronSecret?: boolean;
   } = {}
@@ -184,7 +203,16 @@ export async function applySecurityChecks(
   // Rate limiting
   const limit = options.rateLimit ?? 60;
   const window = options.rateLimitWindow ?? 60_000;
-  const rl = await rateLimit(ip, limit, window);
+  const rl = await rateLimit(ip, limit, window, {
+    requireDistributed: options.requireDistributedRateLimit,
+  });
+
+  if (rl.unavailable) {
+    return NextResponse.json(
+      { error: "Security service temporarily unavailable. Please try again later." },
+      { status: 503 }
+    );
+  }
 
   if (!rl.allowed) {
     const res = NextResponse.json(

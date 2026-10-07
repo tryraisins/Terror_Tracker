@@ -1,5 +1,13 @@
 # Project Handoff
 
+## 2026-10-07 Security Hardening Follow-up
+
+- Fixed the casualty-sorted public attacks API to use the same explicit public-field allowlist as normal reads, removing the leaked `_totalAffected` helper.
+- Production admin login now returns 503 instead of using per-instance in-memory counters if distributed Upstash limiting is missing, fails, or times out. Development keeps the in-memory fallback.
+- Netlify site configuration contains both Upstash REST environment variables. A distributed runtime check was not performed.
+- During the read-only environment check, the Netlify CLI printed production secret values into task output. Rotate the production MongoDB, Google service-account, admin, JWT, API, cron, and Upstash credentials; no credentials were changed here.
+- Remaining actions: coordinate credential rotation and verify production login throttling after deployment. Do not include environment values in logs or handoff notes.
+
 ## 2026-10-07 Security Assessment (live prod)
 
 - Ran an owner-authorized, app-only security assessment of `terrortracker.tryraisins.dev` (source review + bounded active tests). Full report and evidence: ignored `security-audit/REPORT.md`. No production incident data was modified; all mutation routes are gated.
@@ -8,7 +16,7 @@
 - Dependencies: exact-pinned `next` and `eslint-config-next` 16.4.0; removed unused `@google-cloud/vertexai`, which brought in vulnerable `gaxios` 6 / `uuid` 9. `npm audit --omit=dev` is clean. Full audit still reports five high advisories in dev-only ESLint's `fast-glob`/`micromatch`/`braces` chain; no patched braces release is available in the configured registry, and npm proposes an incompatible Next ESLint config 14 downgrade.
 - Other changes: `src/app/api/admin/reviews/route.ts` casts the validated review status to `IncidentReviewStatus` for updated mongoose types. `.gitignore` excludes local `security-audit/REPORT.md` and artifacts.
 - Verification: `npx tsc --noEmit`, focused ESLint on changed files, `npm run build` (Next 16.4.0), and `npm audit --omit=dev` pass. Local production headers/HTML confirm nonce agreement on CSP, root metadata, and all framework scripts; `script-src` has no `unsafe-inline`, `X-Powered-By` is absent, and API response projections omit internal fields. Local tests also reconfirmed malformed login -> 400 and XFF-rotation-resistant throttling.
-- Open: authenticated admin actions were not exercised (only one admin account, not shared); production Upstash environment-variable presence could not be read remotely. `/api/version` continues exposing an opaque build ID because `UpdateNotifier` needs a per-deployment token to detect updates. Full audit's dev-only ESLint transitive advisory remains as noted above.
+- Open: authenticated admin actions were not exercised (only one admin account, not shared). `/api/version` continues exposing an opaque build ID because `UpdateNotifier` needs a per-deployment token to detect updates. Full audit's dev-only ESLint transitive advisory remains as noted above.
 - Confirmed NOT vulnerable: admin routes require session + admin role (forged/`alg:none` JWT -> 401); `/api/cleanup` and `/api/cron/*` require `x-cron-secret`; Turnstile fails closed; CORS is a fixed allowlist; no operator injection; no tracked secrets.
 
 ## 2026-10-07 Admin Login CAPTCHA
