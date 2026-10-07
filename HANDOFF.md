@@ -6,7 +6,8 @@
 - Production admin login now returns 503 instead of using per-instance in-memory counters if distributed Upstash limiting is missing, fails, or times out. Development keeps the in-memory fallback.
 - Netlify site configuration contains both Upstash REST environment variables. A distributed runtime check was not performed.
 - During the read-only environment check, the Netlify CLI printed production secret values into task output. Rotate the production MongoDB, Google service-account, admin, JWT, API, cron, and Upstash credentials; no credentials were changed here.
-- Remaining actions: coordinate credential rotation and verify production login throttling after deployment. Do not include environment values in logs or handoff notes.
+- Commit `2569d86` is pushed to `main` and deployed to Netlify as ready deploy `6ac65fd35ac7710008e404f6`. A live casualty-sort API request returned without `_totalAffected` or the former internal fields. The distributed login limiter was not actively exercised.
+- Remaining actions: coordinate credential rotation and verify production login throttling. Do not include environment values in logs or handoff notes.
 
 ## 2026-10-07 Security Assessment (live prod)
 
