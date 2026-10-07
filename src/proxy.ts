@@ -2,12 +2,38 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Global middleware for security headers on all routes
 export function proxy(req: NextRequest) {
-  const response = NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  let response: NextResponse;
+
+  if (process.env.NODE_ENV === "production") {
+    const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+    const csp = [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.clarity.ms https://challenges.cloudflare.com`,
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: https:",
+      "connect-src 'self' https://www.clarity.ms https://c.clarity.ms https://challenges.cloudflare.com",
+      "frame-src https://challenges.cloudflare.com",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
+      "upgrade-insecure-requests",
+    ].join("; ");
+
+    requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("Content-Security-Policy", csp);
+    response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("Content-Security-Policy", csp);
+  } else {
+    response = NextResponse.next();
+  }
 
   // Security headers (Helmet equivalent)
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("X-XSS-Protection", "1; mode=block");
+  response.headers.set("X-XSS-Protection", "0");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set(
     "Permissions-Policy",
@@ -18,22 +44,6 @@ export function proxy(req: NextRequest) {
       "Strict-Transport-Security",
       "max-age=63072000; includeSubDomains; preload"
     );
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    const csp = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://www.clarity.ms https://challenges.cloudflare.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: https:",
-      "connect-src 'self' https://www.clarity.ms https://c.clarity.ms https://challenges.cloudflare.com",
-      "frame-src https://challenges.cloudflare.com",
-      "frame-ancestors 'none'",
-      "base-uri 'self'",
-      "form-action 'self'",
-    ].join("; ");
-    response.headers.set("Content-Security-Policy", csp);
   }
 
   // CORS for API routes

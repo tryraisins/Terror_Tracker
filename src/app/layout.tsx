@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
+import { headers } from "next/headers";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -22,8 +24,14 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true }, alternates: { canonical: "/" },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // CSP nonces are request-specific. Dynamic rendering lets Next.js read the
+  // forwarded CSP and nonce every time it emits framework or inline scripts.
+  await connection();
+  const nonce = (await headers()).get("x-nonce");
+
   return <html lang="en"><head>
+    {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
     <meta name="theme-color" content="#0b0c0f" />

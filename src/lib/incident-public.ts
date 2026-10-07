@@ -6,6 +6,11 @@ import connectDB from "@/lib/db";
 import { impactParts, incidentDateLabel, locationLabel, type IncidentRecord } from "@/lib/incident-view";
 import { SITE_URL } from "@/lib/site-config";
 
+// Fields safe to expose on public API responses. Internal fields (dedup hash,
+// soft-delete audit metadata, and mongoose __v) must never be returned.
+export const PUBLIC_ATTACK_FIELDS =
+  "title description date datePrecision dateEvidence dateRange location group casualties casualtyMeta status tags sources createdAt updatedAt";
+
 export const getPublicIncident = cache(async (id: string): Promise<IncidentRecord | null> => {
   if (!mongoose.isValidObjectId(id)) return null;
   await connectDB();

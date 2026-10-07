@@ -51,3 +51,6 @@ scripts/*.js
 scripts/dupes-output.txt
 
 yeknal-security.log
+
+# Local security audit artifacts (do not commit)
+security-audit/

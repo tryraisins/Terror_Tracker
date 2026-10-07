@@ -16,7 +16,13 @@ export async function POST(req: NextRequest) {
     });
     if (securityError) return securityError;
 
-    const body: unknown = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      // Malformed or empty request body must be a client error, not a 500.
+      return NextResponse.json({ error: "Invalid sign-in request" }, { status: 400 });
+    }
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Invalid sign-in request" }, { status: 400 });
     }

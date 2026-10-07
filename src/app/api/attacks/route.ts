@@ -5,6 +5,7 @@ import { applySecurityChecks, setCORSHeaders } from "@/lib/security";
 import { normalizeStateName } from "@/lib/normalize-state";
 import { AttackQuerySchema } from "@/lib/validators";
 import { assertActiveAttackDateIntegrity } from "@/lib/attack-data-integrity";
+import { PUBLIC_ATTACK_FIELDS } from "@/lib/incident-public";
 
 export async function GET(req: NextRequest) {
   // Security checks: rate limit 100 req/min for reads
@@ -128,12 +129,13 @@ export async function GET(req: NextRequest) {
           { $sort: { _totalAffected: -1, date: -1 } },
           { $skip: skip },
           { $limit: limit },
+          { $unset: ["hash", "_deleted", "_deletedReason", "_deletedAt", "_deletedBy", "__v"] },
         ]),
         Attack.countDocuments(filter),
       ]);
     } else {
       [attacks, total] = await Promise.all([
-        Attack.find(filter).sort(sortObj).skip(skip).limit(limit).lean(),
+        Attack.find(filter).sort(sortObj).skip(skip).limit(limit).select(PUBLIC_ATTACK_FIELDS).lean(),
         Attack.countDocuments(filter),
       ]);
     }

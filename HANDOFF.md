@@ -1,5 +1,16 @@
 # Project Handoff
 
+## 2026-10-07 Security Assessment (live prod)
+
+- Ran an owner-authorized, app-only security assessment of `terrortracker.tryraisins.dev` (source review + bounded active tests). Full report and evidence: ignored `security-audit/REPORT.md`. No production incident data was modified; all mutation routes are gated.
+- Fixes: rate-limit key was attacker-controlled via `X-Forwarded-For` (`getClientIP` now prefers Netlify's `x-nf-client-connection-ip`, then `x-real-ip`, then last XFF hop); public attack APIs now project only `PUBLIC_ATTACK_FIELDS`; malformed login JSON returns 400; rate-limit buckets are namespaced; cron/API secrets use `crypto.timingSafeEqual`.
+- CSP now uses a fresh per-request script nonce forwarded through `src/proxy.ts`; root layout renders dynamically so Next applies nonces to generated scripts. Turnstile receives the same nonce via `LoginModal`. Duplicate API CSP removed; `X-Powered-By` disabled. Inline styles remain allowed because the UI uses style attributes.
+- Dependencies: exact-pinned `next` and `eslint-config-next` 16.4.0; removed unused `@google-cloud/vertexai`, which brought in vulnerable `gaxios` 6 / `uuid` 9. `npm audit --omit=dev` is clean. Full audit still reports five high advisories in dev-only ESLint's `fast-glob`/`micromatch`/`braces` chain; no patched braces release is available in the configured registry, and npm proposes an incompatible Next ESLint config 14 downgrade.
+- Other changes: `src/app/api/admin/reviews/route.ts` casts the validated review status to `IncidentReviewStatus` for updated mongoose types. `.gitignore` excludes local `security-audit/REPORT.md` and artifacts.
+- Verification: `npx tsc --noEmit`, focused ESLint on changed files, `npm run build` (Next 16.4.0), and `npm audit --omit=dev` pass. Local production headers/HTML confirm nonce agreement on CSP, root metadata, and all framework scripts; `script-src` has no `unsafe-inline`, `X-Powered-By` is absent, and API response projections omit internal fields. Local tests also reconfirmed malformed login -> 400 and XFF-rotation-resistant throttling.
+- Open: authenticated admin actions were not exercised (only one admin account, not shared); production Upstash environment-variable presence could not be read remotely. `/api/version` continues exposing an opaque build ID because `UpdateNotifier` needs a per-deployment token to detect updates. Full audit's dev-only ESLint transitive advisory remains as noted above.
+- Confirmed NOT vulnerable: admin routes require session + admin role (forged/`alg:none` JWT -> 401); `/api/cleanup` and `/api/cron/*` require `x-cron-secret`; Turnstile fails closed; CORS is a fixed allowlist; no operator injection; no tracked secrets.
+
 ## 2026-10-07 Admin Login CAPTCHA
 
 - Added Cloudflare Turnstile to `/admin` sign-in. The browser sends a single-use token; `/api/auth/login` validates it with Siteverify before database access and requires the `admin_login` action plus a hostname in `TURNSTILE_ALLOWED_HOSTNAMES`.

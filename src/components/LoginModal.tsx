@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type TurnstileWidgetOptions = {
   sitekey: string;
@@ -11,6 +11,20 @@ type TurnstileWidgetOptions = {
   "expired-callback": () => void;
   "error-callback": () => void;
 };
+
+function subscribeToNonce() {
+  // The request-specific nonce is immutable for this document. React checks
+  // the snapshot on mount; no ongoing subscription is needed.
+  return () => {};
+}
+
+function getNonceSnapshot() {
+  return document.querySelector<HTMLMetaElement>('meta[name="csp-nonce"]')?.content ?? "";
+}
+
+function getNonceServerSnapshot() {
+  return "";
+}
 
 declare global {
   interface Window {
@@ -24,6 +38,7 @@ declare global {
 
 export default function LoginModal({ onSuccess }: { onSuccess: () => void }) {
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+  const nonce = useSyncExternalStore(subscribeToNonce, getNonceSnapshot, getNonceServerSnapshot);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -91,6 +106,7 @@ export default function LoginModal({ onSuccess }: { onSuccess: () => void }) {
     {siteKey ? <Script
       src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
       strategy="afterInteractive"
+      nonce={nonce || undefined}
       onLoad={() => setScriptReady(true)}
       onError={() => setWidgetError(true)}
     /> : null}

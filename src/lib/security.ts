@@ -1,6 +1,15 @@
+import { timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { Ratelimit } from "@upstash/ratelimit";
+
+function secretsMatch(provided: string | null, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  if (providedBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
 
 // ─── In-memory rate limiter (fallback when Redis is not configured) ───
 interface RateLimitEntry {
@@ -28,12 +37,24 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 export function getClientIP(req: NextRequest): string {
+  // Netlify sets the real client address on this platform-controlled header.
+  // Never trust the first x-forwarded-for hop: it is client-controllable and
+  // would let a caller rotate the rate-limit key to bypass every limit.
+  const netlifyIp = req.headers.get("x-nf-client-connection-ip");
+  if (netlifyIp) return netlifyIp.trim();
+
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) {
-    return forwarded.split(",")[0].trim();
+    const hops = forwarded
+      .split(",")
+      .map((hop) => hop.trim())
+      .filter(Boolean);
+    // The nearest trusted proxy appends the true client address last.
+    if (hops.length > 0) return hops[hops.length - 1];
   }
-  const realIp = req.headers.get("x-real-ip");
-  if (realIp) return realIp;
   return "unknown";
 }
 
@@ -45,6 +66,9 @@ function getUpstashLimiter(limit: number, windowMs: number): Ratelimit {
   const windowSeconds = Math.ceil(windowMs / 1000);
   const limiter = new Ratelimit({
     redis: redis!,
+    // Namespace each (limit, window) pair so distinct endpoints do not share
+    // one counter and lock each other out.
+    prefix: `rl:${limit}:${windowSeconds}`,
     limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
   });
   upstashLimiters.set(key, limiter);
@@ -71,10 +95,13 @@ export async function rateLimit(
   }
 
   const now = Date.now();
-  const entry = rateLimitMap.get(key);
+  // Include limit and window in the fallback key so each endpoint bucket is
+  // isolated, matching the Redis path's per-limiter namespacing.
+  const bucketKey = `${limit}:${windowMs}:${key}`;
+  const entry = rateLimitMap.get(bucketKey);
 
   if (!entry || now > entry.resetTime) {
-    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
+    rateLimitMap.set(bucketKey, { count: 1, resetTime: now + windowMs });
     return { allowed: true, remaining: limit - 1, resetIn: windowMs };
   }
 
@@ -127,13 +154,11 @@ export function setCORSHeaders(response: NextResponse): NextResponse {
 
 // ─── Auth verification ───
 export function verifyCronSecret(req: NextRequest): boolean {
-  const secret = req.headers.get("x-cron-secret");
-  return secret === process.env.CRON_SECRET;
+  return secretsMatch(req.headers.get("x-cron-secret"), process.env.CRON_SECRET);
 }
 
 export function verifyAPIKey(req: NextRequest): boolean {
-  const apiKey = req.headers.get("x-api-key");
-  return apiKey === process.env.API_KEY;
+  return secretsMatch(req.headers.get("x-api-key"), process.env.API_KEY);
 }
 
 // ─── Combined middleware runner ───

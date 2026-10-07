@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid review status" }, { status: 400 });
     }
 
-    const filter = requestedStatus === "all" ? {} : { status: requestedStatus };
+    const filter = requestedStatus === "all" ? {} : { status: requestedStatus as IncidentReviewStatus };
     const [reviews, total, statusCounts] = await Promise.all([
       IncidentReview.find(filter)
         .select("+sourceEvidence")
