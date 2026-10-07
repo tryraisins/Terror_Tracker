@@ -23,11 +23,12 @@ export function proxy(req: NextRequest) {
   if (process.env.NODE_ENV === "production") {
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' https://www.clarity.ms",
+      "script-src 'self' 'unsafe-inline' https://www.clarity.ms https://challenges.cloudflare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: https:",
-      "connect-src 'self' https://www.clarity.ms https://c.clarity.ms",
+      "connect-src 'self' https://www.clarity.ms https://c.clarity.ms https://challenges.cloudflare.com",
+      "frame-src https://challenges.cloudflare.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
