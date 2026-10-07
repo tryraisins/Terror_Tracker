@@ -3,8 +3,8 @@
 ## 2026-10-07 Admin Login CAPTCHA
 
 - Added Cloudflare Turnstile to `/admin` sign-in. The browser sends a single-use token; `/api/auth/login` validates it with Siteverify before database access and requires the `admin_login` action plus a hostname in `TURNSTILE_ALLOWED_HOSTNAMES`.
-- Configure `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and comma-separated `TURNSTILE_ALLOWED_HOSTNAMES` in local/deployment environments. Missing configuration and provider errors fail closed. `.env.example` and README document setup.
-- Verification: `npx tsc --noEmit`, focused ESLint on the changed TypeScript files, `git diff --check`, and `npm run build` pass. Build used a disposable process-only `JWT_SECRET` because the auth module requires it during page-data collection. Live challenge behavior and production environment configuration are not verified.
+- Production Cloudflare Turnstile widget is configured for `terrortracker.tryraisins.dev` in managed mode. Netlify production has `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, and `TURNSTILE_ALLOWED_HOSTNAMES` set; the values match the widget and expected hostname. The Netlify plan currently exposes all scopes and did not apply the optional Secrets Controller write-only flag, so the secret is stored as a Netlify environment variable but is not flagged as write-only.
+- Production deploy `6ac614870642d42f02c0a609` is ready for commit `19fdd5858fedfc373855a4f161601350240bb41b` on `main`. Live `/admin` returns HTTP 200. The interactive Turnstile flow and login API rejection behavior were not exercised against production. Locally, `npx tsc --noEmit`, focused ESLint, `git diff --check`, and `npm run build` passed; the build used a disposable process-only `JWT_SECRET` because auth requires it during page-data collection.
 
 ## 2026-10-06 Incident Coverage and Review Recovery
 
