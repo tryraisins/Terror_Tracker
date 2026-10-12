@@ -23,7 +23,7 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     minWidth: 0,
     minHeight: "2.75rem",
     borderColor: state.isFocused ? "var(--ring)" : "var(--border)",
-    borderRadius: ".55rem",
+    borderRadius: "2px",
     backgroundColor: "var(--surface)",
     boxShadow: state.isFocused ? "0 0 0 3px var(--ring-soft)" : "none",
     cursor: "pointer",
@@ -31,7 +31,7 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     ":hover": { borderColor: "var(--ring)" },
   }),
   valueContainer: (base) => ({ ...base, minWidth: 0, padding: "0 .75rem" }),
-  singleValue: (base) => ({ ...base, overflow: "hidden", color: "var(--ink)", fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" }),
+  singleValue: (base) => ({ ...base, overflow: "hidden", color: "var(--ink)", fontWeight: 500, textOverflow: "ellipsis", whiteSpace: "nowrap" }),
   placeholder: (base) => ({ ...base, color: "var(--muted)" }),
   input: (base) => ({ ...base, color: "var(--ink)" }),
   indicatorSeparator: () => ({ display: "none" }),
@@ -42,9 +42,9 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     overflow: "hidden",
     marginTop: ".45rem",
     border: "1px solid var(--border)",
-    borderRadius: ".65rem",
+    borderRadius: "2px",
     backgroundColor: "var(--surface-raised)",
-    boxShadow: "0 18px 44px rgba(0, 0, 0, .32)",
+    boxShadow: "0 18px 44px rgba(0, 0, 0, .45)",
   }),
   menuPortal: (base) => ({ ...base, zIndex: 60 }),
   menuList: (base) => ({ ...base, maxHeight: "15rem", padding: ".35rem" }),
@@ -53,7 +53,7 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     display: "grid",
     gap: ".14rem",
     padding: ".68rem .75rem",
-    borderRadius: ".45rem",
+    borderRadius: "0",
     color: state.isSelected ? "#fff" : "var(--ink)",
     backgroundColor: state.isSelected ? "var(--accent)" : state.isFocused ? "var(--surface-hover)" : "transparent",
     cursor: "pointer",
@@ -67,6 +67,7 @@ export default function SearchableSelect({ ariaLabel, inputId, options, value, o
   return <Select<SelectOption, false>
     aria-label={ariaLabel}
     inputId={inputId}
+    instanceId={inputId ?? ariaLabel}
     className={className}
     styles={selectStyles}
     options={options}

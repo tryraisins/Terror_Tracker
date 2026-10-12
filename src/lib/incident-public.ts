@@ -23,6 +23,7 @@ export const getPublicIncident = cache(async (id: string): Promise<IncidentRecor
     description: value.description,
     date: new Date(value.date).toISOString(),
     datePrecision: value.datePrecision,
+    dateEvidence: value.dateEvidence || undefined,
     dateRange: value.dateRange ? {
       start: value.dateRange.start ? new Date(value.dateRange.start).toISOString() : null,
       end: value.dateRange.end ? new Date(value.dateRange.end).toISOString() : null,
@@ -31,7 +32,7 @@ export const getPublicIncident = cache(async (id: string): Promise<IncidentRecor
     group: value.group,
     casualties: value.casualties,
     casualtyMeta: value.casualtyMeta,
-    sources: value.sources,
+    sources: (value.sources || []).map((source: { url: string; title: string; publisher: string; publishedAt?: Date | string | null }) => ({ url: source.url, title: source.title, publisher: source.publisher, publishedAt: source.publishedAt ? new Date(source.publishedAt).toISOString() : null })),
     status: value.status,
     tags: value.tags,
     createdAt: value.createdAt ? new Date(value.createdAt).toISOString() : undefined,

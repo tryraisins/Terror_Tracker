@@ -85,12 +85,11 @@ export async function GET(req: NextRequest) {
       // Attacks in last 7 days
       Attack.countDocuments({ ...active, date: { $gte: sevenDaysAgo } }),
 
-      // Attacks by state (top 10)
+      // Attacks by state: every jurisdiction, because the dashboard map shades all 37
       Attack.aggregate([
         { $match: { ...active, date: { $gte: startOfYear } } },
         { $group: { _id: "$location.state", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
-        { $limit: 10 },
       ]),
 
       // Attacks by group

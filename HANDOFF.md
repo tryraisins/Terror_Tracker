@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-10-12 "Public Ledger" Redesign Implementation
+
+- The user asked for a fresh redesign in Pen (`redesign.pen`), chose dark-only and the real map outline, then asked to implement it and pick the best fonts. Work is on branch `redesign/public-ledger`; nothing is committed or pushed. `DESIGN.md` records the system and the font evidence.
+- Fonts: Noto Sans (variable width for condensed display) + Noto Sans Mono via `next/font`, chosen because a browser glyph test showed they are the only tested pairing that covers Yoruba, Hausa and Igbo letters in every role. The Google Fonts `@import` was removed.
+- Rewritten: `src/app/globals.css` (single dark ledger system with legacy variable aliases), `layout.tsx`, `page.tsx` (dashboard), `incidents/page.tsx`, `incidents/[id]/IncidentDetailClient.tsx`, `map/page.tsx`, `about/page.tsx`, `components/Navbar.tsx` (utility strip with real `/api/scan-health` time, masthead search to `/incidents?search=`), `Footer.tsx`, `RecordCard.tsx`, `BarChart.tsx` (measures its container; value labels, peak and partial-month marks). New: `components/NigeriaMap.tsx`, `components/StatusBadge.tsx`.
+- Data changes: `/api/stats` `byState` returns every state (was top 10); `getPublicIncident` now returns `dateEvidence` and source `publishedAt` (both already in the public field allowlist). `IncidentRecord` type gained both fields.
+- Bugs fixed while verifying: the archive let a slower stale response overwrite newer filtered results (now request-sequenced); react-select ids caused hydration mismatches (now stable `instanceId`); a failed related-records request was shown as "no related records" (now a retryable notice).
+- Verification: `npx tsc --noEmit` and `next build` (disposable `JWT_SECRET`) pass. Changed files add no new lint errors; the five remaining `react-hooks/set-state-in-effect` errors are the same ones present on `main`. `node scratch/ledger-redesign-e2e/ledger-e2e.mjs http://localhost:3107` passed 18/18 against the local production build with live data and the real nonce CSP (fonts, search deep link, filters, pagination, stale-response race, empty and error recovery, detail impact semantics, map selection, overflow at 320–1440px, mobile drawer/bottom nav, no page errors or CSP violations). Screenshots and `results.json` are in `scratch/ledger-redesign-e2e/` (uncommitted).
+- Not verified: authenticated admin screens (only the sign-in view was rendered), real phones/Safari, and deployment. `.claude/launch.json` was added for the local dev preview.
+
 ## 2026-10-07 Security Hardening Follow-up
 
 - Fixed the casualty-sorted public attacks API to use the same explicit public-field allowlist as normal reads, removing the leaked `_totalAffected` helper.
