@@ -1,16 +1,19 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { NIGERIA_MAP_DATA } from "@/lib/mapData";
 
-export type MapLabelMode = "none" | "counts" | "names";
+/** "auto" shows names with counts when the map is wide enough to read them, otherwise counts only. */
+export type MapLabelMode = "none" | "counts" | "names" | "auto";
+const NAMES_MIN_WIDTH = 600;
 export type MapTier = 0 | 1 | 2 | 3 | 4;
 
 const STATES = Object.values(NIGERIA_MAP_DATA);
 
-// Label nudges (viewBox units) where small southern states would collide.
+// Label nudges (viewBox units) where small southern states would collide; tuned with names shown.
 const LABEL_OFFSET: Record<string, [number, number]> = {
-  Lagos: [-6, 26], Ogun: [0, -16], Imo: [-12, -4], Abia: [16, -10], Rivers: [-10, 12],
-  "Cross River": [14, -46], "Akwa Ibom": [8, 6], Anambra: [-10, -4], Ebonyi: [6, -6],
+  Lagos: [-6, 26], Ogun: [0, -16], Imo: [-14, 6], Abia: [22, -4], Rivers: [-2, 12], Bayelsa: [-12, 0],
+  "Cross River": [24, -8], "Akwa Ibom": [8, 6], Anambra: [-24, 6], Ebonyi: [12, -2], Enugu: [-8, 2],
 };
 
 /** Band thresholds derived from the current maximum so the legend always matches the data shown. */
@@ -27,28 +30,39 @@ export function mapTier(count: number, thresholds: [number, number, number]): Ma
   return 1;
 }
 
-export function MapLegend({ thresholds, selectedLabel }: { thresholds: [number, number, number]; selectedLabel?: boolean }) {
+export function MapLegend({ thresholds, selectedLabel, title = "Records filed" }: { thresholds: [number, number, number]; selectedLabel?: boolean; title?: string }) {
   const [a, b, c] = thresholds;
   const bands: [MapTier, string][] = [[0, "None"], [1, a > 2 ? `1–${a - 1}` : "1"], [2, b - 1 > a ? `${a}–${b - 1}` : String(a)], [3, c - 1 > b ? `${b}–${c - 1}` : String(b)], [4, `${c}+`]];
-  return <div className="map-legend" aria-label="Map key: records filed per state">
-    <span className="map-legend__title">Records filed</span>
+  return <div className="map-legend" aria-label={`Map key: ${title.toLowerCase()}`}>
+    <span className="map-legend__title">{title}</span>
     {bands.map(([tier, label]) => <span key={tier}><i className={`map-swatch map-swatch--${tier}`} />{label}</span>)}
     {selectedLabel ? <span><i className="map-swatch map-swatch--selected" />Selected</span> : null}
   </div>;
 }
 
-export default function NigeriaMap({ counts, labels = "counts", selected, onSelect, thresholds }: {
+export default function NigeriaMap({ counts, labels: labelMode = "counts", selected, onSelect, thresholds, unit = ["record", "records"] }: {
   counts: Record<string, number>;
   labels?: MapLabelMode;
   selected?: string;
   onSelect?: (name: string) => void;
   thresholds: [number, number, number];
+  unit?: [singular: string, plural: string];
 }) {
+  const ref = useRef<SVGSVGElement>(null);
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const node = ref.current;
+    if (labelMode !== "auto" || !node) return;
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= NAMES_MIN_WIDTH));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [labelMode]);
+  const labels = labelMode === "auto" ? (wide ? "names" : "counts") : labelMode;
   const active = STATES.find((item) => item.name === selected);
-  return <svg className={`nigeria-map ${onSelect ? "nigeria-map--interactive" : ""}`} viewBox="0 0 1000 812" aria-hidden="true" focusable="false">
+  return <svg ref={ref} className={`nigeria-map nigeria-map--${labels} ${onSelect ? "nigeria-map--interactive" : ""}`} viewBox="0 0 1000 812" aria-hidden="true" focusable="false">
     {STATES.map((item) => {
       const count = counts[item.name] ?? 0;
-      return <path key={item.id} className={`nigeria-map__state map-tier--${mapTier(count, thresholds)}`} d={item.path} onClick={onSelect ? () => onSelect(item.name) : undefined}><title>{`${item.name}: ${count} ${count === 1 ? "record" : "records"}`}</title></path>;
+      return <path key={item.id} className={`nigeria-map__state map-tier--${mapTier(count, thresholds)}`} d={item.path} onClick={onSelect ? () => onSelect(item.name) : undefined}><title>{`${item.name}: ${count.toLocaleString("en-NG")} ${count === 1 ? unit[0] : unit[1]}`}</title></path>;
     })}
     {active ? <path className="nigeria-map__selected" d={active.path} /> : null}
     {labels !== "none" ? STATES.map((item) => {
@@ -60,7 +74,7 @@ export default function NigeriaMap({ counts, labels = "counts", selected, onSele
       const name = item.name === "Federal Capital Territory" ? "FCT" : item.name;
       return <g key={`${item.id}-label`} className={`nigeria-map__label map-label--${tier}`} onClick={onSelect ? () => onSelect(item.name) : undefined}>
         {labels === "names" ? <text className="nigeria-map__name" x={x} y={y - 6} textAnchor="middle">{name}</text> : null}
-        <text className="nigeria-map__count" x={x} y={labels === "names" ? y + 20 : y + 9} textAnchor="middle">{count}</text>
+        <text className="nigeria-map__count" x={x} y={labels === "names" ? y + 20 : y + 9} textAnchor="middle">{count.toLocaleString("en-NG")}</text>
       </g>;
     }) : null}
   </svg>;
