@@ -23,7 +23,7 @@ export default function ShareIncident({ title, shareUrl }: { title: string; shar
 
   return <div className="incident-share" aria-label="Share this incident">
     <span className="incident-share__label">Share this record</span>
-    <button type="button" className="button-secondary incident-share__primary" onClick={share} aria-label="Share incident link">
+    <button type="button" className="button-secondary" onClick={share} aria-label="Share incident link">
       <ShareIcon /> Share
     </button>
     <a className="button-quiet incident-share__social" href={`https://wa.me/?text=${encodedTitle}%20${encodedUrl}`} target="_blank" rel="noopener noreferrer" aria-label="Share on WhatsApp">WhatsApp</a>

@@ -16,6 +16,7 @@ export interface IncidentRecord {
   description: string;
   date: string;
   datePrecision?: IncidentDatePrecision;
+  dateEvidence?: string;
   dateRange?: { start?: string | null; end?: string | null };
   location: {
     state: string;
@@ -27,7 +28,7 @@ export interface IncidentRecord {
   group: string;
   casualties: CasualtyValues;
   casualtyMeta?: CasualtyMetadata;
-  sources: { url: string; title: string; publisher: string }[];
+  sources: { url: string; title: string; publisher: string; publishedAt?: string | null }[];
   status: IncidentStatus;
   tags: string[];
   createdAt?: string;

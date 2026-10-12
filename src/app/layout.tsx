@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
+import { Noto_Sans, Noto_Sans_Mono } from "next/font/google";
 import { connection } from "next/server";
 import { headers } from "next/headers";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PWARegistration from "@/components/PWARegistration";
+
+// Noto covers Yoruba (ẹ ọ ṣ), Hausa (ɓ ɗ ƙ ƴ) and Igbo (ị ụ ṅ) place names
+// without glyph fallback; its width axis supplies the condensed display cut.
+const notoSans = Noto_Sans({ subsets: ["latin", "latin-ext", "vietnamese"], axes: ["wdth"], variable: "--font-sans", display: "swap" });
+const notoMono = Noto_Sans_Mono({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
@@ -30,11 +36,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
   const nonce = (await headers()).get("x-nonce");
 
-  return <html lang="en"><head>
+  return <html lang="en" className={`${notoSans.variable} ${notoMono.variable}`}><head>
     {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-    <meta name="theme-color" content="#0b0c0f" />
+    <meta name="theme-color" content="#0f0e0c" />
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
   </head><body>
