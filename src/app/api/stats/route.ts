@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
       // 5 most recent attacks
       Attack.find(active)
         .sort({ date: -1 })
-        .limit(5)
+        .limit(7)
         .select("title date datePrecision dateRange location group casualties casualtyMeta status sources")
         .lean(),
 

@@ -1,5 +1,13 @@
 # Project Handoff
 
+## 2026-10-12 "V2 Editorial" Redesign Implementation
+
+- The user rejected the deployed Public Ledger look ("AI slop", too much on the home page, no geography on the home page), redesigned every page in Pen (`redesign.pen`, "V2" frames, desktop and mobile), asked for the monthly chart and key metrics to stay on the home page and for state rankings to live only on the Map page, then asked for implementation and a push. Map state names must show when there is room and fall back to counts only on narrow widths. `DESIGN.md` describes the system.
+- Branch `redesign-v2-editorial`. Rewritten: `globals.css` (new tokens; states, admin and date-picker rules kept), `layout.tsx` (Noto Sans + Noto Serif; Noto Sans Mono dropped), `page.tsx`, `incidents/page.tsx` (filter bar of selects + dates; sort tabs; `?focus=search`), `incidents/[id]/IncidentDetailClient.tsx`, `map/page.tsx` (measure toggle, ranking buttons with Show all 37, attributed groups), `about/page.tsx`, `Navbar.tsx` (no utility strip or bottom nav), `Footer.tsx`, `RecordCard.tsx` (`rowPlace`, `recordDay`), `BarChart.tsx` (HTML columns, three measures, data table), `NigeriaMap.tsx` (`labels="auto"`, retuned offsets, units), `StatusBadge.tsx` (neutral marks). New: `ScanStatus.tsx`. `/api/stats` now returns seven latest records.
+- Fixed while verifying: the related-records section briefly said "no other records" while loading (now shows a loading line); map labels Anambra/Enugu and Bayelsa/Rivers collided.
+- Verification: `npx tsc --noEmit` and `next build` (disposable `JWT_SECRET`) pass. Changed files add no new lint errors (the five `react-hooks/set-state-in-effect` errors are the same ones on `main`). `node scratch/v2-redesign-e2e/v2-e2e.mjs http://localhost:3107` passed 19/19 against the local production build with live data and the real nonce CSP; screenshots and `results.json` are in `scratch/v2-redesign-e2e/` (uncommitted).
+- Not verified: authenticated admin screens, real phones/Safari, and the production deploy (not merged at handoff).
+
 ## 2026-10-12 "Public Ledger" Redesign Implementation
 
 - The user asked for a fresh redesign in Pen (`redesign.pen`), chose dark-only and the real map outline, then asked to implement it and pick the best fonts. Merged to `main` as `f0d768d` via PR #3 (rebase merge) and deployed to production by Netlify on 12 October 2026. The same E2E suite passed 18/18 against `https://terrortracker.tryraisins.dev` after the deploy. `DESIGN.md` records the system and the font evidence.
