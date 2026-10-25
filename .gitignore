@@ -54,3 +54,20 @@ yeknal-security.log
 
 # Local security audit artifacts (do not commit)
 security-audit/
+
+# Local design work and review outputs (not application source)
+/design/
+/output/
+/redesign.pen
+
+# Local audit, reconciliation and E2E artifacts (keep evidence uncommitted)
+/scratch/
+
+# Local browser/editor launch config. Shared Claude settings stay tracked.
+/.claude/launch.json
+
+# One-off maintenance scripts (may contain ad-hoc data or credentials)
+/scripts/test-clean-top3.ts
+/scripts/test-extract-casualty.ts
+/scripts/update-plateau-incident.ts
+/scripts/update-recent-top3.ts
