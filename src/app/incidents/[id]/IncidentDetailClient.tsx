@@ -60,7 +60,7 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
         <section className="record-block"><h2>Where</h2><p>{locationLabel(record.location)}. Location precision: {locationPrecisionLabel(record.location)}.</p>{record.location.notes ? <p className="record-block__quote">{record.location.notes}</p> : null}</section>
         <section className="record-block"><h2>When</h2><p>{incidentDateLabel(record, true)}{precision ? ` (${precision})` : ""}.</p>{record.dateEvidence ? <p className="record-block__quote">Supported by source text: “{record.dateEvidence}”</p> : null}</section>
         <section className="record-block"><h2>Attributed to</h2><p>{record.group || "Unknown"}, as named in reporting. Not independently attributed.</p></section>
-        {record.tags?.length ? <section className="record-block"><h2>Tags</h2><p className="tag-list">{record.tags.map((tag) => <span className="tag" key={tag}>{tag.replace(/-/g, " ")}</span>)}</p></section> : null}
+        {record.tags?.length ? <section className="record-block"><h2>Tags</h2><p className="tag-list">{record.tags.map((tag) => <span className="tag" key={tag}>{tag.replace(/[-_]/g, " ")}</span>)}</p></section> : null}
       </article>
       <aside className="record-body__side">
         <section className="aside-block" aria-labelledby="evidence-title">

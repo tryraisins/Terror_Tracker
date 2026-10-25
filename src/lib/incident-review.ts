@@ -1,13 +1,23 @@
 import IncidentReview, { createIncidentReviewKey, normalizeIncidentReviewSourceUrl, MAX_INCIDENT_REVIEW_ATTEMPTS } from "./models/IncidentReview";
+import Attack from "./models/Attack";
 import { ingestSearchLedAttacks, reextractSearchLedSource, type SearchLedReport, type SearchLedIngestResult, type SearchLedReviewLead } from "./search-led-discovery";
 import type { RawAttackData } from "./free-news";
 import type { IAttack } from "./models/Attack";
 
-/** Semantic findings on stored records also belong in the permanent queue. */
+/**
+ * Semantic findings on stored records also belong in the permanent queue.
+ *
+ * `same_event` is included deliberately. The model only reaches this function
+ * after the heuristic pass, and a confident match was previously discarded,
+ * which is how a duplicate could sit live with nothing flagging it. It is
+ * queued for a decision rather than merged automatically: a post-hoc merge has
+ * no user in the loop and the pre-insert gates already handle the routine case.
+ */
 export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttack; reportB: IAttack; deepSeekClassification?: string; deepSeekReason?: string }>) {
   let queued = 0;
   for (const pair of pairs) {
-    if (pair.deepSeekClassification !== "review_required" && pair.deepSeekClassification !== "not_assessed") continue;
+    const classification = pair.deepSeekClassification || "not_assessed";
+    if (classification !== "review_required" && classification !== "not_assessed" && classification !== "same_event") continue;
     const ordered = [pair.reportA, pair.reportB].sort((a, b) => String(a._id).localeCompare(String(b._id)));
     const source = ordered[1].sources?.[0] || ordered[0].sources?.[0];
     if (!source || !/^https?:\/\//i.test(source.url)) continue;
@@ -17,9 +27,11 @@ export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttac
     const now = new Date();
     const outcome = await IncidentReview.updateOne({ reviewKey }, {
       $set: { title: pair.reportB.title, publisher: source.publisher || "", state: pair.reportB.location.state,
-        reason: `${pair.deepSeekClassification || "not_assessed"}: ${pair.deepSeekReason || "Possible duplicate requires event-level review."}`,
+        reason: classification === "same_event"
+          ? `same_event: ${pair.deepSeekReason || "Both records describe the same event."} Merge the pair or dismiss it after checking the evidence.`
+          : `${classification}: ${pair.deepSeekReason || "Possible duplicate requires event-level review."}`,
         lastSeenAt: now, publishedAt: source.publishedAt || null,
-        sourceEvidence: { existingId: String(pair.reportA._id), candidateId: String(pair.reportB._id), classification: pair.deepSeekClassification || "not_assessed" },
+        sourceEvidence: { existingId: String(pair.reportA._id), candidateId: String(pair.reportB._id), classification },
         candidates: [pair.reportA, pair.reportB] },
       $setOnInsert: { sourceUrl, kind: "duplicate", status: "pending", attempts: 0, retryable: false, nextRetryAt: null },
     }, { upsert: true, runValidators: true });
@@ -77,8 +89,7 @@ export async function persistIncidentReviews(report: SearchLedReport, ingest?: S
 }
 
 /** Retry a small due batch through the same source evidence and duplicate gates. */
-export async function retryIncidentReviews(limit = 5) {
-  const result = { processed: 0, resolved: 0, held: 0, errors: 0, inserted: 0, merged: 0 };
+export async function retryIncidentReviews(limit = 5) {  const result = { processed: 0, resolved: 0, held: 0, errors: 0, inserted: 0, merged: 0 };
   const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.min(20, Math.floor(limit))) : 5;
   const now = new Date();
   const due = await IncidentReview.find({ status: "pending", retryable: true, attempts: { $lt: MAX_INCIDENT_REVIEW_ATTEMPTS }, nextRetryAt: { $ne: null, $lte: now } })
@@ -121,5 +132,105 @@ export async function retryIncidentReviews(limit = 5) {
         ...(claimed.attempts >= MAX_INCIDENT_REVIEW_ATTEMPTS ? { retryable: false, nextRetryAt: null } : {}) } });
     }
   }
+  return result;
+}
+
+/**
+ * Content rejections that retrying the same URL cannot change. The article
+ * itself does not carry the fact the extraction needs, so leaving the row
+ * pending only inflates the queue. Evidence-grounding failures are excluded
+ * on purpose: those are extraction quality, not proof the article is unusable,
+ * so they stay pending for another attempt or a human.
+ */
+const PERMANENT_EXTRACTION_REJECTION = [
+  /^no Nigerian state/i,
+  /^no explicit incident date/i,
+  /^rescue or release headline does not identify the original incident date/i,
+  /^DeepSeek not_incident/i,
+  /^DeepSeek rejection: scope re-check failed/i,
+  /retrospective analysis/i,
+  /fact-check/i,
+];
+
+function isPermanentExtractionRejection(reason: string): boolean {
+  return PERMANENT_EXTRACTION_REJECTION.some((pattern) => pattern.test(reason || ""));
+}
+
+/**
+ * Keep the review queue honest without a human sweeping it.
+ *
+ * Four dispositions are deterministic and safe:
+ * - a pending lead whose source is already cited by an active record is resolved;
+ * - a duplicate row whose referenced record was merged or removed is resolved;
+ * - a row that spent its retry budget is dismissed;
+ * - an extraction row whose rejection is content-based is dismissed.
+ *
+ * Event-level judgement is deliberately left to the duplicate review, because
+ * whether two reports describe one attack needs evidence, not a heuristic.
+ */
+export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
+  const result = { scanned: 0, capturedSources: 0, staleReferences: 0, exhausted: 0, permanentRejections: 0 };
+  const rows = await IncidentReview.find({ status: "pending" })
+    .select("sourceUrl kind reason attempts retryable sourceEvidence").lean();
+  result.scanned = rows.length;
+  if (!rows.length) return result;
+
+  const active = await Attack.find({ _deleted: { $ne: true } }).select("_id sources.url").lean();
+  const capturedSources = new Set<string>();
+  const activeIds = new Set<string>();
+  for (const record of active) {
+    activeIds.add(String(record._id));
+    for (const source of record.sources || []) {
+      const key = normalizeIncidentReviewSourceUrl(source.url || "");
+      if (key) capturedSources.add(key);
+    }
+  }
+
+  const captured: string[] = [];
+  const stale: string[] = [];
+  const exhausted: string[] = [];
+  const permanent: string[] = [];
+  for (const row of rows) {
+    const sourceKey = normalizeIncidentReviewSourceUrl(row.sourceUrl || "");
+    if (row.kind !== "duplicate" && sourceKey && capturedSources.has(sourceKey)) {
+      captured.push(String(row._id));
+      continue;
+    }
+    if (row.kind === "duplicate") {
+      const existingId = (row.sourceEvidence as { existingId?: string } | undefined)?.existingId;
+      if (existingId && !activeIds.has(String(existingId))) {
+        stale.push(String(row._id));
+        continue;
+      }
+    }
+    if ((row.attempts || 0) >= MAX_INCIDENT_REVIEW_ATTEMPTS) {
+      exhausted.push(String(row._id));
+      continue;
+    }
+    if (row.kind === "extraction" && isPermanentExtractionRejection(row.reason)) {
+      permanent.push(String(row._id));
+      continue;
+    }
+  }
+
+  const apply = async (ids: string[], disposition: "resolved" | "dismissed", note: string) => {
+    if (!ids.length) return 0;
+    if (dryRun) return ids.length;
+    const outcome = await IncidentReview.updateMany({ _id: { $in: ids }, status: "pending" }, { $set: {
+      status: disposition,
+      reviewedAt: now,
+      reviewedBy: "queue-sweep",
+      dispositionNote: note,
+      nextRetryAt: null,
+      retryable: false,
+      updatedAt: now,
+    } });
+    return outcome.modifiedCount;
+  };
+
+  result.capturedSources = await apply(captured, "resolved", "Source is cited by an active incident record.");
+  result.staleReferences = await apply(stale, "resolved", "The referenced record was merged into another incident or removed.");
+  result.exhausted = await apply(exhausted, "dismissed", "Retry budget exhausted without usable source evidence.");
+  result.permanentRejections = await apply(permanent, "dismissed", "The source cannot supply the missing fact, so retrying it cannot change the outcome.");
   return result;
 }

@@ -75,7 +75,7 @@ export function locationLabel(location: IncidentRecord["location"], compact = fa
     return compact ? `${lga}, ${state}` : `${lga} area - ${state}`;
   }
 
-  const known = [town, lga].filter(Boolean);
+  const known = [town, town.toLowerCase() === lga.toLowerCase() ? "" : lga].filter(Boolean);
   return compact ? [known[0], state].filter(Boolean).join(", ") : [...known, state].filter(Boolean).join(" - ");
 }
 

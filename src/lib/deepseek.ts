@@ -13,6 +13,7 @@ import { RawAttackData, dateEvidenceFromText } from "./free-news";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
+import type { LocationPrecision } from "./incident-uncertainty";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -373,6 +374,18 @@ export async function cleanAndConfirmIncident(
       ? (event.status as RawAttackData["status"])
       : "unconfirmed";
     if (!title || !VALID_STATUSES.has(status)) return { confirmed: false, reviewRequired: true, reason: "Event title or status is invalid" };
+    // The model replaces the heuristic location with a town and LGA that carry
+    // article evidence, so precision must follow those fields. Copying the
+    // pre-extraction guess left records claiming a state-level location while
+    // holding a settlement and an LGA.
+    const precision: LocationPrecision = candidate.location.precision === "surrounding_area" ? "surrounding_area" : "exact";
+    const cleanedTags = [...new Set([
+      ...(candidate.tags || []),
+      ...(Array.isArray(event.tags) ? event.tags.filter((tag): tag is string => typeof tag === "string") : []),
+      "deepseek-verified",
+      ...(precision === "exact" ? [] : ["approximate-location"]),
+      ...(normalizedDate.datePrecision === "exact_day" ? [] : ["date-uncertainty"]),
+    ])].filter((tag) => precision !== "exact" || tag !== "approximate-location");
     const cleaned: RawAttackData = {
       ...candidate,
       title,
@@ -386,13 +399,13 @@ export async function cleanAndConfirmIncident(
       dateEvidence: typeof event.dateEvidence === "string" ? event.dateEvidence.trim().slice(0, 300) : candidate.dateEvidence,
       location: {
         state: normalizeStateName(stateValue), lga: lga.slice(0, 120), town: town.slice(0, 160),
-        precision: candidate.location.precision, notes: `Event location supported by source text: ${event.locationEvidence}`.slice(0, 500),
+        precision, notes: `Event location supported by source text: ${event.locationEvidence}`.slice(0, 500),
       },
       group,
       casualties: counts as RawAttackData["casualties"],
       casualtyMeta,
       status: normalizedDate.datePrecision === "exact_day" ? status : "developing",
-      tags: Array.from(new Set([...(candidate.tags || []), ...(Array.isArray(event.tags) ? event.tags.filter((t): t is string => typeof t === "string") : []), "deepseek-verified", ...(normalizedDate.datePrecision === "exact_day" ? [] : ["date-uncertainty"])])),
+      tags: cleanedTags,
     };
     const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });
     if (scopeRejection) return { confirmed: false, reason: `scope re-check failed: ${scopeRejection}` };

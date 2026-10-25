@@ -38,7 +38,7 @@ async function run() {
   // Load collectors after dotenv so their configuration reflects this run.
   const { collectSearchLedIncidents, ingestSearchLedAttacks } = await import("../src/lib/search-led-discovery");
   const { DuplicateCheckerService } = await import("../src/lib/duplicate-checker");
-  const { persistIncidentReviews, persistDuplicateReviewPairs, retryIncidentReviews } = await import("../src/lib/incident-review");
+  const { persistIncidentReviews, persistDuplicateReviewPairs, retryIncidentReviews, sweepIncidentReviews } = await import("../src/lib/incident-review");
   const { default: ScanRun } = await import("../src/lib/models/ScanRun");
   const { assertActiveAttackDateIntegrity } = await import("../src/lib/attack-data-integrity");
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -69,6 +69,8 @@ async function run() {
       : { inserted: 0, merged: 0, errors: 0, reviewRequired: [] };
     console.log("Ingest:", JSON.stringify(ingest));
     let reviewQueued = await persistIncidentReviews(report, ingest, attacks);
+    const swept = await sweepIncidentReviews();
+    console.log("Review sweep:", JSON.stringify(swept));
     await assertActiveAttackDateIntegrity("Search-led postflight");
 
     const since = new Date(Date.now() - Math.max(5 * 24, lookbackHours) * 60 * 60 * 1000);

@@ -30,6 +30,7 @@ import { isSuppressedSourceHost } from "./news-source-registry";
 import { assessIncidentDuplicate, cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
 import { incidentDateIntervalsOverlap, incidentDateKey, normalizeIncidentDate } from "./incident-date";
 import { discoverRegisteredFeedArticles, type DiscoveryFeedFailure } from "./discovery-feeds";
+import { lgaCompatible, normalizePlaceTokens, sameLga, sameSpecificLocation } from "./location-identity";
 
 export type SearchLedReviewLead = {
   url: string;
@@ -163,7 +164,7 @@ export function isTransientArticleFetchStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
-function hashFor(candidate: RawAttackData): string {
+export function hashFor(candidate: RawAttackData): string {
   const title = (candidate.title || "").trim().toLowerCase();
   const normalizedDate = normalizeIncidentDate(candidate);
   const dateStr = normalizedDate?.datePrecision === "date_range"
@@ -188,31 +189,6 @@ function normalizeSourceUrl(value: string): string {
   } catch {
     return value.trim().replace(/\/+$/, "").toLowerCase();
   }
-}
-
-function normalizeLocationName(value: string): string[] {
-  const cleaned = String(value || "")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\([^)]*\)/g, " ")
-    .toLowerCase()
-    .replace(/\b(town|village|community|area|settlement|the)\b/g, " ")
-    .replace(/[^a-z0-9\s]/g, " ");
-  const ignored = new Set(["near", "of", "in", "at"]);
-  return [...new Set(cleaned.split(/\s+/).filter((part) => part.length > 1 && !ignored.has(part)))].sort();
-}
-
-function sameSpecificLocation(a: string, b: string): boolean {
-  const compact = (value: string) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/\([^)]*\)/g, " ").toLowerCase().replace(/\b(town|village|community|area|settlement|the)\b/g, " ").replace(/[^a-z0-9]/g, "");
-  // Publishers spell compound place names with or without spaces/hyphens.
-  if (compact(a) && compact(a) === compact(b)) return true;
-  const left = normalizeLocationName(a);
-  const right = normalizeLocationName(b);
-  if (!left.length || !right.length) return false;
-  const shared = left.filter((part) => right.includes(part)).length;
-  const ratio = shared / Math.max(left.length, right.length);
-  return ratio >= 0.8 && Math.abs(left.length - right.length) <= 1;
 }
 
 function casualtiesCompatible(a: RawAttackData["casualties"], b: RawAttackData["casualties"]): boolean {
@@ -818,11 +794,15 @@ export async function ingestSearchLedAttacks(
       }).lean();
 
       const nearbyEventMatches = possibleMatches.filter((record) => {
-        const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
-        const sameLga = normalizeLocationName(record.location?.lga || "").join(" ") === normalizeLocationName(lga).join(" ");
+        const sameState = normalizePlaceTokens(record.location?.state || "").join(" ") === normalizePlaceTokens(candidate.location.state).join(" ");
+        // Spelling variants of the same LGA ("Kauran Namoda" / "Kaura Namoda")
+        // must not defeat the deterministic merge. This gate merges without a
+        // model, so it stays on strict equivalence; the semantic gate below
+        // takes the looser comparisons.
+        const lgaMatches = sameLga(record.location?.lga || "", lga);
         const sameTown = hasSpecificTown && sameSpecificLocation(town, record.location?.town || "");
         const recordDate = normalizeIncidentDate(record);
-        return Boolean(recordDate && sameState && sameLga && sameTown && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
+        return Boolean(recordDate && sameState && lgaMatches && sameTown && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
       });
 
       const sameDayDuplicate = nearbyEventMatches.find((record) =>
@@ -857,10 +837,11 @@ export async function ingestSearchLedAttacks(
       // recorded neighbourhood. Compare event evidence before inserting it.
       const semanticMatches = possibleMatches.filter((record) => {
         const recordDate = normalizeIncidentDate(record);
-        const sameState = normalizeLocationName(record.location?.state || "").join(" ") === normalizeLocationName(candidate.location.state).join(" ");
-        const recordLga = normalizeLocationName(record.location?.lga || "").join(" ");
-        const candidateLga = normalizeLocationName(lga).join(" ");
-        const compatibleLga = recordLga === candidateLga || /^(unknown|unspecified|n a|)$/.test(recordLga) || /^(unknown|unspecified|n a|)$/.test(candidateLga);
+        const sameState = normalizePlaceTokens(record.location?.state || "").join(" ") === normalizePlaceTokens(candidate.location.state).join(" ");
+        // Tolerant on purpose: a spelling variant or a more specific label
+        // ("Edda" against "Afikpo South") must reach the semantic check rather
+        // than being skipped before the model is asked.
+        const compatibleLga = lgaCompatible(record.location?.lga || "", lga);
         return Boolean(recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
       });
       let semanticMerged = false;
