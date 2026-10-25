@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    // Set by the security upgrade handoff so the next affected release is
+    // flagged the same way instead of failing the build silently.
+    agentUpgrade: "security",
+  },
   async headers() {
     return [
       {

@@ -22,6 +22,8 @@
     "audit:promote-unresolved:idempotency": "npx tsx scripts/promote-unresolved-candidates.ts --apply --idempotency-pass",
     "audit:duplicates": "node scripts/analyze-duplicates.js",
     "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute",
+    "merge:incidents": "npx tsx scripts/merge-incidents.ts",
+    "triage:reviews": "npx tsx scripts/triage-incident-reviews.ts",
     "repair:attack-date-types": "npx tsx scripts/normalize-attack-date-types.ts",
     "repair:attack-date-types:apply": "npx tsx scripts/normalize-attack-date-types.ts --apply"
   },
@@ -38,7 +40,7 @@
     "gsap": "^3.14.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.1",
-    "next": "16.4.0",
+    "next": "16.4.3",
     "react": "19.2.3",
     "react-datepicker": "^9.1.0",
     "react-dom": "19.2.3",
@@ -54,7 +56,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
+    "eslint-config-next": "16.4.3",
     "postcss": "^8.5.9",
     "tailwindcss": "^4",
     "typescript": "^5"
