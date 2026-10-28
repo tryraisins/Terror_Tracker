@@ -24,16 +24,19 @@ echo "deploying $TAG (previous: ${PREVIOUS:-none})"
 printf 'IMAGE_TAG=%s\n' "$TAG" > .env.deploy
 
 # Pull both targets so the scan timer never runs against a stale image.
-# GHCR frequently resets large layer downloads from this host over IPv6, so the
-# pull retries before it is allowed to fail a deploy.
+# GHCR resets large layer downloads from this host over IPv6 (confirmed with a
+# direct comparison: the same file over IPv4 takes two seconds, over IPv6 it
+# fails immediately), so the pull retries with a widening backoff. Layer progress
+# already made is kept between attempts, so the loop converges.
 pull_images() {
-  local attempt
-  for attempt in 1 2 3 4 5; do
+  local attempt delay
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
     if docker compose --env-file .env.deploy pull app scan >/tmp/terror-tracker-pull.log 2>&1; then
       return 0
     fi
+    delay=$(( attempt * 5 ))
     echo "pull attempt $attempt failed: $(tail -n 1 /tmp/terror-tracker-pull.log)" >&2
-    sleep 5
+    sleep "$delay"
   done
   return 1
 }
