@@ -297,12 +297,19 @@ export async function extractArticleClaims(articleText: string, scope = ""): Pro
         return [{ value: Math.round(value), victims: victims as TollClaim["victims"], attribution: typeof record.attribution === "string" ? record.attribution.slice(0, 60) : undefined }];
       }).slice(0, 12)
       : [];
+    // Keep only claims whose words actually appear in the article. The prompt asks
+    // the model to stay inside the scoped incident, but nothing enforces it, and a
+    // claim invented or lifted from another event would weaken the comparison.
+    const haystack = ` ${articleText.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ")} `;
+    const grounded = (values: string[]) => values.filter((value) =>
+      value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/)
+        .some((word) => word.length >= 4 && haystack.includes(` ${word} `)));
     return {
-      people: strings(parsed.people, 12),
-      sites: strings(parsed.sites, 12),
+      people: grounded(strings(parsed.people, 12)),
+      sites: grounded(strings(parsed.sites, 12)),
       times: strings(parsed.times, 8),
       tolls,
-      distinctive: strings(parsed.distinctive, 5),
+      distinctive: grounded(strings(parsed.distinctive, 5)),
     };
   } catch {
     return { ...EMPTY_CLAIMS };

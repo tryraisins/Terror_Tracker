@@ -288,14 +288,30 @@ async function main() {
       // stored record's own reporting, which has to be read too.
       const scope = [existing.location?.town, existing.location?.lga, existing.location?.state].filter(Boolean).join(", ");
       const candidateClaims = await extractArticleClaims(candidateArticleText, scope);
+      // Exclude the held article from the record side by host+path, not by raw or
+      // even normalised URL: scheme, m./www., /amp and utm variants all point at the
+      // same page, and comparing a page with itself would link it trivially.
+      const pageKey = (value: string) => {
+        try {
+          const url = new URL(value);
+          return `${url.hostname.replace(/^(?:www|m)\./, "")}${url.pathname.replace(/\/+$/, "").replace(/\/amp$/, "")}`.toLowerCase();
+        } catch {
+          return normalizeIncidentReviewSourceUrl(value);
+        }
+      };
+      const heldKey = pageKey(row.sourceUrl);
       const recordUrls = [...new Set((existing.sources || []).map((source) => String(source.url || "")))]
-        .filter((url) => /^https?:\/\//i.test(url) && normalizeIncidentReviewSourceUrl(url) !== normalizeIncidentReviewSourceUrl(row.sourceUrl))
+        .filter((url) => /^https?:\/\//i.test(url) && pageKey(url) !== heldKey)
         .slice(0, 3);
+      const candidateFingerprint = candidateArticleText.slice(0, 300).toLowerCase().replace(/\s+/g, " ").trim();
       const recordClaims: ArticleClaims = { people: [], sites: [], times: [], tolls: [], distinctive: [] };
       const recordArticlesRead: string[] = [];
       for (const url of recordUrls) {
         const text = await fetchArticleText(url);
         if (!text) continue;
+        // Syndicated copies carry the same opening; a record article that repeats the
+        // held one cannot serve as independent evidence.
+        if (text.text.slice(0, 300).toLowerCase().replace(/\s+/g, " ").trim() === candidateFingerprint) continue;
         const claims = await extractArticleClaims(text.text, scope);
         recordClaims.people.push(...claims.people);
         recordClaims.sites.push(...claims.sites);

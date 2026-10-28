@@ -44,9 +44,10 @@ const TITLES = new Set([
 /** Facility words. A site has to be more specific than "the market" to count. */
 const GENERIC_SITES = new Set([
   "market", "church", "mosque", "school", "road", "farm", "village", "community", "palace", "camp",
-  "hospital", "clinic", "station", "park", "motor", "park", "bridge", "square", "field", "compound",
+  "hospital", "clinic", "station", "park", "motor", "bridge", "square", "field", "compound", "primary",
   "residence", "house", "home", "street", "area", "ward", "district", "local", "government", "town",
-  "settlement", "neighbourhood", "neighborhood", "centre", "center", "hall", "stadium", "garage",
+  "settlement", "neighbourhood", "neighborhood", "centre", "center", "hall", "stadium", "garage", "secondary",
+  "central", "main", "catholic", "baptist", "anglican", "health", "junction", "mission", "township", "old", "head",
 ]);
 
 /** Given names common enough that a single shared one proves nothing. */
@@ -55,7 +56,9 @@ const COMMON_NAMES = new Set([
   "john", "peter", "paul", "james", "daniel", "samuel", "david", "joseph", "grace", "mary", "esther",
   "blessing", "comfort", "sunday", "monday", "friday", "sani", "garba", "bala", "sule", "adamu",
   "hassan", "hussein", "isa", "yakubu", "danjuma", "solomon", "emeka", "chinedu", "obinna", "tunde",
-  "segun", "ade", "bode", "kola", "nnamdi", "ifeanyi", "olumide", "babatunde",
+  "segun", "ade", "bode", "kola", "nnamdi", "ifeanyi", "olumide", "babatunde", "bello", "aliyu", "usman",
+  "emmanuel", "michael", "fatima", "amina", "hauwa", "ezekiel", "dauda", "yakubu", "suleiman", "moses",
+  "abigail", "victor", "vincent", "patrick", "anselm", "godwin", "bright", "wisdom", "miracle",
 ]);
 
 export const normalizeClaim = (value: string) =>
@@ -68,12 +71,26 @@ export function personTokens(name: string): string[] {
     .filter((word) => word.length >= 4 && !TITLES.has(word) && !COMMON_NAMES.has(word) && !/^\d+$/.test(word));
 }
 
-/** Specific site tokens only; generic facility words are dropped. */
+/**
+ * Specific site tokens only. A word has to be capitalised in the original text to
+ * count, because "primary school", "central mosque" and "main market" are facility
+ * descriptions rather than names. The stop-list stays as a backstop. Dropping a
+ * lower-case real place name is the safe direction.
+ */
 export function siteTokens(site: string, excluded: string[]): string[] {
   const blocked = new Set(excluded.flatMap((value) => normalizeClaim(value).split(" ")).filter(Boolean));
-  return normalizeClaim(site)
-    .split(" ")
+  return site
+    .split(/\s+/)
+    .filter((word) => /^[A-Z][\p{L}'-]*$/u.test(word))
+    .map(normalizeClaim)
     .filter((word) => word.length >= 4 && !blocked.has(word) && !GENERIC_SITES.has(word) && !/^\d+$/.test(word));
+}
+
+/** Titleless name tokens in order, used for an exact full-name match. */
+export function personNameKey(name: string): string[] {
+  return normalizeClaim(name)
+    .split(" ")
+    .filter((word) => word.length >= 2 && !TITLES.has(word) && !/^\d+$/.test(word));
 }
 
 /** Clock times only. A shared weekday or "morning" adds nothing when the date is equal. */
@@ -119,6 +136,14 @@ export function claimsLink({ candidate, record, sharedPlaceNames, tollFigures }:
     .filter((claim) => record.tolls.some((other) => other.victims === claim.victims && other.value === claim.value))
     .filter((claim) => figures.has(claim.value));
 
+  // An exact full-name match links even when every word is a common name, because
+  // two identical two-part names are not a coincidence.
+  const candidateFull = candidate.people.map(personNameKey).filter((key) => key.length >= 2);
+  const recordFull = record.people.map(personNameKey).filter((key) => key.length >= 2);
+  const fullMatch = candidateFull.find((key) => recordFull.some((other) => other.join(" ") === key.join(" ")));
+  if (fullMatch) {
+    return { linked: true, evidence: [`person-full:${fullMatch.join(" ")}`] };
+  }
   if (sharedPeople.length) {
     return { linked: true, evidence: [`person:${sharedPeople[0]}`] };
   }
