@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/DataState";
-import RecordCard, { rowPlace } from "@/components/RecordCard";
+import RecordCard, { placeParts } from "@/components/RecordCard";
 import StatusBadge from "@/components/StatusBadge";
 import { IncidentRecord, IncidentStatus, casualtyDetail, displayValue, incidentDateLabel, locationLabel, locationPrecisionLabel } from "@/lib/incident-view";
 import type { CasualtyCountMetadata } from "@/lib/incident-uncertainty";
@@ -34,6 +34,7 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
   const sources = record.sources ?? [];
   const precision = DATE_PRECISION_LABEL[record.datePrecision || "exact_day"] ?? "";
   const stateLink = `/incidents?state=${encodeURIComponent(record.location.state)}`;
+  const place = placeParts(record.location);
   const created = stamp(record.createdAt); const updated = stamp(record.updatedAt);
   const impacts: [string, number | null, CasualtyCountMetadata | undefined, string, string][] = [
     ["Killed", record.casualties.killed, record.casualtyMeta?.killed, "No deaths reported", "killed"],
@@ -44,9 +45,10 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
 
   return <div className="page-wrap">
     <header className="record-head">
-      <Link className="back-link" href="/incidents">← The record</Link>
-      <p className="record-head__meta"><span>{incidentDateLabel(record, true)}</span><span>{rowPlace(record.location)}</span></p>
-      <h1 className="record-title">{record.title}</h1>
+      <Link className="back-link" href="/incidents">Back to records</Link>
+      <h1 className={`record-place ${(place.local || place.state).length > 10 ? "record-place--long" : ""}`}>{place.local || place.state}</h1>
+      <p className="record-head__meta">{place.local ? `${place.state}, ` : ""}{incidentDateLabel(record, true)}</p>
+      <p className="record-title">{record.title}</p>
       <p className="record-status"><StatusBadge status={record.status} /><span>{STATUS_TEXT[record.status]} {sources.length} {sources.length === 1 ? "cited source" : "cited sources"}.</span></p>
     </header>
 
@@ -66,8 +68,8 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
         <section className="aside-block" aria-labelledby="evidence-title">
           <h2 id="evidence-title">Sources ({sources.length})</h2>
           {sources.length ? <ol className="source-list">{sources.map((source, index) => { const published = stamp(source.publishedAt); return <li className="source-item" key={`${source.url}-${index}`}>
-            <span className="source-item__meta">{source.publisher || "Publisher not recorded"} · {published ? `${published} WAT` : "publication time not recorded"}</span>
-            <a className="source-item__title" href={source.url} target="_blank" rel="noopener noreferrer">{source.title || "Source title not recorded"} <span aria-hidden="true">↗</span><span className="sr-only"> (opens in a new tab)</span></a>
+            <span className="source-item__meta">{source.publisher || "Publisher not recorded"}, {published ? `${published} WAT` : "publication time not recorded"}</span>
+            <a className="source-item__title" href={source.url} target="_blank" rel="noopener noreferrer">{source.title || "Source title not recorded"}<span className="sr-only"> (opens in a new tab)</span></a>
           </li>; })}</ol> : <p className="supporting">No source links were returned for this record.</p>}
         </section>
         <section className="aside-block" aria-labelledby="history-title">

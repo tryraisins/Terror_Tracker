@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Bars3Icon, MagnifyingGlassIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
 const links = [
-  { href: "/incidents", label: "Record" },
+  { href: "/incidents", label: "Records" },
   { href: "/map", label: "Map" },
   { href: "/about", label: "Method" },
 ];

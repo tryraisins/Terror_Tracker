@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/DataState";
-import BarChart, { type MonthMeasure } from "@/components/BarChart";
+import YearChart, { type DayFigures, type MonthFigures, type MonthMeasure } from "@/components/YearChart";
 import RecordCard, { placeLabel } from "@/components/RecordCard";
 import { IncidentRecord } from "@/lib/incident-view";
 
@@ -12,15 +12,15 @@ interface StatsData {
   overview: { totalAttacks: number; totalKilled: number; totalInjured: number; totalKidnapped: number; totalDisplaced: number; attacksLast30Days: number; attacksLast7Days?: number; year: number };
   byState: { state: string; count: number }[];
   byGroup: { group: string; count: number; killed?: number }[];
-  byMonth: { month: number; count: number; killed: number; kidnapped: number; partial: boolean }[];
+  byMonth: MonthFigures[];
+  byDay?: DayFigures[];
   recentAttacks: IncidentRecord[];
 }
 
-const monthName = (month: number) => new Intl.DateTimeFormat("en-GB", { month: "short" }).format(new Date(2026, month - 1, 1));
 const monthLong = (month: number) => new Intl.DateTimeFormat("en-GB", { month: "long" }).format(new Date(2026, month - 1, 1));
 const formatNumber = (value: number) => value.toLocaleString("en-NG");
 const lagosToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos" }).format(new Date());
-const MEASURES: [MonthMeasure, string, string][] = [["attacks", "Attacks", "Attacks by month"], ["killed", "Deaths", "Deaths by month"], ["kidnapped", "Abductions", "Abductions by month"]];
+const MEASURES: [MonthMeasure, string, string][] = [["attacks", "Attacks", "attacks reported"], ["killed", "Deaths", "people reported killed"], ["kidnapped", "Abductions", "people reported abducted"]];
 
 /** Whole Lagos calendar days between today and the record's stored calendar date. */
 function daysSince(record?: IncidentRecord) {
@@ -79,48 +79,49 @@ export default function HomePage() {
   const harmed = [["killed", overview.totalKilled], ["abducted", overview.totalKidnapped], ["injured", overview.totalInjured]] as const;
   const harmedTotal = harmed.reduce((sum, [, value]) => sum + value, 0);
   const maxActor = Math.max(...actors.map((item) => item.count), 1);
-  const measureTitle = MEASURES.find(([key]) => key === measure)?.[2] ?? "Attacks by month";
+  const measureNoun = MEASURES.find(([key]) => key === measure)?.[2] ?? "attacks reported";
 
   return <div className="page-wrap">
     <header className="hero">
       <p className="hero__period">Nigeria, 1 January to {data.period.throughDay} {monthLong(data.period.month)} {overview.year}</p>
       <p className="hero__count">{formatNumber(overview.totalKilled)}</p>
-      <h1 className="hero__statement">people have been reported killed in attacks across Nigeria this year.</h1>
-      <p className="hero__context">A further {formatNumber(overview.totalKidnapped)} people were abducted. NATracker holds {formatNumber(overview.totalAttacks)} attack records for {overview.year}{latest && sinceText ? <>; the most recent took place {sinceText} in {placeLabel(latest.location, true)}</> : null}.</p>
+      <div className="hero__row">
+        <h1 className="hero__statement">people reported killed in attacks across Nigeria this year.</h1>
+        <p className="hero__context">A further {formatNumber(overview.totalKidnapped)} people were abducted. NATracker holds {formatNumber(overview.totalAttacks)} attack records for {overview.year}{latest && sinceText ? <>. The most recent took place {sinceText} in {placeLabel(latest.location, true)}</> : null}.</p>
+      </div>
     </header>
 
     {failed ? <div className="notice" role="status">Some figures may be older than the latest request. <button className="text-link" type="button" onClick={load}>Retry</button></div> : null}
 
-    <section className="year" aria-labelledby="monthly-title">
-      <div className="section-head section-head--rule">
-        <div><h2 id="monthly-title">{measureTitle}</h2><p className="section-head__note">{formatNumber(overview.attacksLast30Days)} attacks in the last 30 days{overview.attacksLast7Days !== undefined ? `, ${formatNumber(overview.attacksLast7Days)} of them in the last 7` : ""}.</p></div>
-        <div className="tabs" role="group" aria-label="Monthly chart measure">{MEASURES.map(([key, label]) => <button key={key} type="button" aria-pressed={measure === key} onClick={() => setMeasure(key)}>{label}</button>)}</div>
+    <section className="year" aria-labelledby="year-title">
+      <div className="section-head">
+        <div><h2 id="year-title">Every day of {overview.year}</h2><p className="section-head__note">One tick per day, taller for more {measureNoun}. The last seven days are highlighted. {formatNumber(overview.attacksLast30Days)} attacks in the last 30 days{overview.attacksLast7Days !== undefined ? `, ${formatNumber(overview.attacksLast7Days)} of them in the last 7` : ""}.</p></div>
+        <div className="tabs" role="group" aria-label="Year chart measure">{MEASURES.map(([key, label]) => <button key={key} type="button" aria-pressed={measure === key} onClick={() => setMeasure(key)}>{label}</button>)}</div>
       </div>
-      <BarChart mode={measure} partialNote={periodNote} data={data.byMonth.map((item) => ({ label: monthName(item.month), value: item.count, killed: item.killed, kidnapped: item.kidnapped, partial: item.partial }))} />
-
-      <div className="breakdown">
-        <section className="harmed" aria-labelledby="harmed-title">
-          <h3 id="harmed-title" className="breakdown__title">People harmed</h3>
-          {harmedTotal ? <div className="harmed__bar" aria-hidden="true">{harmed.map(([key, value]) => value ? <span key={key} className={`harmed__seg harmed__seg--${key}`} style={{ flexGrow: value }} /> : null)}</div> : null}
-          <dl className="harmed__legend">{harmed.map(([key, value]) => <div key={key} className={`harmed__item harmed__item--${key}`}><dt>{key}</dt><dd>{formatNumber(value)}</dd></div>)}</dl>
-          <p className="fine">Totals combine exact counts, estimates and range midpoints. Records without a reported figure are not counted as zero.</p>
-        </section>
-        <section className="actors" aria-labelledby="actors-title">
-          <h3 id="actors-title" className="breakdown__title">Attributed to</h3>
-          <ol className="bar-list">{actors.map((item, index) => <li key={`${item.group}-${index}`} className="bar-list__row">
-            <span className="bar-list__name">{item.group || "Unknown"}{item.variant ? <em className="tag">variant</em> : null}</span>
-            <span className="bar-list__track" aria-hidden="true"><span style={{ width: `${(item.count / maxActor) * 100}%` }} /></span>
-            <strong className="bar-list__value">{formatNumber(item.count)}<span className="sr-only"> records</span></strong>
-          </li>)}</ol>
-          <p className="fine">As named in source reports. Spelling variants are kept separate and tagged. <Link className="text-link" href="/map">All groups and states</Link></p>
-        </section>
-      </div>
+      <YearChart mode={measure} partialNote={periodNote} days={data.byDay ?? []} months={data.byMonth} year={overview.year} throughDay={data.period.throughDay} />
     </section>
 
+    <div className="breakdown">
+      <section className="harmed" aria-labelledby="harmed-title">
+        <h2 id="harmed-title" className="breakdown__title">People harmed</h2>
+        {harmedTotal ? <div className="harmed__bar" aria-hidden="true">{harmed.map(([key, value]) => value ? <span key={key} className={`harmed__seg harmed__seg--${key}`} style={{ flexGrow: value }} /> : null)}</div> : null}
+        <dl className="harmed__legend">{harmed.map(([key, value]) => <div key={key} className={`harmed__item harmed__item--${key}`}><dt>{key}</dt><dd>{formatNumber(value)}</dd></div>)}</dl>
+        <p className="fine">Totals combine exact counts, estimates and range midpoints. A record with no reported figure is not counted as zero.</p>
+      </section>
+      <section className="actors" aria-labelledby="actors-title">
+        <h2 id="actors-title" className="breakdown__title">Attributed to</h2>
+        <ol className="bar-list">{actors.map((item, index) => <li key={`${item.group}-${index}`} className="bar-list__row">
+          <span className="bar-list__name">{item.group || "Unknown"}{item.variant ? <em className="tag">variant</em> : null}</span>
+          <span className="bar-list__track" aria-hidden="true"><span style={{ width: `${(item.count / maxActor) * 100}%` }} /></span>
+          <strong className="bar-list__value">{formatNumber(item.count)}<span className="sr-only"> records</span></strong>
+        </li>)}</ol>
+        <p className="fine">As named in source reports. Spelling variants are kept separate and tagged. <Link className="text-link" href="/map">All groups and states</Link></p>
+      </section>
+    </div>
+
     <section className="latest" aria-labelledby="latest-title">
-      <div className="section-head section-head--rule"><h2 id="latest-title">Latest records</h2></div>
+      <div className="section-head section-head--end"><h2 id="latest-title">Latest records</h2><Link className="text-link" href="/incidents">All {formatNumber(overview.totalAttacks)} records</Link></div>
       <div className="record-list">{data.recentAttacks.map((incident) => <RecordCard key={incident._id} incident={incident} />)}</div>
-      <p className="list-more"><span>{data.recentAttacks.length} of {formatNumber(overview.totalAttacks)} records this year</span><Link className="text-link" href="/incidents">Browse the full record</Link></p>
     </section>
   </div>;
 }

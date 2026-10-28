@@ -78,8 +78,8 @@ export default function IncidentsPage() {
 
   return <div className="page-wrap">
     <header className="page-head">
-      <h1 className="page-title">The record</h1>
-      <p className="lede">Every attack NATracker has on file, newest first. Each entry links to the reports it is based on.</p>
+      <h1 className="page-title">Records</h1>
+      <p className="lede">Every attack NATracker has on file. Each record links to the reports it is based on.</p>
     </header>
 
     <div className="archive-controls">
@@ -112,10 +112,10 @@ export default function IncidentsPage() {
       {!showResultSkeleton && records.length ? <div className="record-list" aria-live="polite" aria-busy={loading}>{records.map((record) => <RecordCard key={record._id} incident={record} detail />)}</div> : null}
       {pagination && pagination.total ? <p className="fine results__range">Showing {firstShown}–{lastShown} of {pagination.total.toLocaleString("en-NG")}. Totals combine exact counts, estimates and range midpoints.</p> : null}
       {pagination && pagination.totalPages > 1 ? <nav className="pagination" aria-label="Record pagination">
-        <button type="button" className="button-quiet" disabled={!pagination.hasPrev || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>← Previous</button>
+        <button type="button" className="button-quiet" disabled={!pagination.hasPrev || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous page</button>
         <span className="pagination__pages">{pageList(pagination.page, pagination.totalPages).map((item, index) => item === "gap" ? <span key={`gap-${index}`} className="pagination__gap">…</span> : <button key={item} type="button" className="pagination__page" aria-current={item === pagination.page ? "page" : undefined} aria-label={`Page ${item}`} disabled={loading} onClick={() => setPage(item)}>{item}</button>)}</span>
         <span className="pagination__label">Page {pagination.page} of {pagination.totalPages}</span>
-        <button type="button" className="button-quiet" disabled={!pagination.hasNext || loading} onClick={() => setPage((value) => value + 1)}>Next →</button>
+        <button type="button" className="button-quiet" disabled={!pagination.hasNext || loading} onClick={() => setPage((value) => value + 1)}>Next page</button>
       </nav> : null}
     </section>
   </div>;

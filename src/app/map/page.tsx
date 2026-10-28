@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ErrorState, LoadingState } from "@/components/DataState";
 import NigeriaMap, { MapLegend, mapThresholds } from "@/components/NigeriaMap";
-import { ImpactList, rowPlace } from "@/components/RecordCard";
+import { ImpactList, placeParts } from "@/components/RecordCard";
 import { STATUS_FILTER_OPTIONS } from "@/lib/filter-options";
 import { IncidentRecord, incidentDateLabel } from "@/lib/incident-view";
 import { NIGERIA_MAP_DATA, StateMapData } from "@/lib/mapData";
@@ -59,7 +59,7 @@ export default function MapPage() {
 
   return <div className="page-wrap">
     <header className="page-head page-head--split">
-      <div><h1 className="page-title">Where attacks were reported</h1><p className="lede">{formatNumber(filtered.length)} records, mapped by the state where each attack was reported. Select a state to see its figures and latest records. Shading is a record count, not a measure of risk.</p></div>
+      <div><h1 className="page-title">Map</h1><p className="lede">{formatNumber(filtered.length)} records, placed in the state where each attack was reported. Select a state to see its figures and latest records. Shading counts records and does not measure risk.</p></div>
       <div className="page-head__controls">
         <div className="tabs" role="group" aria-label="Map measure">{MEASURES.map((item) => <button key={item.key} type="button" aria-pressed={measure === item.key} onClick={() => setMeasure(item.key)}>{item.label}</button>)}</div>
         <div className="tabs tabs--quiet" role="group" aria-label="Evidence status">{STATUS_FILTER_OPTIONS.map((option) => <button key={option.value || "all"} type="button" aria-pressed={status === option.value} onClick={() => setStatus(option.value)}>{option.value ? option.label : "All statuses"}</button>)}</div>
@@ -83,7 +83,7 @@ export default function MapPage() {
         {active.records.length ? <div className="state-panel__records">
           <h3>Latest in {active.name}</h3>
           <ol>{active.records.slice(0, 3).map((record) => <li key={record._id}>
-            <span className="state-panel__meta">{incidentDateLabel(record)} · {rowPlace(record.location).split(" · ")[0]}</span>
+            <span className="state-panel__meta">{incidentDateLabel(record)}{placeParts(record.location).local ? `, ${placeParts(record.location).local}` : ""}</span>
             <Link href={`/incidents/${record._id}`} className="state-panel__title">{record.title}</Link>
             <span className="state-panel__impact"><ImpactList incident={record} /></span>
           </li>)}</ol>
@@ -96,9 +96,8 @@ export default function MapPage() {
     <div className="rankings">
       <section aria-labelledby="ranking-title">
         <div className="section-head section-head--rule"><div><h2 id="ranking-title">{config.ranking}</h2><p className="section-head__note">{showAll ? "All 36 states and the FCT." : `Top ${RANK_PREVIEW} of 37.`} Select a state to show it on the map.</p></div></div>
-        <ol className="bar-list bar-list--ranked">{(showAll ? ranked : ranked.slice(0, RANK_PREVIEW)).map((item, index) => <li key={item.name}>
+        <ol className="bar-list bar-list--ranked">{(showAll ? ranked : ranked.slice(0, RANK_PREVIEW)).map((item) => <li key={item.name}>
           <button type="button" className="bar-list__row" aria-pressed={active?.name === item.name} onClick={() => choose(item.name)}>
-            <span className="bar-list__rank">{index + 1}</span>
             <span className="bar-list__name">{item.name}</span>
             <span className="bar-list__track" aria-hidden="true"><span style={{ width: `${(item[measure] / maxRanked) * 100}%` }} /></span>
             <strong className="bar-list__value">{formatNumber(item[measure])}<span className="sr-only"> {item[measure] === 1 ? config.unit[0] : config.unit[1]}</span></strong>
@@ -108,8 +107,7 @@ export default function MapPage() {
       </section>
       <section aria-labelledby="actors-title">
         <div className="section-head section-head--rule"><div><h2 id="actors-title">Attributed to</h2><p className="section-head__note">As named in source reports. Spelling variants are kept separate and tagged.</p></div></div>
-        <ol className="bar-list">{actors.map((item, index) => <li key={item.group} className="bar-list__row">
-          <span className="bar-list__rank">{index + 1}</span>
+        <ol className="bar-list">{actors.map((item) => <li key={item.group} className="bar-list__row">
           <span className="bar-list__name">{item.group}{item.variant ? <em className="tag">variant</em> : null}</span>
           <span className="bar-list__track" aria-hidden="true"><span style={{ width: `${(item.count / maxActor) * 100}%` }} /></span>
           <strong className="bar-list__value">{formatNumber(item.count)}<span className="sr-only"> records</span></strong>

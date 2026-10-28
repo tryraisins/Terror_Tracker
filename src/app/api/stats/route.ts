@@ -51,6 +51,7 @@ export async function GET(req: NextRequest) {
       byState,
       byGroup,
       byMonth,
+      byDay,
       recentAttacks,
     ] = await Promise.all([
       // Total attacks this year
@@ -114,7 +115,21 @@ export async function GET(req: NextRequest) {
         { $sort: { _id: 1 } },
       ]),
 
-      // 5 most recent attacks
+      // Attacks by Nigeria calendar day, for the year chart. Days without records are filled in by the client.
+      Attack.aggregate([
+        { $match: { ...active, date: { $gte: startOfYear } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: NIGERIA_TIMEZONE } },
+            count: { $sum: 1 },
+            killed: { $sum: { $ifNull: ["$casualties.killed", 0] } },
+            kidnapped: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // 7 most recent attacks
       Attack.find(active)
         .sort({ date: -1 })
         .limit(7)
@@ -167,6 +182,12 @@ export async function GET(req: NextRequest) {
         }
         return allMonths;
       })(),
+      byDay: byDay.map((d: { _id: string; count: number; killed: number; kidnapped: number }) => ({
+        date: d._id,
+        count: d.count,
+        killed: d.killed,
+        kidnapped: d.kidnapped,
+      })),
       recentAttacks,
     });
 

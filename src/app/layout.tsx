@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Noto_Serif } from "next/font/google";
+import { Inter, Inter_Tight } from "next/font/google";
 import { connection } from "next/server";
 import { headers } from "next/headers";
 import "./globals.css";
@@ -7,10 +7,11 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PWARegistration from "@/components/PWARegistration";
 
-// Noto covers Yoruba (ẹ ọ ṣ), Hausa (ɓ ɗ ƙ ƴ) and Igbo (ị ụ ṅ) place names without
-// glyph fallback. Serif carries headings and figures; sans carries text and data.
-const notoSans = Noto_Sans({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-sans", display: "swap" });
-const notoSerif = Noto_Serif({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-serif", display: "swap" });
+// Inter and Inter Tight cover Yoruba (ẹ ọ ṣ), Hausa (ɓ ɗ ƙ ƴ) and Igbo (ị ụ ṅ) place names
+// through the latin-ext and vietnamese subsets. Inter Tight carries titles and large figures;
+// Inter carries text and data.
+const inter = Inter({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-sans", display: "swap" });
+const interTight = Inter_Tight({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-display", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
@@ -36,9 +37,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
   const nonce = (await headers()).get("x-nonce");
 
-  return <html lang="en" className={`${notoSans.variable} ${notoSerif.variable}`}><head>
+  return <html lang="en" className={`${inter.variable} ${interTight.variable}`}><head>
     {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
-    <meta name="theme-color" content="#0d0c0b" />
+    <meta name="theme-color" content="#0b0b0c" />
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
   </head><body>

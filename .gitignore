@@ -59,6 +59,8 @@ security-audit/
 /design/
 /output/
 /redesign.pen
+/redesign new.pen
+/redesign new-assets/
 
 # Local audit, reconciliation and E2E artifacts (keep evidence uncommitted)
 /scratch/
