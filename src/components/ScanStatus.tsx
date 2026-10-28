@@ -2,19 +2,23 @@
 
 import { useEffect, useState } from "react";
 
-type ScanSummary = { stale: boolean; lastCompleted: { finishedAt: string | null } | null };
+type Freshness = { lastCompletedAt: string | null };
 
 const scanTime = (value: string) => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Africa/Lagos" }).format(new Date(value));
 
-/** Freshness of the record: when the last source scan finished, and whether it is overdue. */
+/**
+ * When the record was last refreshed. Deliberately says nothing about coverage
+ * health: overdue or failed scans are surfaced by email and in the admin panel,
+ * not to readers.
+ */
 export default function ScanStatus() {
-  const [scan, setScan] = useState<ScanSummary | null>(null);
+  const [scan, setScan] = useState<Freshness | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/scan-health", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (!cancelled) setScan(payload); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
-  const finished = scan?.lastCompleted?.finishedAt;
+  const finished = scan?.lastCompletedAt;
   if (!finished) return null;
-  return <span className={`scan-status ${scan?.stale ? "scan-status--stale" : ""}`}>{scan?.stale ? "Source scan overdue; last completed" : "Last source scan"} {scanTime(finished)} WAT</span>;
+  return <span className="scan-status">Last source scan {scanTime(finished)} WAT</span>;
 }

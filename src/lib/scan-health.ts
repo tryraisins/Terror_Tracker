@@ -113,8 +113,7 @@ function serializeScanRun(run: ScanRunRecord | null): PublicScanRun | null {
   };
 }
 
-export async function getScanHealth(now = new Date()): Promise<ScanHealthData> {
-  await dbConnect();
+export async function getScanHealth(now = new Date()): Promise<ScanHealthData> {  await dbConnect();
 
   const [latestAttemptRecord, lastCompletedRecord, pendingReviews] = await Promise.all([
     ScanRun.findOne({}).sort({ startedAt: -1 }).lean<ScanRunRecord>(),
@@ -162,5 +161,51 @@ export async function getScanHealth(now = new Date()): Promise<ScanHealthData> {
     lastCompleted,
     latestAttempt,
     reviewQueue: { pending: pendingReviews },
+  };
+}
+
+/**
+ * Public freshness only.
+ *
+ * The public pages show when the record was last refreshed and nothing else:
+ * coverage warnings, failed states and review backlog are operator concerns and
+ * are served by the session-gated admin endpoint instead.
+ */
+export interface PublicScanFreshness {
+  lastCompletedAt: string | null;
+}
+
+export async function getPublicScanFreshness(): Promise<PublicScanFreshness> {
+  await dbConnect();
+  const lastCompletedRecord = await ScanRun.findOne({
+    coverageStatus: { $in: [...COMPLETED_SCAN_STATUSES] },
+    finishedAt: { $ne: null },
+  })
+    .sort({ finishedAt: -1, startedAt: -1 })
+    .select({ finishedAt: 1, startedAt: 1 })
+    .lean<{ finishedAt?: Date | null; startedAt?: Date | null }>();
+
+  const at = lastCompletedRecord?.finishedAt ?? lastCompletedRecord?.startedAt ?? null;
+  return { lastCompletedAt: at ? new Date(at).toISOString() : null };
+}
+
+export interface AdminScanRuns {
+  health: ScanHealthData;
+  recent: PublicScanRun[];
+}
+
+/** Full collection health plus the recent run history, for the admin panel. */
+export async function getScanRunsForAdmin(limit = 10): Promise<AdminScanRuns> {
+  const health = await getScanHealth();
+  const recent = await ScanRun.find({})
+    .sort({ startedAt: -1 })
+    .limit(Math.min(50, Math.max(1, limit)))
+    .lean<ScanRunRecord[]>();
+
+  return {
+    health,
+    recent: recent
+      .map((run) => serializeScanRun(run))
+      .filter((run): run is PublicScanRun => run !== null),
   };
 }
