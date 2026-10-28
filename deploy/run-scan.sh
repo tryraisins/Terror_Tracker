@@ -25,6 +25,9 @@ cd "$BASE"
 # The scan container runs as uid 1000 (the image's `node` user) and writes here.
 mkdir -p "$REPORTS"
 chown 1000:1000 "$REPORTS" 2>/dev/null || true
+# Adjudication artifacts land beside the reports and need the same ownership.
+mkdir -p /var/log/terror-tracker/adjudications
+chown 1000:1000 /var/log/terror-tracker/adjudications 2>/dev/null || true
 
 # Concurrency guard. Exits non-zero rather than silently skipping: a skipped slot
 # means the previous run is still going, which is a failure worth an alert.

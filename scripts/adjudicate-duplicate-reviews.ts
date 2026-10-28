@@ -278,11 +278,17 @@ async function main() {
         },
       );
       if (outDir) {
-        await fs.mkdir(path.join(outDir, "before"), { recursive: true });
-        await fs.mkdir(path.join(outDir, "after"), { recursive: true });
-        await fs.writeFile(path.join(outDir, "before", `${String(row._id)}.json`), JSON.stringify({ review: row, record: existing, before }, null, 2));
-        const after = await Attack.findById(existing._id).lean();
-        await fs.writeFile(path.join(outDir, "after", `${String(row._id)}.json`), JSON.stringify({ record: after }, null, 2));
+        // The artifact is evidence, not the decision. A read-only or missing
+        // directory must not abort a pass that has already written to the database.
+        try {
+          await fs.mkdir(path.join(outDir, "before"), { recursive: true });
+          await fs.mkdir(path.join(outDir, "after"), { recursive: true });
+          await fs.writeFile(path.join(outDir, "before", `${String(row._id)}.json`), JSON.stringify({ review: row, record: existing, before }, null, 2));
+          const after = await Attack.findById(existing._id).lean();
+          await fs.writeFile(path.join(outDir, "after", `${String(row._id)}.json`), JSON.stringify({ record: after }, null, 2));
+        } catch (error) {
+          console.warn(`artifact for ${String(row._id)} was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
   }
@@ -291,11 +297,15 @@ async function main() {
   console.log(
     `\n${summary.mode}: scanned ${summary.scanned}, resolved ${summary.resolved}, dismissed ${summary.dismissed}, held ${summary.held}, skipped ${summary.skipped}`,
   );
-  if (args.apply && outDir) {
-    await fs.mkdir(outDir, { recursive: true });
-    await fs.writeFile(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2));
-    console.log(`artifact: ${outDir}`);
-  } else if (!args.apply) {
+  if (args.apply) {
+    try {
+      await fs.mkdir(outDir, { recursive: true });
+      await fs.writeFile(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2));
+      console.log(`artifact: ${outDir}`);
+    } catch (error) {
+      console.warn(`summary artifact was not written: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else {
     console.log("dry run: nothing was written. Re-run with --apply.");
   }
 
