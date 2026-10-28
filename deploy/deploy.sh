@@ -24,7 +24,28 @@ echo "deploying $TAG (previous: ${PREVIOUS:-none})"
 printf 'IMAGE_TAG=%s\n' "$TAG" > .env.deploy
 
 # Pull both targets so the scan timer never runs against a stale image.
-docker compose --env-file .env.deploy pull app scan
+# GHCR frequently resets large layer downloads from this host over IPv6, so the
+# pull retries before it is allowed to fail a deploy.
+pull_images() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if docker compose --env-file .env.deploy pull app scan >/tmp/terror-tracker-pull.log 2>&1; then
+      return 0
+    fi
+    echo "pull attempt $attempt failed: $(tail -n 1 /tmp/terror-tracker-pull.log)" >&2
+    sleep 5
+  done
+  return 1
+}
+
+if ! pull_images; then
+  if docker image inspect "ghcr.io/tryraisins/terror-tracker:$TAG" >/dev/null 2>&1; then
+    echo "pull failed but $TAG is already present locally; continuing" >&2
+  else
+    echo "pull failed and $TAG is not present locally" >&2
+    exit 1
+  fi
+fi
 
 docker compose --env-file .env.deploy up -d --no-deps --force-recreate app
 
