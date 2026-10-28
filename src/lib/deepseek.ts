@@ -130,6 +130,21 @@ export type DeepSeekTollConflictClassification = "same_event_counts_differ" | "d
 export interface DeepSeekTollConflictAssessment {
   classification: DeepSeekTollConflictClassification;
   reason: string;
+  /** Verbatim sentence from the candidate article that ties it to the record. */
+  linkageQuote: string;
+}
+
+/**
+ * Evidence the caller must supply for a toll-conflict decision.
+ *
+ * `candidateArticleText` is the fetched body of the held article and
+ * `recordEvidenceText` is what the stored record already claims. Without both,
+ * the model is only comparing extractor summaries, which is not enough to call
+ * two reports one episode.
+ */
+export interface TollConflictEvidence {
+  candidateArticleText: string;
+  recordEvidenceText: string;
 }
 
 function incidentView(incident: DuplicateCheckIncident) {
@@ -147,23 +162,26 @@ function incidentView(incident: DuplicateCheckIncident) {
 }
 
 /**
- * Resolve a held toll conflict.
+ * Resolve a held toll conflict, against the actual article.
  *
- * A stored record and a fresh candidate already share the deterministic identity
- * hash (title, event date, state, LGA, town), so the question here is narrower
- * than "are these the same event": it is whether the differing casualty figures
- * describe the same episode counted differently, or two separate episodes.
+ * The two records share identity fields, and those fields are only signals: two
+ * attacks in one town on the same day with different victims look identical to a
+ * hash. So the decision must be grounded in the held article's text. The model
+ * has to return a verbatim sentence from that text which ties the article to the
+ * stored episode, and the caller verifies the sentence really appears before it
+ * writes anything. `linkageQuote` is empty when the model cannot find one.
  *
  * Fails closed to review_required, like the duplicate check, so an unavailable
- * model never produces a merge or a dismissal.
+ * model never produces a merge.
  */
 export async function assessTollConflict(
   existing: DuplicateCheckIncident,
   candidate: DuplicateCheckIncident,
+  evidence: TollConflictEvidence,
 ): Promise<DeepSeekTollConflictAssessment> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!isDeepSeekDuplicateCheckEnabled() || !apiKey) {
-    return { classification: "review_required", reason: "DeepSeek toll-conflict check is disabled or unconfigured" };
+    return { classification: "review_required", reason: "DeepSeek toll-conflict check is disabled or unconfigured", linkageQuote: "" };
   }
 
   try {
@@ -179,39 +197,46 @@ export async function assessTollConflict(
           },
           {
             role: "user",
-            content: `Two reports share an identity hash: the same title, event date, state, LGA and town. Their casualty figures differ. Decide only which of these is true, using the evidence in the two records:\n\n- "same_event_counts_differ": the same real-world attack or abduction, counted differently. A later or fuller toll, a subset such as "bodies found so far", conflicting counts from different officials, or one report counting only those killed at one location all qualify.\n- "different_event": despite the matching identity fields, the two describe separate episodes, for example different victims, different communities within the town, or separate days inside a date range.\n- "review_required": the evidence does not distinguish the two.\n\nDo not invent facts. Do not prefer the larger figure. If the location or victim sets are described differently enough that they may be separate events, choose review_required rather than same_event_counts_differ.\n\nReturn JSON: {"classification":"same_event_counts_differ"|"different_event"|"review_required","reason":"short evidence-based reason"}\n\nRECORD A (stored):\n${JSON.stringify(incidentView(existing), null, 2)}\n\nRECORD B (new candidate):\n${JSON.stringify(incidentView(candidate), null, 2)}`,
+            content: `A stored incident record and one held article appear to match on state, LGA, town and event date, but their casualty figures differ. Those fields are signals, not proof: two separate attacks in the same town on the same day would also match them. Decide from the article text below whether this is one episode counted differently or a different episode.\n\n- "same_event_counts_differ": the article describes the same attack or abduction episode as RECORD A, counted differently. A later or fuller toll, a subset such as "bodies found so far", a conflicting official count, or a count limited to one site all qualify. The article must show it is the same episode, not merely the same place and day.\n- "different_event": the article describes a separate episode, for example different victims, a different community inside the town, a different time of day, or a different armed group.\n- "review_required": the article text does not settle it.\n\nYou must also return "linkageQuote": one verbatim sentence copied from ARTICLE TEXT that identifies the episode and bears on the toll. Copy it exactly, character for character; do not paraphrase, join sentences, or quote RECORD A. If no single sentence does that, return an empty string and choose "review_required". Never invent facts and do not prefer the larger figure.\n\nReturn JSON: {"classification":"same_event_counts_differ"|"different_event"|"review_required","reason":"short evidence-based reason","linkageQuote":"verbatim sentence or empty string"}\n\nRECORD A (stored, structured):\n${JSON.stringify(incidentView(existing), null, 2)}\n\nWHAT RECORD A ALREADY CLAIMS (its own extracted evidence):\n${evidence.recordEvidenceText.slice(0, 4000)}\n\nRECORD B (held candidate, structured):\n${JSON.stringify(incidentView(candidate), null, 2)}\n\nARTICLE TEXT (the held article, this is the only quotable source):\n${evidence.candidateArticleText.slice(0, 12000)}`,
           },
         ],
         temperature: 0,
-        max_tokens: 400,
+        max_tokens: 500,
         response_format: { type: "json_object" },
       }),
       signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      return { classification: "review_required", reason: `DeepSeek toll-conflict check returned HTTP ${response.status}` };
+      return { classification: "review_required", reason: `DeepSeek toll-conflict check returned HTTP ${response.status}`, linkageQuote: "" };
     }
     const data: unknown = await response.json();
     const content = data && typeof data === "object" && Array.isArray((data as { choices?: unknown[] }).choices)
       ? (data as { choices: Array<{ message?: { content?: unknown } }> }).choices[0]?.message?.content
       : undefined;
     if (typeof content !== "string" || !content.trim()) {
-      return { classification: "review_required", reason: "DeepSeek toll-conflict check returned an empty response" };
+      return { classification: "review_required", reason: "DeepSeek toll-conflict check returned an empty response", linkageQuote: "" };
     }
     const parsed = JSON.parse(content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()) as Record<string, unknown>;
     const classification = parsed.classification;
     const reason = typeof parsed.reason === "string" && parsed.reason.trim()
       ? parsed.reason.trim().slice(0, 500)
       : "DeepSeek returned no toll-conflict rationale";
-    if (classification === "same_event_counts_differ" || classification === "different_event" || classification === "review_required") {
-      return { classification, reason };
+    const linkageQuote = typeof parsed.linkageQuote === "string" ? parsed.linkageQuote.trim().slice(0, 1000) : "";
+    // A same-event verdict without a quoted sentence is not evidence, so it is
+    // downgraded here rather than left for the caller to remember.
+    if (classification === "same_event_counts_differ" && !linkageQuote) {
+      return { classification: "review_required", reason: "DeepSeek claimed the same event without quoting the article", linkageQuote: "" };
     }
-    return { classification: "review_required", reason: "DeepSeek returned an invalid toll-conflict classification" };
+    if (classification === "same_event_counts_differ" || classification === "different_event" || classification === "review_required") {
+      return { classification, reason, linkageQuote };
+    }
+    return { classification: "review_required", reason: "DeepSeek returned an invalid toll-conflict classification", linkageQuote: "" };
   } catch (error) {
     return {
       classification: "review_required",
       reason: `DeepSeek toll-conflict check failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      linkageQuote: "",
     };
   }
 }

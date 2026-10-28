@@ -32,7 +32,7 @@ import path from "node:path";
 import Attack from "../src/lib/models/Attack";
 import IncidentReview from "../src/lib/models/IncidentReview";
 import { assessTollConflict, type DuplicateCheckIncident } from "../src/lib/deepseek";
-import { mergeSourceMetadata } from "../src/lib/search-led-discovery";
+import { fetchArticleText, mergeSourceMetadata } from "../src/lib/search-led-discovery";
 import { normalizeStateName } from "../src/lib/normalize-state";
 import { placesEquivalent, sameLga } from "../src/lib/location-identity";
 import { incidentDateKey } from "../src/lib/incident-date";
@@ -125,6 +125,28 @@ const toToll = (value: StoredCandidate["casualties"] | Attack["casualties"] | un
   kidnapped: value?.kidnapped ?? null,
   displaced: value?.displaced ?? null,
 });
+
+/** Case and punctuation insensitive, so a faithful quote still matches. */
+const normalizeForQuote = (value: string) =>
+  value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
+
+const NUMBER_WORDS = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/;
+
+/**
+ * A quoted sentence only counts as linkage if it is really in the article and
+ * says something about the episode: a place name or a count. Anything else is the
+ * model paraphrasing, which is what this pass exists to stop.
+ */
+function linkageIsGrounded(quote: string, articleText: string, town: string): { ok: boolean; why?: string } {
+  const normalizedQuote = normalizeForQuote(quote);
+  if (normalizedQuote.length < 30) return { ok: false, why: `quote too short (${normalizedQuote.length})` };
+  if (!normalizeForQuote(articleText).includes(normalizedQuote)) return { ok: false, why: "quote does not appear in the article text" };
+  const place = normalizeForQuote(town);
+  const mentionsCount = /\d/.test(quote) || NUMBER_WORDS.test(normalizedQuote);
+  const mentionsPlace = place.length > 2 && normalizedQuote.includes(place);
+  if (!mentionsCount && !mentionsPlace) return { ok: false, why: "quote names neither the place nor a count" };
+  return { ok: true };
+}
 
 const toIncident = (value: {
   title?: string;
@@ -255,7 +277,33 @@ async function main() {
         continue;
       }
 
-      const assessment = await assessTollConflict(toIncident(existing), toIncident(candidate));
+      // The held article has to be readable before the model is asked anything.
+      // The queue stores no article text for this lead kind, and summaries are not
+      // evidence, so a page that will not load leaves the row for a person.
+      const fetched = await fetchArticleText(row.sourceUrl, row.title || "");
+      if (!fetched || fetched.text.length < 200) {
+        summary.held += 1;
+        await note({
+          reviewId: String(row._id),
+          eventId: String(existing._id),
+          action: "held-no-article",
+          why: "the held article could not be fetched, so there is nothing to ground the decision in",
+        });
+        continue;
+      }
+      const candidateArticleText = fetched.text;
+      const recordEvidenceText = [
+        existing.description || "",
+        existing.dateEvidence || "",
+        ...Object.values((existing.casualtyMeta || {}) as Record<string, { sourceText?: string; note?: string } | undefined>)
+          .flatMap((meta) => [meta?.sourceText || "", meta?.note || ""]),
+        (existing.sources || []).map((source) => `${source.title || ""} (${source.publisher || ""})`).join("; "),
+      ].filter(Boolean).join("\n");
+
+      const assessment = await assessTollConflict(toIncident(existing), toIncident(candidate), {
+        candidateArticleText,
+        recordEvidenceText,
+      });
       const existingToll = toToll(existing.casualties);
       const candidateToll = toToll(candidate.casualties);
       const decision = {
@@ -267,6 +315,7 @@ async function main() {
         candidateSource: row.sourceUrl,
         classification: assessment.classification,
         modelReason: assessment.reason,
+        linkageQuote: assessment.linkageQuote,
       };
 
       // A generic rationale is not evidence. Treat it like a refusal.
@@ -275,6 +324,19 @@ async function main() {
         summary.held += 1;
         await note({ ...decision, action: thinReason ? "held-thin-reason" : "held", thinReason });
         continue;
+      }
+
+      // Verify the quote against the article we fetched. A same-event verdict that
+      // cannot point at a real sentence is a guess, not a decision.
+      const grounded = linkageIsGrounded(assessment.linkageQuote, candidateArticleText, existing.location?.town || "");
+      if (!grounded.ok) {
+        summary.held += 1;
+        await note({
+          ...decision,
+          action: assessment.classification === "same_event_counts_differ" ? "held-ungrounded" : "noted-ungrounded",
+          why: grounded.why,
+        });
+        if (assessment.classification === "same_event_counts_differ") continue;
       }
 
       if (assessment.classification === "different_event") {
@@ -322,7 +384,7 @@ async function main() {
               dispositionNote:
                 `Same event, counted differently: ${additions.length} source(s) attached to the existing record and no casualty figure changed. ` +
                 `Stored record reports ${tollText(existingToll)}, the article reports ${tollText(candidateToll)}. ` +
-                `Model: ${assessment.reason}`.slice(0, 2000),
+                `Linked by: "${assessment.linkageQuote.slice(0, 300)}". Model: ${assessment.reason}`.slice(0, 2000),
             },
           },
         );

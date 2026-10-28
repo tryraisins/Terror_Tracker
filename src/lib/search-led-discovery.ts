@@ -460,6 +460,25 @@ async function fetchWithRetry(url: string, timeoutMs: number): Promise<{ respons
   return { response: null, retries, error: lastError || "request failed" };
 }
 
+/**
+ * Fetch one article and return its readable text.
+ *
+ * Exported for tools that need the source evidence rather than a parsed record.
+ * It reuses the same fetch path as the collector, including the Jina reader
+ * fallback, so a page that the collector could read is readable here too.
+ */
+export async function fetchArticleText(
+  url: string,
+  fallbackTitle = "",
+): Promise<{ text: string; title: string; lead: string } | null> {
+  const article = await fetchArticleHtml(url);
+  if (!article.html) return null;
+  const parts = article.viaJina ? partsFromMarkdown(fallbackTitle, article.html) : extractArticleParts(article.html, fallbackTitle);
+  const text = `${parts.lead}\n${parts.text}`.trim();
+  if (text.length < 200) return null;
+  return { text: text.slice(0, 20000), title: parts.title, lead: parts.lead };
+}
+
 async function fetchArticleHtml(url: string): Promise<{ html: string | null; viaJina: boolean; retries: number; error: string }> {
   const direct = await fetchWithRetry(url, FETCH_TIMEOUT_MS);
   if (direct.response?.ok && (direct.response.headers.get("content-type") || "").includes("text/html")) {
