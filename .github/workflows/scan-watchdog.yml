@@ -2,11 +2,15 @@ name: Scan watchdog
 
 # Off-box freshness check. Every other alert in this repo runs on the host being
 # monitored, so a dead host, a wedged systemd or a failed reboot emails nobody.
-# This one runs on GitHub, reads the public endpoint and fails loudly, which makes
-# GitHub notify the repository owner.
+# This runs on GitHub and reaches the host over the deploy key's forced command,
+# which accepts "health" and nothing else.
 #
-# It deliberately checks the same value the app's own stale banner uses (the last
-# completed ScanRun), not the report file mtime the on-box dead-man reads.
+# It reads the same value the app derives from scan_runs (last completed run), not
+# the report file mtime the on-box dead-man uses, so the two cannot disagree.
+#
+# The public URL is deliberately not used here: Cloudflare challenges datacenter
+# IPs such as GitHub runners, so an HTTPS probe would report a bot page rather
+# than the application.
 on:
   schedule:
     - cron: "17 * * * *"
@@ -24,19 +28,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Assert a completed scan within the stale window
+      - name: Assert the host answers and a scan completed recently
         env:
-          SITE: https://terrortracker.tryraisins.dev
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           STALE_HOURS: "18"
         run: |
           set -euo pipefail
-          body=$(curl -sS --max-time 20 --retry 3 --retry-delay 5 "$SITE/api/scan-health")
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/watchdog_key
+          chmod 600 ~/.ssh/watchdog_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+          # A failed SSH is itself the answer: the host is down or unreachable.
+          body=$(ssh -i ~/.ssh/watchdog_key -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o ConnectTimeout=15 "ops@${DEPLOY_HOST}" health)
           echo "payload: $body"
-          last=$(printf '%s' "$body" | jq -r '.lastCompletedAt // empty')
-          if [ -z "$last" ]; then
-            echo "::error::No completed scan is recorded at $SITE"
+
+          if [ "$(printf '%s' "$body" | jq -r '.ok')" != "true" ]; then
+            echo "::error::Host reported unhealthy: $(printf '%s' "$body" | jq -r '.reason // "unknown"')"
             exit 1
           fi
+
+          last=$(printf '%s' "$body" | jq -r '.scan.lastCompletedAt // empty')
+          if [ -z "$last" ]; then
+            echo "::error::No completed scan is recorded"
+            exit 1
+          fi
+
           age=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 3600 ))
           echo "last completed scan: $last (${age}h ago)"
           if [ "$age" -ge "$STALE_HOURS" ]; then
