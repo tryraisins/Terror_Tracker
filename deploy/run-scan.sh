@@ -57,19 +57,11 @@ find "$REPORTS" -name 'scan-*.json' -type f -mtime +30 -delete 2>/dev/null || tr
 
 echo "scan finished with status $STATUS"
 
-# Clear the held duplicate leads the model can decide. This runs only after a
-# clean scan, and a failure here is logged but never turns a successful
-# collection into a failed one.
-if [ "$STATUS" -eq 0 ]; then
-  ADJUDICATE_LIMIT="${ADJUDICATE_LIMIT:-25}"
-  if docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
-    --name terror-adjudicate-slot scan \
-    npx tsx scripts/adjudicate-duplicate-reviews.ts --apply --limit "$ADJUDICATE_LIMIT" \
-    >/tmp/terror-adjudicate.log 2>&1; then
-    echo "adjudication: $(tail -n 1 /tmp/terror-adjudicate.log)"
-  else
-    echo "adjudication failed (scan unaffected): $(tail -n 1 /tmp/terror-adjudicate.log)" >&2
-  fi
-fi
+# Adjudication is paused. Two independent reviews found that the pass could close
+# a stored-pair review by comparing the record with itself, and that dismissing a
+# distinct candidate loses an unrecorded event. It stays out of the scan until
+# both are fixed and re-reviewed; run it by hand meanwhile:
+#   docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
+#     scan npx tsx scripts/adjudicate-duplicate-reviews.ts --limit 10
 
 exit "$STATUS"

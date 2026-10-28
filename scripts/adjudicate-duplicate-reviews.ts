@@ -75,8 +75,36 @@ type ReviewRow = {
   title?: string;
   state?: string;
   candidates?: StoredCandidate[];
-  sourceEvidence?: { existingId?: string } | null;
+  sourceEvidence?: { existingId?: string; candidateId?: string } | null;
 };
+
+/**
+ * A held lead and a stored-pair review look alike in the queue but are different
+ * questions.
+ *
+ * A held lead carries one parsed candidate that was never inserted, and the
+ * record it nearly matched. That is what this pass can decide.
+ *
+ * A stored-pair review carries both records (`candidates: [A, B]` and a
+ * `candidateId`) because two existing documents may be one event. Taking
+ * `candidates[0]` there compares the record with itself, which "proves" they are
+ * the same event and closes a real question. Those belong to the merge tooling,
+ * not here.
+ */
+function heldLeadCandidate(row: ReviewRow): { candidate: StoredCandidate | null; why?: string } {
+  const evidence = row.sourceEvidence || {};
+  if (evidence.candidateId) return { candidate: null, why: "stored-pair review, not a held lead" };
+  const candidates = row.candidates || [];
+  if (candidates.length !== 1) return { candidate: null, why: `expected one stored candidate, found ${candidates.length}` };
+  const candidate = candidates[0];
+  if (!candidate || typeof candidate !== "object") return { candidate: null, why: "stored candidate is malformed" };
+  const candidateId = (candidate as { _id?: unknown })._id;
+  if (candidateId && evidence.existingId && String(candidateId) === String(evidence.existingId)) {
+    return { candidate: null, why: "candidate is the record itself" };
+  }
+  if (!candidate.location || typeof candidate.location !== "object") return { candidate: null, why: "stored candidate has no location" };
+  return { candidate };
+}
 
 type Toll = { killed: number | null; injured: number | null; kidnapped: number | null; displaced: number | null };
 
@@ -141,161 +169,189 @@ async function main() {
     .limit(args.limit)
     .lean<ReviewRow[]>();
 
+  // Preflight the artifact directory before any mutation. A pass that cannot
+  // record what it did must not do it.
+  if (args.apply && outDir) {
+    await fs.mkdir(path.join(outDir), { recursive: true });
+  }
+  const journal = outDir ? path.join(outDir, "decisions.jsonl") : null;
+  const record0 = async (entry: Record<string, unknown>) => {
+    if (journal) await fs.appendFile(journal, `${JSON.stringify(entry)}\n`).catch(() => undefined);
+  };
+
   const summary = {
     mode: args.apply ? "apply" : "dry-run",
     startedAt: new Date().toISOString(),
     scanned: rows.length,
     resolved: 0,
-    dismissed: 0,
+    heldDistinct: 0,
     held: 0,
     skipped: 0,
+    errors: 0,
     decisions: [] as Array<Record<string, unknown>>,
   };
 
+  const note = async (entry: Record<string, unknown>) => {
+    summary.decisions.push(entry);
+    await record0(entry);
+  };
+
   for (const row of rows) {
-    const existingId = row.sourceEvidence?.existingId;
-    const candidate = row.candidates?.[0];
+    try {
+      const existingId = row.sourceEvidence?.existingId;
+      const held = heldLeadCandidate(row);
 
-    if (!existingId) {
-      summary.skipped += 1;
-      summary.decisions.push({ reviewId: String(row._id), action: "skipped", why: "no existingId on the review row" });
-      continue;
-    }
+      if (!existingId) {
+        summary.skipped += 1;
+        await note({ reviewId: String(row._id), action: "skipped", why: "no existingId on the review row" });
+        continue;
+      }
 
-    const existing = await Attack.findOne({ _id: existingId, _deleted: { $ne: true } }).lean();
-    if (!existing) {
-      // The referenced record was absorbed or removed; the queue sweep resolves those.
-      summary.skipped += 1;
-      summary.decisions.push({ reviewId: String(row._id), action: "skipped", why: "referenced record is gone" });
-      continue;
-    }
+      if (!held.candidate) {
+        summary.skipped += 1;
+        await note({ reviewId: String(row._id), action: "skipped", why: held.why });
+        continue;
+      }
+      const candidate = held.candidate;
 
-    if (!candidate) {
-      summary.skipped += 1;
-      summary.decisions.push({ reviewId: String(row._id), action: "skipped", why: "no parsed candidate was stored" });
-      continue;
-    }
+      const existing = await Attack.findOne({ _id: existingId, _deleted: { $ne: true } }).lean();
+      if (!existing) {
+        // The referenced record was absorbed or removed; the queue sweep resolves those.
+        summary.skipped += 1;
+        await note({ reviewId: String(row._id), action: "skipped", why: "referenced record is gone" });
+        continue;
+      }
 
-    // The model must not be asked a question the deterministic layer has not
-    // already answered. A queued row can be stale or hand-edited, and the prompt
-    // states that identity is established, so verify it here rather than trust it.
-    // Anything that fails these checks stays pending for a person: a near-miss on
-    // the settlement name is exactly the case the project's rules refuse to guess.
-    const dateKeyOf = (value: { date?: Date | string | null; datePrecision?: string | null; dateRange?: { start?: Date | string | null; end?: Date | string | null } | null }) =>
-      incidentDateKey({
-        date: value.date,
-        datePrecision: (value.datePrecision ?? "exact_day") as never,
-        dateRange: value.dateRange ?? null,
-      });
-    const storedDateKey = dateKeyOf(existing);
-    const candidateDateKey = dateKeyOf(candidate);
-    const identity = {
-      state: normalizeStateName(existing.location?.state || "") === normalizeStateName(candidate.location?.state || ""),
-      place: placesEquivalent(existing.location?.town, candidate.location.town),
-      lga: sameLga(existing.location?.lga, candidate.location.lga),
-      date: Boolean(storedDateKey) && storedDateKey === candidateDateKey,
-    };
-    if (!identity.state || !identity.place || !identity.lga || !identity.date) {
-      summary.held += 1;
-      summary.decisions.push({
+      // The model must not be asked a question the deterministic layer has not
+      // already answered. A queued row can be stale or hand-edited, and the prompt
+      // treats identity as established, so verify it here rather than trust it.
+      // exact_day on both sides, because an equal month or date range proves only
+      // the same interval, and "unknown" is a truthy string that would match.
+      const dateKeyOf = (value: { date?: Date | string | null; datePrecision?: string | null; dateRange?: { start?: Date | string | null; end?: Date | string | null } | null }) =>
+        incidentDateKey({
+          date: value.date,
+          datePrecision: (value.datePrecision ?? "exact_day") as never,
+          dateRange: value.dateRange ?? null,
+        });
+      const storedDateKey = dateKeyOf(existing);
+      const candidateDateKey = dateKeyOf(candidate);
+      const identity = {
+        state: normalizeStateName(existing.location?.state || "") === normalizeStateName(candidate.location?.state || ""),
+        place: placesEquivalent(existing.location?.town, candidate.location?.town),
+        lga: sameLga(existing.location?.lga, candidate.location?.lga),
+        exactDay: (existing.datePrecision || "exact_day") === "exact_day" && (candidate.datePrecision || "exact_day") === "exact_day",
+        date: storedDateKey !== "unknown" && storedDateKey === candidateDateKey,
+      };
+      if (!identity.state || !identity.place || !identity.lga || !identity.exactDay || !identity.date) {
+        summary.held += 1;
+        await note({
+          reviewId: String(row._id),
+          eventId: String(existing._id),
+          action: "held-identity",
+          why: JSON.stringify(identity),
+          stored: { state: existing.location?.state, lga: existing.location?.lga, town: existing.location?.town },
+          candidate: { state: candidate.location?.state, lga: candidate.location?.lga, town: candidate.location?.town },
+        });
+        continue;
+      }
+
+      const assessment = await assessTollConflict(toIncident(existing), toIncident(candidate));
+      const existingToll = toToll(existing.casualties);
+      const candidateToll = toToll(candidate.casualties);
+      const decision = {
         reviewId: String(row._id),
         eventId: String(existing._id),
-        action: "held-identity",
-        why: JSON.stringify(identity),
-        stored: { state: existing.location?.state, lga: existing.location?.lga, town: existing.location?.town },
-        candidate: { state: candidate.location?.state, lga: candidate.location?.lga, town: candidate.location?.town },
-      });
-      continue;
-    }
+        title: existing.title,
+        existingToll,
+        candidateToll,
+        candidateSource: row.sourceUrl,
+        classification: assessment.classification,
+        modelReason: assessment.reason,
+      };
 
-    const assessment = await assessTollConflict(toIncident(existing), toIncident(candidate));
-    const existingToll = toToll(existing.casualties);
-    const candidateToll = toToll(candidate.casualties);
-    const decision = {
-      reviewId: String(row._id),
-      eventId: String(existing._id),
-      title: existing.title,
-      existingToll,
-      candidateToll,
-      candidateSource: row.sourceUrl,
-      classification: assessment.classification,
-      modelReason: assessment.reason,
-    };
+      // A generic rationale is not evidence. Treat it like a refusal.
+      const thinReason = assessment.reason.trim().length < 40;
+      if (assessment.classification === "review_required" || thinReason) {
+        summary.held += 1;
+        await note({ ...decision, action: thinReason ? "held-thin-reason" : "held", thinReason });
+        continue;
+      }
 
-    if (assessment.classification === "review_required") {
-      summary.held += 1;
-      summary.decisions.push({ ...decision, action: "held" });
-      continue;
-    }
+      if (assessment.classification === "different_event") {
+        // Never dismiss here. A distinct result means this article describes an
+        // event that is not in the record, and AGENTS.md says such a lead must be
+        // promoted, not closed. Closing it would also make it unpromotable,
+        // because promote-review-lead only accepts pending rows.
+        summary.heldDistinct += 1;
+        await note({ ...decision, action: "held-distinct-needs-promotion" });
+        continue;
+      }
 
-    if (assessment.classification === "different_event") {
-      summary.dismissed += 1;
-      summary.decisions.push({ ...decision, action: "dismiss-distinct" });
+      // same_event_counts_differ: this article belongs to the stored record.
+      // Append only the sources that are missing, so a concurrent writer is not
+      // overwritten by a snapshot read earlier in the loop. Casualty figures are
+      // left alone and both are recorded.
+      const merged = mergeSourceMetadata(existing.sources || [], (candidate.sources || []) as never);
+      const existingUrls = new Set((existing.sources || []).map((source) => String(source.url || "")));
+      const additions = merged.sources.filter((source) => !existingUrls.has(String(source.url || "")));
+      await note({ ...decision, action: "resolve-same-event", sourcesAdded: additions.map((source) => source.url) });
+
       if (args.apply) {
-        await IncidentReview.updateOne(
+        // Snapshot before the write, so a crash cannot leave a resolved row with
+        // no record of what it looked like.
+        if (outDir) {
+          await fs.mkdir(path.join(outDir, "before"), { recursive: true });
+          await fs.writeFile(
+            path.join(outDir, "before", `${String(row._id)}.json`),
+            JSON.stringify({ review: row, record: existing, additions }, null, 2),
+          ).catch(() => undefined);
+        }
+
+        if (additions.length) {
+          await Attack.updateOne({ _id: existing._id, _deleted: { $ne: true } }, { $push: { sources: { $each: additions } }, $set: { updatedAt: new Date() } });
+        }
+        const closed = await IncidentReview.updateOne(
           { _id: row._id, status: "pending" },
           {
             $set: {
-              status: "dismissed",
+              status: "resolved",
               reviewedAt: new Date(),
               reviewedBy: "auto-adjudicator",
               retryable: false,
               nextRetryAt: null,
               dispositionNote:
-                `Distinct events: the model found the reports describe separate episodes despite matching identity fields. ` +
-                `Stored record reports ${tollText(existingToll)}, the held article reports ${tollText(candidateToll)}. ${assessment.reason}`.slice(0, 2000),
+                `Same event, counted differently: ${additions.length} source(s) attached to the existing record and no casualty figure changed. ` +
+                `Stored record reports ${tollText(existingToll)}, the article reports ${tollText(candidateToll)}. ` +
+                `Model: ${assessment.reason}`.slice(0, 2000),
             },
           },
         );
-      }
-      continue;
-    }
+        // Someone else may have closed it first; do not claim a resolution we did not make.
+        if (closed.modifiedCount !== 1) {
+          summary.errors += 1;
+          await note({ reviewId: String(row._id), action: "conflict", why: "row was no longer pending" });
+          continue;
+        }
 
-    // same_event_counts_differ: this article belongs to the stored record. Attach
-    // its source; leave the casualty figures untouched and record both.
-    const before = { sources: (existing.sources || []).map((source) => ({ url: source.url, title: source.title, publisher: source.publisher })) };
-    const merged = mergeSourceMetadata(existing.sources || [], (candidate.sources || []) as never);
-    summary.resolved += 1;
-    summary.decisions.push({ ...decision, action: "resolve-same-event", sourcesAdded: merged.changed });
-
-    if (args.apply) {
-      if (merged.changed) {
-        await Attack.updateOne({ _id: existing._id }, { $set: { sources: merged.sources, updatedAt: new Date() } });
-      }
-      await IncidentReview.updateOne(
-        { _id: row._id, status: "pending" },
-        {
-          $set: {
-            status: "resolved",
-            reviewedAt: new Date(),
-            reviewedBy: "auto-adjudicator",
-            retryable: false,
-            nextRetryAt: null,
-            dispositionNote:
-              `Same event, counted differently: the article was attached to the existing record and no casualty figure was changed. ` +
-              `Stored record reports ${tollText(existingToll)}, the article reports ${tollText(candidateToll)}. ${assessment.reason}`.slice(0, 2000),
-          },
-        },
-      );
-      if (outDir) {
-        // The artifact is evidence, not the decision. A read-only or missing
-        // directory must not abort a pass that has already written to the database.
-        try {
-          await fs.mkdir(path.join(outDir, "before"), { recursive: true });
-          await fs.mkdir(path.join(outDir, "after"), { recursive: true });
-          await fs.writeFile(path.join(outDir, "before", `${String(row._id)}.json`), JSON.stringify({ review: row, record: existing, before }, null, 2));
+        if (outDir) {
           const after = await Attack.findById(existing._id).lean();
-          await fs.writeFile(path.join(outDir, "after", `${String(row._id)}.json`), JSON.stringify({ record: after }, null, 2));
-        } catch (error) {
-          console.warn(`artifact for ${String(row._id)} was not written: ${error instanceof Error ? error.message : String(error)}`);
+          await fs.mkdir(path.join(outDir, "after"), { recursive: true });
+          await fs.writeFile(path.join(outDir, "after", `${String(row._id)}.json`), JSON.stringify({ record: after }, null, 2)).catch(() => undefined);
         }
       }
+
+      summary.resolved += 1;
+    } catch (error) {
+      // One bad row must not abandon the rest of the pass.
+      summary.errors += 1;
+      await note({ reviewId: String(row._id), action: "error", why: error instanceof Error ? error.message : String(error) });
     }
   }
 
   if (summary.decisions.length) console.log(JSON.stringify(summary.decisions, null, 2));
   console.log(
-    `\n${summary.mode}: scanned ${summary.scanned}, resolved ${summary.resolved}, dismissed ${summary.dismissed}, held ${summary.held}, skipped ${summary.skipped}`,
+    `\n${summary.mode}: scanned ${summary.scanned}, resolved ${summary.resolved}, held ${summary.held}, ` +
+      `held-distinct ${summary.heldDistinct}, skipped ${summary.skipped}, errors ${summary.errors}`,
   );
   if (args.apply) {
     try {
