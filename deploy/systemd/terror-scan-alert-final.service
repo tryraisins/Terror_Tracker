@@ -1,0 +1,7 @@
+[Unit]
+Description=Email the operator after the retry slot also failed
+
+[Service]
+Type=oneshot
+ExecStart=/srv/terror-tracker/scan-alert.sh --no-retry
+TimeoutStartSec=120

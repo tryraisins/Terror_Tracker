@@ -1,0 +1,29 @@
+# Build output and dependencies are produced inside the image.
+node_modules
+.next
+out
+
+# Secrets must never enter an image layer.
+.env
+.env.*
+!.env.example
+
+# Local scratch space, audits and design artifacts are not runtime inputs.
+.git
+.github
+.claude
+.netlify
+tailwind.config.ts
+tsconfig.tsbuildinfo
+scratch
+tmp
+output
+audit-2026
+security-audit
+docs
+design
+redesign.pen
+redesign new.pen
+redesign new-assets
+duplicates_example.json
+*.log

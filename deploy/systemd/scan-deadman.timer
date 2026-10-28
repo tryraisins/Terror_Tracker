@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily check that the scan timer is still producing reports
+
+[Timer]
+OnCalendar=*-*-* 20:30 UTC
+AccuracySec=5min
+Persistent=true
+Unit=scan-deadman.service
+
+[Install]
+WantedBy=timers.target

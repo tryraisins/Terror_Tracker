@@ -1,0 +1,38 @@
+name: terror-tracker
+
+# Lives at /srv/terror-tracker/compose.yaml on the host.
+# Image tag is written by deploy.sh into .env.deploy; never edit it by hand.
+
+services:
+  app:
+    image: ghcr.io/tryraisins/terror-tracker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - /etc/terror-tracker/app.env
+    ports:
+      # Loopback only: Caddy is the sole path in from Cloudflare.
+      - "127.0.0.1:3001:3001"
+    volumes:
+      # Scan reports are produced by the timer and surfaced read-only in the
+      # admin panel. The app never writes here.
+      - /var/log/terror-tracker:/var/log/terror-tracker:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Not started with `up`. The systemd timer runs it with
+  # `docker compose --profile scan run --rm scan`.
+  scan:
+    image: ghcr.io/tryraisins/terror-tracker:${IMAGE_TAG:-latest}-scan
+    profiles: ["scan"]
+    env_file:
+      - /etc/terror-tracker/scan.env
+    volumes:
+      - /var/log/terror-tracker:/var/log/terror-tracker
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

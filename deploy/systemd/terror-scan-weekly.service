@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekly catch-up scan over a fourteen-day window
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+OnFailure=terror-scan-alert.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/terror-tracker
+ExecStart=/srv/terror-tracker/run-scan.sh --weekly
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

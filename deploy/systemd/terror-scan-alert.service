@@ -1,0 +1,7 @@
+[Unit]
+Description=Email the operator after a failed scan run
+
+[Service]
+Type=oneshot
+ExecStart=/srv/terror-tracker/scan-alert.sh
+TimeoutStartSec=120

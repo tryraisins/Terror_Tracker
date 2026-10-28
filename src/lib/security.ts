@@ -44,9 +44,14 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 export function getClientIP(req: NextRequest): string {
-  // Netlify sets the real client address on this platform-controlled header.
+  // Each hosting platform sets the real client address on a header the platform
+  // controls and the caller cannot forge. Cloudflare sets cf-connecting-ip,
+  // Netlify sets x-nf-client-connection-ip, and Caddy sets x-real-ip.
   // Never trust the first x-forwarded-for hop: it is client-controllable and
   // would let a caller rotate the rate-limit key to bypass every limit.
+  const cloudflareIp = req.headers.get("cf-connecting-ip");
+  if (cloudflareIp) return cloudflareIp.trim();
+
   const netlifyIp = req.headers.get("x-nf-client-connection-ip");
   if (netlifyIp) return netlifyIp.trim();
 

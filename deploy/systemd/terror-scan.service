@@ -1,0 +1,18 @@
+[Unit]
+Description=Terror Tracker search-led incident scan
+Documentation=https://github.com/tryraisins/Terror_Tracker
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+OnFailure=terror-scan-alert.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/terror-tracker
+ExecStart=/srv/terror-tracker/run-scan.sh
+# A full run is 5-14 minutes; the ceiling exists so a wedged run cannot hold
+# the lock into the next slot.
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

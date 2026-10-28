@@ -1,0 +1,16 @@
+[Unit]
+Description=Terror Tracker scan retry after a failed slot
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+# Final, so a failed retry notifies without arming another retry.
+OnFailure=terror-scan-alert-final.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/terror-tracker
+ExecStart=/srv/terror-tracker/run-scan.sh
+TimeoutStartSec=3600
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

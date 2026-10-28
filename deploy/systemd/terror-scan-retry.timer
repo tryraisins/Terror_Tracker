@@ -1,0 +1,9 @@
+[Unit]
+Description=One-shot retry slot, armed by the failure alert
+
+[Timer]
+# Relative to the moment the alert service starts this timer, not a wall clock.
+OnActiveSec=20min
+AccuracySec=1min
+RemainAfterElapse=no
+Unit=terror-scan-retry.service
