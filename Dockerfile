@@ -30,6 +30,11 @@ COPY . .
 ARG JWT_SECRET=build-only-placeholder
 ENV JWT_SECRET=${JWT_SECRET}
 
+# Same reason: src/lib/db.ts throws at module evaluation, and Next collects page
+# data for every route handler during the build.
+ARG MONGODB_URI=mongodb://build-only-placeholder
+ENV MONGODB_URI=${MONGODB_URI}
+
 # Inlined into the client bundle at build time, so it cannot come from runtime
 # env. Node reads it, Vercel/Netlify set it; here it comes from the build arg.
 ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=

@@ -96,4 +96,4 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes \
-            "ops@${DEPLOY_HOST}" "/srv/terror-tracker/deploy.sh ${GITHUB_SHA}"
+            "ops@${DEPLOY_HOST}" "sudo -n /srv/terror-tracker/deploy.sh ${GITHUB_SHA}"
