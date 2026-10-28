@@ -1,8 +1,15 @@
 import IncidentReview, { createIncidentReviewKey, normalizeIncidentReviewSourceUrl, MAX_INCIDENT_REVIEW_ATTEMPTS } from "./models/IncidentReview";
+import { normalizeIncidentDate } from "./incident-date";
 import Attack from "./models/Attack";
 import { ingestSearchLedAttacks, reextractSearchLedSource, type SearchLedReport, type SearchLedIngestResult, type SearchLedReviewLead } from "./search-led-discovery";
 import type { RawAttackData } from "./free-news";
 import type { IAttack } from "./models/Attack";
+
+/**
+ * The widest window any scheduled scan asks for: the Sunday catch-up uses 336
+ * hours. A late report newer than this can still be carried by that slot.
+ */
+export const WIDEST_SCAN_WINDOW_HOURS = 336;
 
 /**
  * Semantic findings on stored records also belong in the permanent queue.
@@ -169,9 +176,17 @@ function isPermanentExtractionRejection(reason: string): boolean {
  * whether two reports describe one attack needs evidence, not a heuristic.
  */
 export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
-  const result = { scanned: 0, capturedSources: 0, staleReferences: 0, exhausted: 0, permanentRejections: 0 };
+  const result = {
+    scanned: 0,
+    capturedSources: 0,
+    staleReferences: 0,
+    exhausted: 0,
+    permanentRejections: 0,
+    lateReportsRequeued: 0,
+    lateReportsDismissed: 0,
+  };
   const rows = await IncidentReview.find({ status: "pending" })
-    .select("sourceUrl kind reason attempts retryable sourceEvidence").lean();
+    .select("sourceUrl kind reason attempts retryable sourceEvidence candidates").lean();
   result.scanned = rows.length;
   if (!rows.length) return result;
 
@@ -190,6 +205,8 @@ export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
   const stale: string[] = [];
   const exhausted: string[] = [];
   const permanent: string[] = [];
+  const lateReportsOld: string[] = [];
+  const lateReportsDue: string[] = [];
   for (const row of rows) {
     const sourceKey = normalizeIncidentReviewSourceUrl(row.sourceUrl || "");
     if (row.kind !== "duplicate" && sourceKey && capturedSources.has(sourceKey)) {
@@ -200,6 +217,31 @@ export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
       const existingId = (row.sourceEvidence as { existingId?: string } | undefined)?.existingId;
       if (existingId && !activeIds.has(String(existingId))) {
         stale.push(String(row._id));
+        continue;
+      }
+    }
+    // A late report is an event the collector saw but would not ingest because it
+    // fell outside the scan window. Two outcomes are deterministic:
+    //   - inside the widest window the pipeline ever collects, the weekly catch-up
+    //     can still carry it, so make it due for one re-extraction;
+    //   - older than that, it belongs to historical backfill, not the daily queue.
+    // Row with no parsed candidate has no event date, so it stays pending.
+    if (row.kind === "late_report") {
+      const candidate = (row.candidates as Array<{ date?: string | Date; datePrecision?: string; dateRange?: { start?: string | Date | null; end?: string | Date | null } }> | undefined)?.[0];
+      const normalized = candidate
+        ? normalizeIncidentDate({
+          date: candidate.date,
+          datePrecision: candidate.datePrecision as never,
+          dateRange: candidate.dateRange,
+        })
+        : null;
+      if (normalized) {
+        const ageMs = now.getTime() - normalized.interval.end.getTime();
+        if (ageMs <= WIDEST_SCAN_WINDOW_HOURS * 3_600_000) {
+          if ((row.attempts || 0) < MAX_INCIDENT_REVIEW_ATTEMPTS) lateReportsDue.push(String(row._id));
+        } else {
+          lateReportsOld.push(String(row._id));
+        }
         continue;
       }
     }
@@ -232,5 +274,24 @@ export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
   result.staleReferences = await apply(stale, "resolved", "The referenced record was merged into another incident or removed.");
   result.exhausted = await apply(exhausted, "dismissed", "Retry budget exhausted without usable source evidence.");
   result.permanentRejections = await apply(permanent, "dismissed", "The source cannot supply the missing fact, so retrying it cannot change the outcome.");
+  result.lateReportsDismissed = await apply(
+    lateReportsOld,
+    "dismissed",
+    `The reported event predates the widest window the scan collects (${WIDEST_SCAN_WINDOW_HOURS} hours), so no scheduled scan can carry it. Belongs to historical backfill, not the daily queue.`,
+  );
+
+  // Make the recent ones due now so the next scan retries them through the same
+  // evidence and duplicate gates with the fourteen-day window.
+  if (lateReportsDue.length) {
+    if (dryRun) {
+      result.lateReportsRequeued = lateReportsDue.length;
+    } else {
+      const outcome = await IncidentReview.updateMany(
+        { _id: { $in: lateReportsDue }, status: "pending", retryable: { $ne: true } },
+        { $set: { retryable: true, nextRetryAt: now, updatedAt: now } },
+      );
+      result.lateReportsRequeued = outcome.modifiedCount;
+    }
+  }
   return result;
 }

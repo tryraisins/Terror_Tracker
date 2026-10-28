@@ -51,6 +51,8 @@ npx tsx scripts/promote-review-lead.ts --review <rowId> --apply
 
 Duplicate rows get a second, separate pass. `adjudicate-duplicate-reviews` runs after a clean scan and may only resolve or dismiss `kind: "duplicate"` rows, only after re-verifying the identity fields itself and only when the model returns a decidable classification. It never touches `extraction`, `fetch` or `late_report` rows, so no evidence-grounding failure is closed by it. A row it leaves pending is a row that needs a person.
 
+Late reports have a deterministic policy instead of a queue. A `late_report` row is an event the collector saw but would not ingest because it fell outside the scan window. If the event is inside `WIDEST_SCAN_WINDOW_HOURS` (336, the Sunday catch-up window), the sweep marks it retryable and due now so the next scan retries it through the same evidence and duplicate gates. If it is older, it is dismissed with a note saying it predates the widest window and belongs to historical backfill. A row with no parsed candidate has no event date and stays pending. Do not reintroduce manual handling for a late report: nothing about them needs judgement, only a window comparison.
+
 If you dismiss a duplicate row, the disposition note must say which case it is: same event already recorded, distinct events, or promoted. Do not dismiss a row whose candidate looks like an unrecorded event. Extra absorption is not evidence: a source URL appearing on one record does not prove every event in that article was captured.
 
 ## Changing ingestion
