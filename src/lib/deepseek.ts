@@ -15,6 +15,7 @@ import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
 import type { LocationPrecision } from "./incident-uncertainty";
 import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkage";
+import { findTollSentence } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -524,24 +525,38 @@ export async function cleanAndConfirmIncident(
     }
 
     const countFields = ["killed", "injured", "kidnapped", "displaced"] as const;
+    const droppedCounts: string[] = [];
     const counts: Record<string, number | null> = {};
     const casualtyMeta: Record<string, { precision: "exact" | "range"; min: number | null; max: number | null; estimate: number | null; sourceText?: string }> = {};
     for (const field of countFields) {
       const value = toCount(event[field]);
-      const quote = evidence(`${field}Evidence`);
-      if (value != null && (!quote || !normalizedArticle.includes(quote))) {
-        return { confirmed: false, reviewRequired: true, reason: `The ${field} figure lacks supporting article text` };
+      let quote = evidence(`${field}Evidence`);
+      const quoteSupported = Boolean(quote) && normalizedArticle.includes(quote as string);
+      // A figure the model quoted loosely is usually still in the article, attached
+      // to a different sentence. Look for it before giving up on the number.
+      if (value != null && !quoteSupported) {
+        const rescued = findTollSentence(articleText, value, field === "kidnapped" ? "abducted" : field);
+        if (rescued) quote = rescued;
+      }
+      const supported = Boolean(quote) && (quoteSupported || normalizedArticle.includes(quote as string));
+      if (value != null && !supported) {
+        // Unsupported: record the incident without the figure rather than withholding
+        // the incident. A record with the right date and place and an unknown toll is
+        // more useful than no record, and the gap is visible as "not reported".
+        counts[field] = null;
+        droppedCounts.push(field);
+        continue;
       }
       counts[field] = value;
       if (value != null) {
-        const isMinimum = /\b(?:more than|over|at least|no fewer than)\b/i.test(quote);
-        const minimum = isMinimum ? value + (/\b(?:more than|over)\b/i.test(quote) ? 1 : 0) : value;
+        const isMinimum = /\b(?:more than|over|at least|no fewer than)\b/i.test(quote as string);
+        const minimum = isMinimum ? value + (/\b(?:more than|over)\b/i.test(quote as string) ? 1 : 0) : value;
         casualtyMeta[field] = {
           precision: isMinimum ? "range" : "exact",
           min: minimum,
           max: isMinimum ? null : value,
           estimate: minimum,
-          sourceText: typeof event[`${field}Evidence`] === "string" ? (event[`${field}Evidence`] as string).slice(0, 300) : undefined,
+          sourceText: typeof quote === "string" ? quote.slice(0, 300) : undefined,
         };
         if (isMinimum) counts[field] = minimum;
       }

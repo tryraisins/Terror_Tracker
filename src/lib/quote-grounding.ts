@@ -76,6 +76,32 @@ export function anchorCandidates(recordEvidenceText: string, exclude: string[]):
   return words;
 }
 
+/**
+ * Find a sentence that states a toll next to a victim noun.
+ *
+ * Used to rescue a figure whose model-supplied quote was paraphrased: the number
+ * is usually still in the article, attached to a different sentence than the model
+ * reproduced. Returns the sentence when found, so it can serve as sourceText.
+ */
+export function findTollSentence(articleText: string, value: number, victims: "killed" | "abducted" | "injured" | "displaced"): string | null {
+  const nouns = TOLL_NOUNS[victims];
+  const sentences = articleText.split(/(?<=[.!?])\s+|\n+/);
+  for (const sentence of sentences) {
+    if (!numbersIn(sentence).has(value)) continue;
+    const words = normalizeForQuote(sentence).split(" ");
+    if (!words.some((word) => nouns.has(word))) continue;
+    return sentence.trim().slice(0, 300);
+  }
+  return null;
+}
+
+export const TOLL_NOUNS: Record<"killed" | "abducted" | "injured" | "displaced", Set<string>> = {
+  killed: new Set(["killed", "dead", "died", "death", "deaths", "bodies", "body", "corpses", "corpse", "casualties"]),
+  abducted: new Set(["abducted", "kidnapped", "kidnap", "missing", "hostages"]),
+  injured: new Set(["injured", "wounded", "hospital", "hospitalised", "hospitalized"]),
+  displaced: new Set(["displaced", "shelter", "camp", "fled"]),
+};
+
 export interface GroundingInput {
   quote: string;
   articleText: string;
