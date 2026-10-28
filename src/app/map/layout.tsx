@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-    title: "Incident Map — NATracker",
+    title: "Incident Map",
     description: "Geographic distribution of recorded incidents by Nigerian state. It does not predict safety or future events.",
 };
 
