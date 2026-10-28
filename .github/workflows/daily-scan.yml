@@ -1,14 +1,10 @@
 name: Daily Nigeria incident scan
 
 on:
-  schedule:
-    # Each slot scans new reports. Concurrency serializes runs; ingestion deduplicates events.
-    - cron: "30 6 * * *"
-    - cron: "30 9 * * *"
-    - cron: "30 12 * * *"
-    - cron: "30 15 * * *"
-    # Weekly catch-up covers late reporting over fourteen days.
-    - cron: "30 19 * * 0"
+  # The schedule moved to the production host (systemd timers on the Contabo box,
+  # see deploy/). Two schedulers would mean two scans per slot: the dedup gate
+  # absorbs the duplicates, but it doubles search spend. This workflow is now a
+  # manual escape hatch only.
   workflow_dispatch:
     inputs:
       lookback_hours:
@@ -45,9 +41,9 @@ jobs:
       DEEPSEEK_DUPLICATE_MAX_PAIRS: "30"
       DEEPSEEK_MODEL: deepseek-chat
       NEWS_DISCOVERY_ENABLE_BING: "false"
-      INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || (github.event.schedule == '30 19 * * 0' && '336') || '168' }}
-      SEARCH_PUBLICATION_MAX_AGE_HOURS: ${{ (github.event.inputs.lookback_hours == '336' || github.event.schedule == '30 19 * * 0') && '336' || '168' }}
-      SEARCH_FRESHNESS: ${{ (github.event.inputs.lookback_hours == '336' || github.event.schedule == '30 19 * * 0') && 'month' || 'week' }}
+      INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '168' }}
+      SEARCH_PUBLICATION_MAX_AGE_HOURS: ${{ github.event.inputs.lookback_hours == '336' && '336' || '168' }}
+      SEARCH_FRESHNESS: ${{ github.event.inputs.lookback_hours == '336' && 'month' || 'week' }}
       SCAN_SOURCE: ${{ github.event_name }}
       INCIDENT_REVIEW_RETRY_LIMIT: "20"
       INCIDENT_REVIEW_MAX_ATTEMPTS: "3"
