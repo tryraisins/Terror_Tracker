@@ -251,7 +251,7 @@ const VALID_STATUSES = new Set(["confirmed", "unconfirmed", "developing"]);
  * each of which a person can check against the article. An overstated claim set
  * would weaken the linkage test, so anything uncertain is left out.
  */
-export async function extractArticleClaims(articleText: string): Promise<ArticleClaims> {
+export async function extractArticleClaims(articleText: string, scope = ""): Promise<ArticleClaims> {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!isDeepSeekDuplicateCheckEnabled() || !apiKey) return { ...EMPTY_CLAIMS };
 
@@ -268,7 +268,7 @@ export async function extractArticleClaims(articleText: string): Promise<Article
           },
           {
             role: "user",
-            content: `Extract only what this article states. Do not infer, complete or normalise.\n\n- "people": named individuals, WITHOUT titles such as Mallam, Alhaji, Mr, Chief, Pastor, Imam. Only people the article names.\n- "sites": specific places within the settlement, e.g. "Bassa market", "Barka Ladi motor park", "the palace of the district head". Not the town, LGA or state on their own.\n- "times": time-of-day or day phrases, e.g. "early hours of Friday", "around 8pm", "Sunday afternoon".\n- "tolls": each casualty figure with the victim type and who is credited for it, e.g. {"value":12,"victims":"killed","attribution":"police"}.\n- "distinctive": up to five short phrases (under 12 words) that would identify this specific episode, copied from the text.\n\nReturn an empty array when the article does not state something. Return JSON: {"people":[],"sites":[],"times":[],"tolls":[],"distinctive":[]}\n\n<article>\n${articleText.slice(0, 8000)}\n</article>`,
+            content: `Extract only what this article states about ONE incident${scope ? `: the attack at ${scope}` : ""}. Do not infer, complete or normalise. If the article covers several incidents, extract only the claims belonging to that one; return empty arrays if it does not cover it.\n\n- "people": named victims, survivors, eyewitnesses or suspects, WITHOUT titles such as Mallam, Alhaji, Mr, Chief, Pastor, Imam. Do NOT include officials, police spokespeople, commissioners, governors or anyone quoted only to give a statement.\n- "sites": specific places within the settlement, e.g. "Bassa market", "Barka Ladi motor park", "the palace of the district head". Not the town, LGA or state on their own.\n- "times": time-of-day or day phrases, e.g. "early hours of Friday", "around 8pm", "Sunday afternoon".\n- "tolls": each casualty figure with the victim type and who is credited for it, e.g. {"value":12,"victims":"killed","attribution":"police"}.\n- "distinctive": up to five short phrases (under 12 words) that would identify this specific episode, copied from the text.\n\nReturn an empty array when the article does not state something. Return JSON: {"people":[],"sites":[],"times":[],"tolls":[],"distinctive":[]}\n\n<article>\n${articleText.slice(0, 8000)}\n</article>`,
           },
         ],
         temperature: 0,

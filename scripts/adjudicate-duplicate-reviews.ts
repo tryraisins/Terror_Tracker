@@ -30,7 +30,7 @@ import mongoose from "mongoose";
 import fs from "node:fs/promises";
 import path from "node:path";
 import Attack from "../src/lib/models/Attack";
-import IncidentReview from "../src/lib/models/IncidentReview";
+import IncidentReview, { normalizeIncidentReviewSourceUrl } from "../src/lib/models/IncidentReview";
 import { assessTollConflict, extractArticleClaims, type DuplicateCheckIncident } from "../src/lib/deepseek";
 import { fetchArticleText, mergeSourceMetadata } from "../src/lib/search-led-discovery";
 import { groundingCheck } from "../src/lib/quote-grounding";
@@ -241,13 +241,13 @@ async function main() {
         state: normalizeStateName(existing.location?.state || "") === normalizeStateName(candidate.location?.state || ""),
         place: placesEquivalent(existing.location?.town, candidate.location?.town),
         lga: sameLga(existing.location?.lga, candidate.location?.lga),
-        // The row exists because the ingest hash matched on the stored date anchor,
-        // so an equal anchor is the same identity the queue was built from. Broad
-        // precision is acceptable here because the claim comparison below is the
-        // real guard; an unparseable date is not.
+        // An equal anchor is the identity the queue was built from, but broad
+        // precision proves only the same interval, not the same day, so automation
+        // stays on exact days. An unparseable date never matches.
+        exactDay: (existing.datePrecision || "exact_day") === "exact_day" && (candidate.datePrecision || "exact_day") === "exact_day",
         date: storedDateKey !== "unknown" && storedDateKey === candidateDateKey,
       };
-      if (!identity.state || !identity.place || !identity.lga || !identity.date) {
+      if (!identity.state || !identity.place || !identity.lga || !identity.exactDay || !identity.date) {
         summary.held += 1;
         await note({
           reviewId: String(row._id),
@@ -286,16 +286,17 @@ async function main() {
       // Claim-level linkage. The candidate came from the held article, so anything
       // quoted from it is nearly guaranteed. The other half of the comparison is the
       // stored record's own reporting, which has to be read too.
-      const candidateClaims = await extractArticleClaims(candidateArticleText);
+      const scope = [existing.location?.town, existing.location?.lga, existing.location?.state].filter(Boolean).join(", ");
+      const candidateClaims = await extractArticleClaims(candidateArticleText, scope);
       const recordUrls = [...new Set((existing.sources || []).map((source) => String(source.url || "")))]
-        .filter((url) => /^https?:\/\//i.test(url) && url !== row.sourceUrl)
+        .filter((url) => /^https?:\/\//i.test(url) && normalizeIncidentReviewSourceUrl(url) !== normalizeIncidentReviewSourceUrl(row.sourceUrl))
         .slice(0, 3);
       const recordClaims: ArticleClaims = { people: [], sites: [], times: [], tolls: [], distinctive: [] };
       const recordArticlesRead: string[] = [];
       for (const url of recordUrls) {
         const text = await fetchArticleText(url);
         if (!text) continue;
-        const claims = await extractArticleClaims(text.text);
+        const claims = await extractArticleClaims(text.text, scope);
         recordClaims.people.push(...claims.people);
         recordClaims.sites.push(...claims.sites);
         recordClaims.times.push(...claims.times);

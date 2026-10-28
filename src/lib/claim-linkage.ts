@@ -1,15 +1,16 @@
 /**
  * Claim-level linkage between a held article and a stored incident record.
  *
- * Identity fields (title, date, LGA, town) only say two reports are about the
- * same neighbourhood on the same day. This module answers the harder question:
- * do the two sets of source articles describe the same episode? It compares
- * claims extracted from the articles on each side, so the answer rests on what
- * the reporting actually says rather than on the fields used to find the pair.
+ * Identity fields (title, date, LGA, town) only say two reports are about the same
+ * neighbourhood on the same day. This module answers the harder question: do the
+ * two sets of source articles describe the same episode? It compares claims
+ * extracted from the articles on each side, so the answer rests on what the
+ * reporting says rather than on the fields used to find the pair.
  *
- * The comparison is deliberately deterministic and conservative. The model only
- * extracts claims; it never decides linkage. That keeps the decision auditable:
- * every link names the shared person, site or combination that produced it.
+ * Matching is deliberately narrow, because a false link is the failure that
+ * matters: it would attach an article to the wrong attack. A shared facility word
+ * ("market"), a weekday, a common given name or a small round toll must not link
+ * anything on their own.
  */
 
 export interface TollClaim {
@@ -20,11 +21,11 @@ export interface TollClaim {
 }
 
 export interface ArticleClaims {
-  /** Named individuals, without titles. */
+  /** Victims, survivors, eyewitnesses and suspects named in the report. */
   people: string[];
   /** Specific places, e.g. "Bassa market", "Barka Ladi motor park". */
   sites: string[];
-  /** Time-of-day or day phrases, e.g. "early hours of Friday", "around 8pm". */
+  /** Clock times only, e.g. "8pm", "21:30". */
   times: string[];
   tolls: TollClaim[];
   /** Short distinctive phrases that identify the episode in the reporting. */
@@ -34,32 +35,51 @@ export interface ArticleClaims {
 export const EMPTY_CLAIMS: ArticleClaims = { people: [], sites: [], times: [], tolls: [], distinctive: [] };
 
 const TITLES = new Set([
-  "mallam", "alhaji", "alhaja", "mr", "mrs", "miss", "chief", "pastor", "reverend", "imam", "doctor",
-  "dr", "prof", "professor", "senator", "governor", "general", "captain", "inspector", "sp", "dsp",
+  "mallam", "alhaji", "alhaja", "mr", "mrs", "miss", "chief", "pastor", "reverend", "rev", "imam",
+  "doctor", "dr", "prof", "professor", "senator", "governor", "general", "captain", "inspector", "sp",
+  "dsp", "commissioner", "deputy", "comrade", "hon", "sheikh", "sergeant", "superintendent", "major",
+  "colonel", "bishop", "engr", "barrister", "emir", "chairman", "spokesperson", "spokesman", "police",
 ]);
 
+/** Facility words. A site has to be more specific than "the market" to count. */
+const GENERIC_SITES = new Set([
+  "market", "church", "mosque", "school", "road", "farm", "village", "community", "palace", "camp",
+  "hospital", "clinic", "station", "park", "motor", "park", "bridge", "square", "field", "compound",
+  "residence", "house", "home", "street", "area", "ward", "district", "local", "government", "town",
+  "settlement", "neighbourhood", "neighborhood", "centre", "center", "hall", "stadium", "garage",
+]);
+
+/** Given names common enough that a single shared one proves nothing. */
+const COMMON_NAMES = new Set([
+  "musa", "ibrahim", "yusuf", "abdullahi", "abubakar", "mohammed", "muhammad", "ahmed", "ali", "umar",
+  "john", "peter", "paul", "james", "daniel", "samuel", "david", "joseph", "grace", "mary", "esther",
+  "blessing", "comfort", "sunday", "monday", "friday", "sani", "garba", "bala", "sule", "adamu",
+  "hassan", "hussein", "isa", "yakubu", "danjuma", "solomon", "emeka", "chinedu", "obinna", "tunde",
+  "segun", "ade", "bode", "kola", "nnamdi", "ifeanyi", "olumide", "babatunde",
+]);
 
 export const normalizeClaim = (value: string) =>
   value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
 
-/** Surname-style tokens: the part that identifies a person across two write-ups. */
+/** Name tokens that could identify a person across two write-ups. */
 export function personTokens(name: string): string[] {
   return normalizeClaim(name)
     .split(" ")
-    .filter((word) => word.length >= 4 && !TITLES.has(word) && !/^\d+$/.test(word));
+    .filter((word) => word.length >= 4 && !TITLES.has(word) && !COMMON_NAMES.has(word) && !/^\d+$/.test(word));
 }
 
+/** Specific site tokens only; generic facility words are dropped. */
 export function siteTokens(site: string, excluded: string[]): string[] {
   const blocked = new Set(excluded.flatMap((value) => normalizeClaim(value).split(" ")).filter(Boolean));
   return normalizeClaim(site)
     .split(" ")
-    .filter((word) => word.length >= 4 && !blocked.has(word) && !/^\d+$/.test(word));
+    .filter((word) => word.length >= 4 && !blocked.has(word) && !GENERIC_SITES.has(word) && !/^\d+$/.test(word));
 }
 
+/** Clock times only. A shared weekday or "morning" adds nothing when the date is equal. */
 export function timeTokens(time: string): string[] {
-  return normalizeClaim(time)
-    .split(" ")
-    .filter((word) => word.length >= 4 && !/^\d+$/.test(word));
+  const normalized = normalizeClaim(time);
+  return (normalized.match(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\b\d{1,2}:\d{2}\b/g) || []).map((value) => value.replace(/\s+/g, ""));
 }
 
 export interface LinkageInput {
@@ -67,7 +87,7 @@ export interface LinkageInput {
   record: ArticleClaims;
   /** Settlement, LGA and state, which the pair already shares. */
   sharedPlaceNames: string[];
-  /** Toll figures either side reports, used to recognise a matching count. */
+  /** Toll figures either side reports. */
   tollFigures: number[];
 }
 
@@ -78,11 +98,12 @@ export interface LinkageResult {
   why?: string;
 }
 
+const TOLL_SIGNAL_FLOOR = 5;
+
 /**
- * Linked when the two sides name the same person, or when they share a specific
- * site and at least one more independent detail (a time or matching toll). A
- * shared toll alone is not enough: casualty counts are copied between outlets all
- * the time, and a shared site alone is the neighbourhood they already share.
+ * Linked only when the two sides name the same person, or share a specific site
+ * and a matching toll of at least five victims. Site plus clock time is not enough:
+ * time phrases in these reports are almost always "morning" or a weekday.
  */
 export function claimsLink({ candidate, record, sharedPlaceNames, tollFigures }: LinkageInput): LinkageResult {
   const candidatePeople = new Set(candidate.people.flatMap(personTokens));
@@ -92,25 +113,26 @@ export function claimsLink({ candidate, record, sharedPlaceNames, tollFigures }:
   const sharedSites = [...new Set(candidate.sites.flatMap((site) => siteTokens(site, sharedPlaceNames)))]
     .filter((token) => recordSites.has(token));
 
-  const recordTimes = new Set(record.times.flatMap(timeTokens));
-  const sharedTimes = [...new Set(candidate.times.flatMap(timeTokens))].filter((token) => recordTimes.has(token));
-
-  const figures = new Set(tollFigures.filter((value) => Number.isFinite(value) && value > 0));
+  const figures = new Set(tollFigures.filter((value) => Number.isFinite(value) && value >= TOLL_SIGNAL_FLOOR));
   const sharedTolls = candidate.tolls
+    .filter((claim) => claim.value >= TOLL_SIGNAL_FLOOR)
     .filter((claim) => record.tolls.some((other) => other.victims === claim.victims && other.value === claim.value))
     .filter((claim) => figures.has(claim.value));
 
   if (sharedPeople.length) {
     return { linked: true, evidence: [`person:${sharedPeople[0]}`] };
   }
-  if (sharedSites.length && (sharedTimes.length || sharedTolls.length)) {
-    const evidence = [`site:${sharedSites[0]}`];
-    if (sharedTimes.length) evidence.push(`time:${sharedTimes[0]}`);
-    if (sharedTolls.length) evidence.push(`toll:${sharedTolls[0].victims}:${sharedTolls[0].value}`);
-    return { linked: true, evidence };
+  if (sharedSites.length && sharedTolls.length) {
+    return {
+      linked: true,
+      evidence: [`site:${sharedSites[0]}`, `toll:${sharedTolls[0].victims}:${sharedTolls[0].value}`],
+    };
   }
   if (sharedSites.length) {
-    return { linked: false, evidence: [], why: "shares a site but no time or toll, which is the neighbourhood they already share" };
+    return { linked: false, evidence: [], why: "shares a specific site but no matching toll, which these reports rarely state consistently" };
   }
-  return { linked: false, evidence: [], why: "no shared person, site, time or toll between the two sets of articles" };
+  if (sharedTolls.length) {
+    return { linked: false, evidence: [], why: "shares a toll but no specific site; counts are copied between outlets" };
+  }
+  return { linked: false, evidence: [], why: "no shared named person, specific site or matching toll between the two sets of articles" };
 }
