@@ -31,9 +31,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import Attack from "../src/lib/models/Attack";
 import IncidentReview from "../src/lib/models/IncidentReview";
-import { assessTollConflict, type DuplicateCheckIncident } from "../src/lib/deepseek";
+import { assessTollConflict, extractArticleClaims, type DuplicateCheckIncident } from "../src/lib/deepseek";
 import { fetchArticleText, mergeSourceMetadata } from "../src/lib/search-led-discovery";
 import { groundingCheck } from "../src/lib/quote-grounding";
+import { claimsLink, type ArticleClaims } from "../src/lib/claim-linkage";
 import { normalizeStateName } from "../src/lib/normalize-state";
 import { placesEquivalent, sameLga } from "../src/lib/location-identity";
 import { incidentDateKey } from "../src/lib/incident-date";
@@ -240,10 +241,13 @@ async function main() {
         state: normalizeStateName(existing.location?.state || "") === normalizeStateName(candidate.location?.state || ""),
         place: placesEquivalent(existing.location?.town, candidate.location?.town),
         lga: sameLga(existing.location?.lga, candidate.location?.lga),
-        exactDay: (existing.datePrecision || "exact_day") === "exact_day" && (candidate.datePrecision || "exact_day") === "exact_day",
+        // The row exists because the ingest hash matched on the stored date anchor,
+        // so an equal anchor is the same identity the queue was built from. Broad
+        // precision is acceptable here because the claim comparison below is the
+        // real guard; an unparseable date is not.
         date: storedDateKey !== "unknown" && storedDateKey === candidateDateKey,
       };
-      if (!identity.state || !identity.place || !identity.lga || !identity.exactDay || !identity.date) {
+      if (!identity.state || !identity.place || !identity.lga || !identity.date) {
         summary.held += 1;
         await note({
           reviewId: String(row._id),
@@ -279,6 +283,62 @@ async function main() {
         (existing.sources || []).map((source) => `${source.title || ""} (${source.publisher || ""})`).join("; "),
       ].filter(Boolean).join("\n");
 
+      // Claim-level linkage. The candidate came from the held article, so anything
+      // quoted from it is nearly guaranteed. The other half of the comparison is the
+      // stored record's own reporting, which has to be read too.
+      const candidateClaims = await extractArticleClaims(candidateArticleText);
+      const recordUrls = [...new Set((existing.sources || []).map((source) => String(source.url || "")))]
+        .filter((url) => /^https?:\/\//i.test(url) && url !== row.sourceUrl)
+        .slice(0, 3);
+      const recordClaims: ArticleClaims = { people: [], sites: [], times: [], tolls: [], distinctive: [] };
+      const recordArticlesRead: string[] = [];
+      for (const url of recordUrls) {
+        const text = await fetchArticleText(url);
+        if (!text) continue;
+        const claims = await extractArticleClaims(text.text);
+        recordClaims.people.push(...claims.people);
+        recordClaims.sites.push(...claims.sites);
+        recordClaims.times.push(...claims.times);
+        recordClaims.tolls.push(...claims.tolls);
+        recordClaims.distinctive.push(...claims.distinctive);
+        recordArticlesRead.push(url);
+      }
+
+      if (!recordArticlesRead.length) {
+        summary.held += 1;
+        await note({
+          reviewId: String(row._id),
+          eventId: String(existing._id),
+          action: "held-no-record-article",
+          why: "none of the stored record's source articles could be fetched, so there is nothing to compare the held article against",
+          tried: recordUrls,
+        });
+        continue;
+      }
+
+      const linkage = claimsLink({
+        candidate: candidateClaims,
+        record: recordClaims,
+        sharedPlaceNames: [existing.location?.state || "", existing.location?.lga || "", existing.location?.town || ""],
+        tollFigures: [
+          existing.casualties?.killed, existing.casualties?.kidnapped, existing.casualties?.injured, existing.casualties?.displaced,
+          candidate.casualties?.killed, candidate.casualties?.kidnapped, candidate.casualties?.injured, candidate.casualties?.displaced,
+        ].filter((value): value is number => typeof value === "number"),
+      });
+      if (!linkage.linked) {
+        summary.held += 1;
+        await note({
+          reviewId: String(row._id),
+          eventId: String(existing._id),
+          action: "held-no-linkage",
+          why: linkage.why,
+          recordArticles: recordArticlesRead,
+          candidateClaims,
+          recordClaims,
+        });
+        continue;
+      }
+
       const assessment = await assessTollConflict(toIncident(existing), toIncident(candidate), {
         candidateArticleText,
         recordEvidenceText,
@@ -295,6 +355,7 @@ async function main() {
         classification: assessment.classification,
         modelReason: assessment.reason,
         linkageQuote: assessment.linkageQuote,
+        linkage: linkage.evidence,
       };
 
       // A generic rationale is not evidence. Treat it like a refusal.
@@ -391,7 +452,7 @@ async function main() {
               dispositionNote:
                 `Same event, counted differently: ${additions.length} source(s) attached to the existing record and no casualty figure changed. ` +
                 `Stored record reports ${tollText(existingToll)}, the article reports ${tollText(candidateToll)}. ` +
-                `Linked by: "${assessment.linkageQuote.slice(0, 300)}". Model: ${assessment.reason}`.slice(0, 2000),
+                `Linked by ${linkage.evidence.join(", ")} and the quote "${assessment.linkageQuote.slice(0, 240)}". Model: ${assessment.reason}`.slice(0, 2000),
             },
           },
         );
