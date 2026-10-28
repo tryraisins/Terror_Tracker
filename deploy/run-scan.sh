@@ -9,6 +9,7 @@ set -uo pipefail
 BASE=/srv/terror-tracker
 REPORTS=/var/log/terror-tracker/reports
 LOCK=/run/terror-scan.lock
+CONTAINER=terror-scan-slot
 
 WINDOW_ARGS=()
 if [ "${1:-}" = "--weekly" ]; then
@@ -20,20 +21,28 @@ if [ "${1:-}" = "--weekly" ]; then
 fi
 
 cd "$BASE"
-mkdir -p "$REPORTS"
 
-# Concurrency guard. Replaces the workflow's `concurrency:` group, but unlike the
-# workflow a skipped slot is logged rather than silently queued.
+# The scan container runs as uid 1000 (the image's `node` user) and writes here.
+mkdir -p "$REPORTS"
+chown 1000:1000 "$REPORTS" 2>/dev/null || true
+
+# Concurrency guard. Exits non-zero rather than silently skipping: a skipped slot
+# means the previous run is still going, which is a failure worth an alert.
 exec 9>"$LOCK"
 if ! flock -n 9; then
-  echo "another scan already holds $LOCK; skipping this slot"
-  exit 0
+  echo "another scan already holds $LOCK; this slot is being skipped" >&2
+  exit 75
 fi
+
+# systemd's TimeoutStartSec kills this script and releases the lock, but the
+# container belongs to dockerd and keeps running. A named container plus this
+# removal means the next slot can never run alongside a wedged one.
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
-  "${WINDOW_ARGS[@]}" scan
+  --name "$CONTAINER" "${WINDOW_ARGS[@]}" scan
 STATUS=$?
 
 # Keep a per-run copy: scan_runs stores counts but not the per-URL failure list,

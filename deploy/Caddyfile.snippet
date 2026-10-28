@@ -1,50 +1,63 @@
 # Caddy on the host, serving Cloudflare-proxied hostnames.
 #
 # This box runs Caddy 2.6.2. The `trusted_proxies` global option needs Caddy 2.7+,
-# so it is deliberately absent: on 2.6 X-Forwarded-For keeps whatever the last
-# hop sent. That is acceptable here because the app reads `cf-connecting-ip`
-# directly (see getClientIP in src/lib/security.ts). If Caddy is upgraded to 2.7+,
-# add the Cloudflare ranges from https://www.cloudflare.com/ips/ at the top:
+# so it is deliberately absent. That is fine because the origin is restricted to
+# Cloudflare's ranges instead, which is what makes cf-connecting-ip trustworthy:
 #
-#   {
-#       trusted_proxies static 173.245.48.0/20 103.21.244.0/22 ...
-#   }
+#   @notcloudflare not remote_ip <the ranges below>
+#   respond @notcloudflare 403
+#
+# Without that guard, anyone who reaches 185.216.203.128 directly can send their
+# own cf-connecting-ip and rotate the rate-limit key on every request, which
+# would defeat login throttling. Keep the list in step with
+# https://www.cloudflare.com/ips/ : a stale list means real visitors get a 403.
+#
+# The `header_up -X-...` lines drop caller-supplied copies of headers the app
+# falls back to, so a direct request cannot smuggle one past the guard either.
 #
 # TLS: Cloudflare terminates the public certificate and connects to this origin
 # with SSL mode Full (strict). TLS-ALPN-01 cannot validate through a proxy, so it
 # is disabled and Caddy issues through HTTP-01, which Cloudflare forwards to :80.
-# The domain must already resolve to this box before a block is added, otherwise
-# every validation attempt fails and Let's Encrypt locks the hostname for an hour
-# after five failures. Add one block per hostname, in this order:
-#   1. new.tryraisins.dev        (rehearsal, while terrortracker is still on Netlify)
-#   2. terrortracker.tryraisins.dev (only once its DNS points here)
+# The hostname must already resolve to this box before its block is added,
+# otherwise every validation attempt fails and Let's Encrypt locks it for an hour
+# after five failures.
 #
-# Merge into /etc/caddy/Caddyfile, keep the existing sloplens-api block, then:
+# Merge into /etc/caddy/Caddyfile, keep the existing sloplens-api block (that
+# hostname is DNS-only, NOT proxied, so it must not get the Cloudflare guard):
 #   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 #   systemctl reload caddy
 
-sloplens-api.tryraisins.dev {
-	reverse_proxy 127.0.0.1:4310
+(new_terror_tracker_site) {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	encode zstd gzip
+
+	@notcloudflare {
+		not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 \
+			141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 \
+			197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 \
+			104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 \
+			2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 \
+			2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		not path /.well-known/acme-challenge/*
+	}
+	respond @notcloudflare "This origin only accepts traffic from Cloudflare." 403
+
+	reverse_proxy 127.0.0.1:3001 {
+		header_up -X-Nf-Client-Connection-Ip
+		header_up -X-Real-Ip
+	}
+}
+
+terrortracker.tryraisins.dev {
+	import new_terror_tracker_site
 }
 
 # Rehearsal hostname. Delete this block and its DNS record once
 # terrortracker.tryraisins.dev has been live on this box for a week.
 new.tryraisins.dev {
-	tls {
-		issuer acme {
-			disable_tlsalpn_challenge
-		}
-	}
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3001
-}
-
-terrortracker.tryraisins.dev {
-	tls {
-		issuer acme {
-			disable_tlsalpn_challenge
-		}
-	}
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:3001
+	import new_terror_tracker_site
 }

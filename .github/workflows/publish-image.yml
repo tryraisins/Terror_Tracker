@@ -27,6 +27,9 @@ env:
 
 jobs:
   build:
+    # workflow_dispatch can be run from any branch; without this guard a branch
+    # would publish :latest and, when DEPLOY_ENABLED is set, deploy that sha.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -80,7 +83,7 @@ jobs:
 
   deploy:
     needs: build
-    if: vars.DEPLOY_ENABLED == 'true'
+    if: vars.DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

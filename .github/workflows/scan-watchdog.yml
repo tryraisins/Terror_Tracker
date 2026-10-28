@@ -1,0 +1,45 @@
+name: Scan watchdog
+
+# Off-box freshness check. Every other alert in this repo runs on the host being
+# monitored, so a dead host, a wedged systemd or a failed reboot emails nobody.
+# This one runs on GitHub, reads the public endpoint and fails loudly, which makes
+# GitHub notify the repository owner.
+#
+# It deliberately checks the same value the app's own stale banner uses (the last
+# completed ScanRun), not the report file mtime the on-box dead-man reads.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scan-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert a completed scan within the stale window
+        env:
+          SITE: https://terrortracker.tryraisins.dev
+          STALE_HOURS: "18"
+        run: |
+          set -euo pipefail
+          body=$(curl -sS --max-time 20 --retry 3 --retry-delay 5 "$SITE/api/scan-health")
+          echo "payload: $body"
+          last=$(printf '%s' "$body" | jq -r '.lastCompletedAt // empty')
+          if [ -z "$last" ]; then
+            echo "::error::No completed scan is recorded at $SITE"
+            exit 1
+          fi
+          age=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 3600 ))
+          echo "last completed scan: $last (${age}h ago)"
+          if [ "$age" -ge "$STALE_HOURS" ]; then
+            echo "::error::No completed scan for ${age}h, threshold is ${STALE_HOURS}h"
+            exit 1
+          fi

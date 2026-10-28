@@ -113,7 +113,8 @@ function serializeScanRun(run: ScanRunRecord | null): PublicScanRun | null {
   };
 }
 
-export async function getScanHealth(now = new Date()): Promise<ScanHealthData> {  await dbConnect();
+export async function getScanHealth(now = new Date()): Promise<ScanHealthData> {
+  await dbConnect();
 
   const [latestAttemptRecord, lastCompletedRecord, pendingReviews] = await Promise.all([
     ScanRun.findOne({}).sort({ startedAt: -1 }).lean<ScanRunRecord>(),

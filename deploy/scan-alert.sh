@@ -9,6 +9,17 @@ if [ "${1:-}" = "--no-retry" ]; then
   ARM_RETRY=0
 fi
 
+# Arm the retry before anything that can fail. A missing API key, an unverified
+# sender domain or a Resend outage must not also cost the rescan; the mail is the
+# notification, the retry is the recovery.
+if [ "$ARM_RETRY" = "1" ]; then
+  if systemctl start terror-scan-retry.timer 2>/dev/null; then
+    echo "retry timer armed for 20 minutes"
+  else
+    echo "WARNING: could not arm the retry timer" >&2
+  fi
+fi
+
 ENV_FILE=/etc/terror-tracker/scan.env
 REPORTS=/var/log/terror-tracker/reports
 LATEST="$REPORTS/latest.json"
@@ -97,14 +108,9 @@ RESPONSE=$(curl -sS --max-time 20 -w '\n%{http_code}' \
 
 CODE=$(printf '%s' "$RESPONSE" | tail -n1)
 if [ "$CODE" != "200" ]; then
-  echo "resend rejected the message: HTTP $CODE" >&2
+  echo "ALERT DELIVERY FAILED: resend rejected the message with HTTP $CODE" >&2
   printf '%s\n' "$RESPONSE" >&2
   exit 1
 fi
 
 echo "alert emailed: $SUMMARY"
-
-if [ "$ARM_RETRY" = "1" ]; then
-  systemctl start terror-scan-retry.timer
-  echo "retry timer armed"
-fi
