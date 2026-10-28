@@ -461,11 +461,13 @@ async function fetchWithRetry(url: string, timeoutMs: number): Promise<{ respons
 }
 
 /**
- * Fetch one article and return its readable text.
+ * Fetch one article and return its readable BODY text.
  *
- * Exported for tools that need the source evidence rather than a parsed record.
- * It reuses the same fetch path as the collector, including the Jina reader
- * fallback, so a page that the collector could read is readable here too.
+ * Exported for tools that need source evidence rather than a parsed record. It
+ * reuses the collector's fetch path, including the Jina reader fallback. The title
+ * and meta description are deliberately excluded: they are part of the identity
+ * hash, so a quote from them would only repeat the reason the pair matched.
+ * Newlines are preserved so a caller can split sentences and paragraphs.
  */
 export async function fetchArticleText(
   url: string,
@@ -473,12 +475,24 @@ export async function fetchArticleText(
 ): Promise<{ text: string; title: string; viaJina: boolean } | null> {
   const article = await fetchArticleHtml(url);
   if (!article.html) return null;
-  const parts = article.viaJina ? partsFromMarkdown(fallbackTitle, article.html) : extractArticleParts(article.html, fallbackTitle);
-  // Body only: `text` already includes the lead on the HTML path, and the title is
-  // part of the identity hash, so quoting it would be circular.
-  const text = parts.text.trim();
-  if (text.length < 200) return null;
-  return { text: text.slice(0, 20000), title: parts.title, viaJina: article.viaJina };
+
+  let body: string;
+  if (article.viaJina) {
+    // The reader prefixes metadata lines and flattens whitespace, which destroys
+    // sentence boundaries. Strip the header block and keep the line structure.
+    body = article.html
+      .split("\n")
+      .filter((line) => !/^\s*(?:Title|URL Source|Published Time|Markdown Content|Warning):/i.test(line))
+      .join("\n")
+      .replace(/^[#>*\-\s]+/gm, "")
+      .replace(/[*_`]/g, "")
+      .trim();
+  } else {
+    body = extractArticleParts(article.html, fallbackTitle).body.trim();
+  }
+
+  if (body.length < 200) return null;
+  return { text: body.slice(0, 20000), title: fallbackTitle, viaJina: article.viaJina };
 }
 
 async function fetchArticleHtml(url: string): Promise<{ html: string | null; viaJina: boolean; retries: number; error: string }> {

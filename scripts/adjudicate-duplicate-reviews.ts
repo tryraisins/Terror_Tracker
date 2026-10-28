@@ -33,6 +33,7 @@ import Attack from "../src/lib/models/Attack";
 import IncidentReview from "../src/lib/models/IncidentReview";
 import { assessTollConflict, type DuplicateCheckIncident } from "../src/lib/deepseek";
 import { fetchArticleText, mergeSourceMetadata } from "../src/lib/search-led-discovery";
+import { groundingCheck } from "../src/lib/quote-grounding";
 import { normalizeStateName } from "../src/lib/normalize-state";
 import { placesEquivalent, sameLga } from "../src/lib/location-identity";
 import { incidentDateKey } from "../src/lib/incident-date";
@@ -119,67 +120,12 @@ const tollText = (toll: Toll | undefined) => {
   return parts.length ? parts.join(", ") : "no figures";
 };
 
-const toToll = (value: StoredCandidate["casualties"] | Attack["casualties"] | undefined): Toll => ({
+const toToll = (value: Record<string, number | null | undefined> | null | undefined): Toll => ({
   killed: value?.killed ?? null,
   injured: value?.injured ?? null,
   kidnapped: value?.kidnapped ?? null,
   displaced: value?.displaced ?? null,
 });
-
-/** Case and punctuation insensitive, so a faithful quote still matches. */
-const normalizeForQuote = (value: string) =>
-  value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
-
-const NUMBER_WORDS: Record<string, number> = {
-  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
-  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
-  seventy: 70, eighty: 80, ninety: 90, hundred: 100,
-};
-
-const numbersIn = (text: string): Set<number> => {
-  const found = new Set<number>();
-  for (const token of text.toLowerCase().match(/\d+|[a-z]+/g) || []) {
-    if (/^\d+$/.test(token)) found.add(Number(token));
-    else if (NUMBER_WORDS[token] !== undefined) found.add(NUMBER_WORDS[token]);
-  }
-  return found;
-};
-
-/**
- * A quoted sentence only counts as linkage when it is one sentence from the body,
- * names the settlement, and states a toll figure that matches one of the two
- * records. Existence is not enough: a nav line or "police confirmed the attack"
- * appears on the page and links nothing.
- */
-export function linkageIsGrounded(
-  quote: string,
-  articleText: string,
-  place: string,
-  tollFigures: number[],
-): { ok: boolean; why?: string } {
-  const normalizedQuote = normalizeForQuote(quote);
-  if (normalizedQuote.length < 60) return { ok: false, why: `quote too short (${normalizedQuote.length} chars)` };
-
-  // One sentence, not a stitched span across a paragraph break.
-  const segments = articleText
-    .split(/(?<=[.!?])\s+|\n{2,}/)
-    .map(normalizeForQuote)
-    .filter((segment) => segment.length > 0);
-  const containing = segments.find((segment) => segment.includes(normalizedQuote));
-  if (!containing) return { ok: false, why: "quote is not a single sentence of the article body" };
-
-  const wanted = normalizeForQuote(place);
-  if (wanted.length < 3) return { ok: false, why: "record has no usable settlement name to anchor the quote" };
-  if (!containing.includes(wanted)) return { ok: false, why: "quote does not name the settlement" };
-
-  const figures = new Set(tollFigures.filter((value) => Number.isFinite(value) && value > 0));
-  if (!figures.size) return { ok: false, why: "neither record states a toll to anchor the quote" };
-  if (![...numbersIn(quote)].some((value) => figures.has(value))) {
-    return { ok: false, why: "quote does not state either record's toll" };
-  }
-  return { ok: true };
-}
 
 const toIncident = (value: {
   title?: string;
@@ -366,13 +312,19 @@ async function main() {
         existingToll.killed, existingToll.kidnapped, existingToll.injured, existingToll.displaced,
         candidateToll.killed, candidateToll.kidnapped, candidateToll.injured, candidateToll.displaced,
       ].filter((value): value is number => typeof value === "number");
-      const grounded = linkageIsGrounded(
-        assessment.linkageQuote,
-        candidateArticleText,
-        existing.location?.town || existing.location?.lga || "",
+        const grounded = groundingCheck({
+        quote: assessment.linkageQuote,
+        articleText: candidateArticleText,
+        place: existing.location?.town || existing.location?.lga || "",
         tollFigures,
-      );
-      if (!grounded.ok) {
+        recordEvidenceText,
+        sharedFields: [
+          existing.title || "",
+          existing.location?.state || "",
+          existing.location?.lga || "",
+          existing.location?.town || "",
+        ],
+      });if (!grounded.ok) {
         summary.held += 1;
         await note({ ...decision, action: "held-ungrounded", why: grounded.why });
         continue;
@@ -470,7 +422,7 @@ async function main() {
     `\n${summary.mode}: scanned ${summary.scanned}, resolved ${summary.resolved}, held ${summary.held}, ` +
       `held-distinct ${summary.heldDistinct}, skipped ${summary.skipped}, errors ${summary.errors}`,
   );
-  if (args.apply) {
+  if (args.apply && outDir) {
     try {
       await fs.mkdir(outDir, { recursive: true });
       await fs.writeFile(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2));
@@ -478,7 +430,7 @@ async function main() {
     } catch (error) {
       console.warn(`summary artifact was not written: ${error instanceof Error ? error.message : String(error)}`);
     }
-  } else {
+  } else if (!args.apply) {
     console.log("dry run: nothing was written. Re-run with --apply.");
   }
 

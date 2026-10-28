@@ -95,12 +95,15 @@ function meta(html: string, name: string): string {
 function articleText(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 18).join(" ").slice(0, 8000); }
 function articleLead(html: string): string { return [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(match => decodeHtml(match[1])).filter(text => text.length >= 40).slice(0, 4).join(" ").slice(0, 2800); }
 
-export function extractArticleParts(html: string, fallbackTitle: string): { title: string; description: string; lead: string; text: string } {
+export function extractArticleParts(html: string, fallbackTitle: string): { title: string; description: string; lead: string; text: string; body: string } {
   const title = meta(html, "og:title") || fallbackTitle;
   const description = meta(html, "description") || meta(html, "og:description");
   const lead = `${title}. ${description}. ${articleLead(html)}`.slice(0, 6000);
-  const text = `${lead}. ${articleText(html)}`;
-  return { title, description, lead, text };
+  // Body paragraphs only: the title and description are part of the identity hash,
+  // so anything that quotes them would be quoting the match back at itself.
+  const body = articleText(html);
+  const text = `${lead}. ${body}`;
+  return { title, description, lead, text, body };
 }
 
 /**
