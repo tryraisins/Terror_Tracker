@@ -130,21 +130,54 @@ const toToll = (value: StoredCandidate["casualties"] | Attack["casualties"] | un
 const normalizeForQuote = (value: string) =>
   value.toLowerCase().replace(/[^\p{L}\p{N} ]+/gu, " ").replace(/\s+/g, " ").trim();
 
-const NUMBER_WORDS = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/;
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+  seventy: 70, eighty: 80, ninety: 90, hundred: 100,
+};
+
+const numbersIn = (text: string): Set<number> => {
+  const found = new Set<number>();
+  for (const token of text.toLowerCase().match(/\d+|[a-z]+/g) || []) {
+    if (/^\d+$/.test(token)) found.add(Number(token));
+    else if (NUMBER_WORDS[token] !== undefined) found.add(NUMBER_WORDS[token]);
+  }
+  return found;
+};
 
 /**
- * A quoted sentence only counts as linkage if it is really in the article and
- * says something about the episode: a place name or a count. Anything else is the
- * model paraphrasing, which is what this pass exists to stop.
+ * A quoted sentence only counts as linkage when it is one sentence from the body,
+ * names the settlement, and states a toll figure that matches one of the two
+ * records. Existence is not enough: a nav line or "police confirmed the attack"
+ * appears on the page and links nothing.
  */
-function linkageIsGrounded(quote: string, articleText: string, town: string): { ok: boolean; why?: string } {
+export function linkageIsGrounded(
+  quote: string,
+  articleText: string,
+  place: string,
+  tollFigures: number[],
+): { ok: boolean; why?: string } {
   const normalizedQuote = normalizeForQuote(quote);
-  if (normalizedQuote.length < 30) return { ok: false, why: `quote too short (${normalizedQuote.length})` };
-  if (!normalizeForQuote(articleText).includes(normalizedQuote)) return { ok: false, why: "quote does not appear in the article text" };
-  const place = normalizeForQuote(town);
-  const mentionsCount = /\d/.test(quote) || NUMBER_WORDS.test(normalizedQuote);
-  const mentionsPlace = place.length > 2 && normalizedQuote.includes(place);
-  if (!mentionsCount && !mentionsPlace) return { ok: false, why: "quote names neither the place nor a count" };
+  if (normalizedQuote.length < 60) return { ok: false, why: `quote too short (${normalizedQuote.length} chars)` };
+
+  // One sentence, not a stitched span across a paragraph break.
+  const segments = articleText
+    .split(/(?<=[.!?])\s+|\n{2,}/)
+    .map(normalizeForQuote)
+    .filter((segment) => segment.length > 0);
+  const containing = segments.find((segment) => segment.includes(normalizedQuote));
+  if (!containing) return { ok: false, why: "quote is not a single sentence of the article body" };
+
+  const wanted = normalizeForQuote(place);
+  if (wanted.length < 3) return { ok: false, why: "record has no usable settlement name to anchor the quote" };
+  if (!containing.includes(wanted)) return { ok: false, why: "quote does not name the settlement" };
+
+  const figures = new Set(tollFigures.filter((value) => Number.isFinite(value) && value > 0));
+  if (!figures.size) return { ok: false, why: "neither record states a toll to anchor the quote" };
+  if (![...numbersIn(quote)].some((value) => figures.has(value))) {
+    return { ok: false, why: "quote does not state either record's toll" };
+  }
   return { ok: true };
 }
 
@@ -327,16 +360,22 @@ async function main() {
       }
 
       // Verify the quote against the article we fetched. A same-event verdict that
-      // cannot point at a real sentence is a guess, not a decision.
-      const grounded = linkageIsGrounded(assessment.linkageQuote, candidateArticleText, existing.location?.town || "");
+      // cannot point at one real sentence naming the settlement and the toll is a
+      // guess, not a decision.
+      const tollFigures = [
+        existingToll.killed, existingToll.kidnapped, existingToll.injured, existingToll.displaced,
+        candidateToll.killed, candidateToll.kidnapped, candidateToll.injured, candidateToll.displaced,
+      ].filter((value): value is number => typeof value === "number");
+      const grounded = linkageIsGrounded(
+        assessment.linkageQuote,
+        candidateArticleText,
+        existing.location?.town || existing.location?.lga || "",
+        tollFigures,
+      );
       if (!grounded.ok) {
         summary.held += 1;
-        await note({
-          ...decision,
-          action: assessment.classification === "same_event_counts_differ" ? "held-ungrounded" : "noted-ungrounded",
-          why: grounded.why,
-        });
-        if (assessment.classification === "same_event_counts_differ") continue;
+        await note({ ...decision, action: "held-ungrounded", why: grounded.why });
+        continue;
       }
 
       if (assessment.classification === "different_event") {
@@ -360,17 +399,33 @@ async function main() {
 
       if (args.apply) {
         // Snapshot before the write, so a crash cannot leave a resolved row with
-        // no record of what it looked like.
+        // no record of what it looked like. The article itself is kept too, because
+        // the live page will change and the Jina reader is a third party.
         if (outDir) {
           await fs.mkdir(path.join(outDir, "before"), { recursive: true });
           await fs.writeFile(
             path.join(outDir, "before", `${String(row._id)}.json`),
-            JSON.stringify({ review: row, record: existing, additions }, null, 2),
+            JSON.stringify({ review: row, record: existing, additions, viaJina: fetched.viaJina }, null, 2),
           ).catch(() => undefined);
+          await fs.writeFile(path.join(outDir, "before", `${String(row._id)}.article.txt`), candidateArticleText).catch(() => undefined);
         }
 
         if (additions.length) {
-          await Attack.updateOne({ _id: existing._id, _deleted: { $ne: true } }, { $push: { sources: { $each: additions } }, $set: { updatedAt: new Date() } });
+          // Guard the push itself: if the record was deleted after the read, or a
+          // concurrent writer already added the URL, do not claim the resolution.
+          const pushed = await Attack.updateOne(
+            {
+              _id: existing._id,
+              _deleted: { $ne: true },
+              "sources.url": { $nin: additions.map((source) => String(source.url || "")) },
+            },
+            { $push: { sources: { $each: additions } }, $set: { updatedAt: new Date() } },
+          );
+          if (pushed.matchedCount !== 1) {
+            summary.errors += 1;
+            await note({ reviewId: String(row._id), action: "conflict", why: "the record changed or disappeared before the source could be attached" });
+            continue;
+          }
         }
         const closed = await IncidentReview.updateOne(
           { _id: row._id, status: "pending" },

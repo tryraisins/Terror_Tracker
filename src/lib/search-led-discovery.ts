@@ -470,13 +470,15 @@ async function fetchWithRetry(url: string, timeoutMs: number): Promise<{ respons
 export async function fetchArticleText(
   url: string,
   fallbackTitle = "",
-): Promise<{ text: string; title: string; lead: string } | null> {
+): Promise<{ text: string; title: string; viaJina: boolean } | null> {
   const article = await fetchArticleHtml(url);
   if (!article.html) return null;
   const parts = article.viaJina ? partsFromMarkdown(fallbackTitle, article.html) : extractArticleParts(article.html, fallbackTitle);
-  const text = `${parts.lead}\n${parts.text}`.trim();
+  // Body only: `text` already includes the lead on the HTML path, and the title is
+  // part of the identity hash, so quoting it would be circular.
+  const text = parts.text.trim();
   if (text.length < 200) return null;
-  return { text: text.slice(0, 20000), title: parts.title, lead: parts.lead };
+  return { text: text.slice(0, 20000), title: parts.title, viaJina: article.viaJina };
 }
 
 async function fetchArticleHtml(url: string): Promise<{ html: string | null; viaJina: boolean; retries: number; error: string }> {
