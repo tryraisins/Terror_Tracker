@@ -96,7 +96,7 @@ export async function persistIncidentReviews(report: SearchLedReport, ingest?: S
 }
 
 /** Retry a small due batch through the same source evidence and duplicate gates. */
-export async function retryIncidentReviews(limit = 5) {  const result = { processed: 0, resolved: 0, held: 0, errors: 0, inserted: 0, merged: 0 };
+export async function retryIncidentReviews(limit = 5) {  const result = { processed: 0, resolved: 0, dismissed: 0, held: 0, errors: 0, inserted: 0, merged: 0 };
   const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.min(20, Math.floor(limit))) : 5;
   const now = new Date();
   const due = await IncidentReview.find({ status: "pending", retryable: true, attempts: { $lt: MAX_INCIDENT_REVIEW_ATTEMPTS }, nextRetryAt: { $ne: null, $lte: now } })
@@ -118,16 +118,30 @@ export async function retryIncidentReviews(limit = 5) {  const result = { proces
       result.inserted += ingest.inserted;
       result.merged += ingest.merged;
       const resolved = attacks.length > 0 && ingest.errors === 0 && ingest.reviewRequired.length === 0 && report.reviewLeads.length === 0;
+      // The source was read again and yielded no incident and no new lead. That is a
+      // conclusive answer, not a failure to retry: the article no longer supports an
+      // eligible event. Leaving the row pending is the treadmill that kept the queue
+      // at over a hundred rows.
+      const nothingFound = attacks.length === 0 && report.reviewLeads.length === 0 && ingest.errors === 0;
       await persistIncidentReviews(report, ingest, attacks);
       // Only the claimed row can change disposition; a concurrent admin dismissal wins.
       await IncidentReview.updateOne({ _id: claimed._id, status: "pending" }, { $set: resolved
-        ? { status: "resolved", reviewedAt: new Date(), reviewedBy: "collector", dispositionNote: "Re-extracted and passed source admission and duplicate checks.", nextRetryAt: null }
-        : { nextRetryAt: claimed.attempts < MAX_INCIDENT_REVIEW_ATTEMPTS ? new Date(Date.now() + 6 * 3600000) : null,
-          retryable: claimed.attempts < MAX_INCIDENT_REVIEW_ATTEMPTS } });
+        ? { status: "resolved", reviewedAt: new Date(), reviewedBy: "collector", dispositionNote: "Re-extracted and passed source admission and duplicate checks.", nextRetryAt: null, retryable: false }
+        : nothingFound
+          ? {
+            status: "dismissed",
+            reviewedAt: new Date(),
+            reviewedBy: "collector",
+            retryable: false,
+            nextRetryAt: null,
+            dispositionNote: "Re-read the source and it reports no eligible incident any more, so retrying cannot change the outcome.",
+          }
+          : { nextRetryAt: claimed.attempts < MAX_INCIDENT_REVIEW_ATTEMPTS ? new Date(Date.now() + 6 * 3600000) : null,
+            retryable: claimed.attempts < MAX_INCIDENT_REVIEW_ATTEMPTS } });
       // Apply the same budget to parallel reasons from this source, preventing unbounded retry loops.
       await IncidentReview.updateMany({ sourceUrl: claimed.sourceUrl, kind: claimed.kind, attempts: { $lt: claimed.attempts } }, { $set: { attempts: claimed.attempts,
         ...(claimed.attempts >= MAX_INCIDENT_REVIEW_ATTEMPTS ? { retryable: false, nextRetryAt: null } : {}) } });
-      if (resolved) result.resolved++; else result.held++;
+      if (resolved) result.resolved++; else if (nothingFound) result.dismissed++; else result.held++;
       result.errors += ingest.errors;
     } catch {
       result.errors++;

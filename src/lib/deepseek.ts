@@ -499,8 +499,31 @@ export async function cleanAndConfirmIncident(
       dateRange: datePrecision === "date_range" ? { start: rangeStart, end: rangeEnd } : undefined,
     }) : null;
     const sourcePublishedAt = candidate.sources?.[0]?.publishedAt ? new Date(candidate.sources[0].publishedAt) : null;
-    const reparsedEvidence = dateEvidence
-      ? dateEvidenceFromText(`${dateEvidence} attack`, sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null)
+
+    // Date rescue. When the model's own quote does not appear in the article, look
+    // for a supported date phrase in the body and accept it only when it lands on
+    // the same day or interval. A different date is never substituted silently.
+    const modelDateSupported = Boolean(dateEvidence) && normalizedArticle.includes(dateEvidence);
+    let effectiveDate = normalizedDate;
+    let effectiveDateEvidence = modelDateSupported ? dateEvidence : "";
+    if (!modelDateSupported || !normalizedDate) {
+      const derived = dateEvidenceFromText(articleText.slice(0, 6000), sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null);
+      const derivedNormalized = derived
+        ? normalizeIncidentDate({ date: derived.date, datePrecision: derived.datePrecision, dateRange: derived.dateRange })
+        : null;
+      if (derived && derivedNormalized) {
+        const sameInterval = !normalizedDate
+          || (derivedNormalized.interval.start.getTime() === normalizedDate.interval.start.getTime()
+            && derivedNormalized.interval.end.getTime() === normalizedDate.interval.end.getTime());
+        if (sameInterval) {
+          effectiveDate = derivedNormalized;
+          effectiveDateEvidence = normalizeEvidenceText(derived.evidence);
+        }
+      }
+    }
+
+    const reparsedEvidence = effectiveDateEvidence
+      ? dateEvidenceFromText(`${effectiveDateEvidence} attack`, sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null)
       : null;
     const reparsedDate = reparsedEvidence ? normalizeIncidentDate({
       date: reparsedEvidence.date,
@@ -511,16 +534,27 @@ export async function cleanAndConfirmIncident(
     const latestSupportedDay = sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : now;
     const lagosAnchor = new Date(latestSupportedDay.getTime() + 60 * 60 * 1000);
     const latestSupportedDayEnd = Date.UTC(lagosAnchor.getUTCFullYear(), lagosAnchor.getUTCMonth(), lagosAnchor.getUTCDate(), 23, 59, 59, 999);
-    const unsupportedFuture = Boolean(normalizedDate && normalizedDate.interval.end.getTime() > latestSupportedDayEnd);
-    const evidenceMismatch = Boolean(reparsedDate && normalizedDate && (
-      reparsedDate.datePrecision !== normalizedDate.datePrecision ||
-      reparsedDate.interval.start.toISOString().slice(0, 10) !== normalizedDate.interval.start.toISOString().slice(0, 10) ||
-      reparsedDate.interval.end.toISOString().slice(0, 10) !== normalizedDate.interval.end.toISOString().slice(0, 10)
+    const unsupportedFuture = Boolean(effectiveDate && effectiveDate.interval.end.getTime() > latestSupportedDayEnd);
+    const evidenceMismatch = Boolean(reparsedDate && effectiveDate && (
+      reparsedDate.datePrecision !== effectiveDate.datePrecision ||
+      reparsedDate.interval.start.toISOString().slice(0, 10) !== effectiveDate.interval.start.toISOString().slice(0, 10) ||
+      reparsedDate.interval.end.toISOString().slice(0, 10) !== effectiveDate.interval.end.toISOString().slice(0, 10)
     ));
-    if (!date || !normalizedDate || !stateValue || !lga || !town || !dateEvidence || !locationEvidence ||
-        !normalizedArticle.includes(dateEvidence) || !normalizedArticle.includes(locationEvidence) ||
-        unsupportedFuture || evidenceMismatch || (datePrecision === "date_range" && !reparsedDate) ||
-        /^(unknown|unspecified|n\/a)$/i.test(lga) || /^(unknown|unspecified|n\/a)$/i.test(town)) {
+
+    // Location degrades instead of rejecting. AGENTS.md defines the precision
+    // levels for exactly this: a settlement the report places is exact, an LGA
+    // without a settlement is approximate_lga, and a state on its own is
+    // approximate_state. Withholding a supported incident because the article
+    // never names the town loses a real event.
+    const placeWord = /^(unknown|unspecified|n\/?a)$/i;
+    const hasLga = Boolean(lga) && !placeWord.test(lga);
+    const hasTown = Boolean(town) && !placeWord.test(town);
+    const locationSupported = Boolean(locationEvidence) && normalizedArticle.includes(locationEvidence);
+    const stateSupported = Boolean(stateValue) && normalizedArticle.includes(normalizeEvidenceText(stateValue));
+
+    if (!effectiveDate || !effectiveDateEvidence || !stateValue || !locationSupported || !stateSupported ||
+        unsupportedFuture || evidenceMismatch ||
+        (effectiveDate.datePrecision === "date_range" && !reparsedDate)) {
       return { confirmed: false, reviewRequired: true, reason: "Event date or location lacks specific supporting article text" };
     }
 
@@ -572,33 +606,41 @@ export async function cleanAndConfirmIncident(
     // article evidence, so precision must follow those fields. Copying the
     // pre-extraction guess left records claiming a state-level location while
     // holding a settlement and an LGA.
-    const precision: LocationPrecision = candidate.location.precision === "surrounding_area" ? "surrounding_area" : "exact";
+    const precision: LocationPrecision = candidate.location.precision === "surrounding_area"
+      ? "surrounding_area"
+      : hasTown
+        ? "exact"
+        : hasLga
+          ? "approximate_lga"
+          : "approximate_state";
+    const resolvedLga = hasLga ? lga.slice(0, 120) : "Unknown";
+    const resolvedTown = hasTown ? town.slice(0, 160) : "Unknown";
     const cleanedTags = [...new Set([
       ...(candidate.tags || []),
       ...(Array.isArray(event.tags) ? event.tags.filter((tag): tag is string => typeof tag === "string") : []),
       "deepseek-verified",
       ...(precision === "exact" ? [] : ["approximate-location"]),
-      ...(normalizedDate.datePrecision === "exact_day" ? [] : ["date-uncertainty"]),
+      ...(effectiveDate.datePrecision === "exact_day" ? [] : ["date-uncertainty"]),
     ])].filter((tag) => precision !== "exact" || tag !== "approximate-location");
     const cleaned: RawAttackData = {
       ...candidate,
       title,
       description: `${title}. ${typeof event.description === "string" ? event.description.trim() : event.locationEvidence}`.slice(0, 5000),
-      date: normalizedDate.date.toISOString(),
-      datePrecision: normalizedDate.datePrecision,
-      dateRange: normalizedDate.dateRange ? {
-        start: normalizedDate.dateRange.start.toISOString(),
-        end: normalizedDate.dateRange.end.toISOString(),
+      date: effectiveDate.date.toISOString(),
+      datePrecision: effectiveDate.datePrecision,
+      dateRange: effectiveDate.dateRange ? {
+        start: effectiveDate.dateRange.start.toISOString(),
+        end: effectiveDate.dateRange.end.toISOString(),
       } : undefined,
-      dateEvidence: typeof event.dateEvidence === "string" ? event.dateEvidence.trim().slice(0, 300) : candidate.dateEvidence,
+      dateEvidence: (effectiveDateEvidence || candidate.dateEvidence || "").slice(0, 300),
       location: {
-        state: normalizeStateName(stateValue), lga: lga.slice(0, 120), town: town.slice(0, 160),
+        state: normalizeStateName(stateValue), lga: resolvedLga, town: resolvedTown,
         precision, notes: `Event location supported by source text: ${event.locationEvidence}`.slice(0, 500),
       },
       group,
       casualties: counts as RawAttackData["casualties"],
       casualtyMeta,
-      status: normalizedDate.datePrecision === "exact_day" ? status : "developing",
+      status: effectiveDate.datePrecision === "exact_day" ? status : "developing",
       tags: cleanedTags,
     };
     const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });
