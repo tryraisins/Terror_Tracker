@@ -7,18 +7,25 @@ set -uo pipefail
 ENV_FILE=/etc/terror-tracker/scan.env
 REPORTS=/var/log/terror-tracker/reports
 LATEST="$REPORTS/latest.json"
-THRESHOLD_HOURS="${SCAN_HEALTH_STALE_HOURS:-18}"
 
-# shellcheck disable=SC1090
-set -a
-# shellcheck source=/dev/null
-. "$ENV_FILE"
-set +a
+# Same reason as scan-alert.sh: the env file is data, not shell.
+read_env() {
+  [ -r "$ENV_FILE" ] || return 0
+  grep -m1 "^$1=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-
+}
+
+RESEND_API_KEY="${RESEND_API_KEY:-$(read_env RESEND_API_KEY)}"
+ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-$(read_env ALERT_EMAIL_TO)}"
+ALERT_FROM_EMAIL="${ALERT_EMAIL_FROM:-$(read_env ALERT_EMAIL_FROM)}"
+ALERT_FROM_EMAIL="${ALERT_FROM_EMAIL:-alerts@tryraisins.dev}"
+FROM="Terror Tracker <$ALERT_FROM_EMAIL>"
+SITE="${NEXT_PUBLIC_APP_URL:-$(read_env NEXT_PUBLIC_APP_URL)}"
+SITE="${SITE:-https://terrortracker.tryraisins.dev}"
+THRESHOLD_HOURS="$(read_env SCAN_HEALTH_STALE_HOURS)"
+THRESHOLD_HOURS="${THRESHOLD_HOURS:-18}"
 
 : "${RESEND_API_KEY:?RESEND_API_KEY is missing from $ENV_FILE}"
 : "${ALERT_EMAIL_TO:?ALERT_EMAIL_TO is missing from $ENV_FILE}"
-FROM="${ALERT_EMAIL_FROM:-Terror Tracker <alerts@tryraisins.dev>}"
-SITE="${NEXT_PUBLIC_APP_URL:-https://terrortracker.tryraisins.dev}"
 
 AGE_TEXT="no report has ever been written"
 STALE=1

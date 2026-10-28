@@ -13,16 +13,25 @@ ENV_FILE=/etc/terror-tracker/scan.env
 REPORTS=/var/log/terror-tracker/reports
 LATEST="$REPORTS/latest.json"
 
-# shellcheck disable=SC1090
-set -a
-# shellcheck source=/dev/null
-. "$ENV_FILE"
-set +a
+# The env file is data, not shell. Sourcing it would choke on a value containing
+# spaces or angle brackets ("Terror Tracker <alerts@...>") and would evaluate
+# anything a future value happens to contain, so the few keys needed here are
+# read literally instead.
+read_env() {
+  [ -r "$ENV_FILE" ] || return 0
+  grep -m1 "^$1=" "$ENV_FILE" 2>/dev/null | cut -d= -f2-
+}
+
+RESEND_API_KEY="${RESEND_API_KEY:-$(read_env RESEND_API_KEY)}"
+ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-$(read_env ALERT_EMAIL_TO)}"
+ALERT_FROM_EMAIL="${ALERT_EMAIL_FROM:-$(read_env ALERT_EMAIL_FROM)}"
+ALERT_FROM_EMAIL="${ALERT_FROM_EMAIL:-alerts@tryraisins.dev}"
+FROM="Terror Tracker <$ALERT_FROM_EMAIL>"
+SITE="${NEXT_PUBLIC_APP_URL:-$(read_env NEXT_PUBLIC_APP_URL)}"
+SITE="${SITE:-https://terrortracker.tryraisins.dev}"
 
 : "${RESEND_API_KEY:?RESEND_API_KEY is missing from $ENV_FILE}"
 : "${ALERT_EMAIL_TO:?ALERT_EMAIL_TO is missing from $ENV_FILE}"
-FROM="${ALERT_EMAIL_FROM:-Terror Tracker <alerts@tryraisins.dev>}"
-SITE="${NEXT_PUBLIC_APP_URL:-https://terrortracker.tryraisins.dev}"
 
 # A failed run can die before writing a report (Mongo unreachable, image broken).
 # In that case the newest file on disk belongs to an earlier run, so report the
