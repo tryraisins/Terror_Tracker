@@ -113,7 +113,7 @@ export async function retryIncidentReviews(limit = 5) {  const result = { proces
     seenSources.add(sourceKey);
     result.processed++;
     try {
-      const { attacks, report } = await reextractSearchLedSource({ url: claimed.sourceUrl, title: claimed.title, publisher: claimed.publisher }, 336);
+      const { attacks, report } = await reextractSearchLedSource({ url: claimed.sourceUrl, title: claimed.title, publisher: claimed.publisher }, WIDEST_SCAN_WINDOW_HOURS);
       const ingest = await ingestSearchLedAttacks(attacks, "ReviewRetry");
       result.inserted += ingest.inserted;
       result.merged += ingest.merged;
@@ -166,11 +166,13 @@ function isPermanentExtractionRejection(reason: string): boolean {
 /**
  * Keep the review queue honest without a human sweeping it.
  *
- * Four dispositions are deterministic and safe:
+ * Five dispositions are deterministic and safe:
  * - a pending lead whose source is already cited by an active record is resolved;
  * - a duplicate row whose referenced record was merged or removed is resolved;
  * - a row that spent its retry budget is dismissed;
- * - an extraction row whose rejection is content-based is dismissed.
+ * - an extraction row whose rejection is content-based is dismissed;
+ * - a late report is requeued when its event is still inside the widest scan
+ *   window, and dismissed as historical backfill when it is not.
  *
  * Event-level judgement is deliberately left to the duplicate review, because
  * whether two reports describe one attack needs evidence, not a heuristic.
@@ -237,12 +239,17 @@ export async function sweepIncidentReviews(now = new Date(), dryRun = false) {
         : null;
       if (normalized) {
         const ageMs = now.getTime() - normalized.interval.end.getTime();
-        if (ageMs <= WIDEST_SCAN_WINDOW_HOURS * 3_600_000) {
-          if ((row.attempts || 0) < MAX_INCIDENT_REVIEW_ATTEMPTS) lateReportsDue.push(String(row._id));
-        } else {
+        if (ageMs > WIDEST_SCAN_WINDOW_HOURS * 3_600_000) {
           lateReportsOld.push(String(row._id));
+          continue;
         }
-        continue;
+        // Still reachable by the catch-up window. Requeue it once; a row that is
+        // already due, or that has spent its retry budget, falls through to the
+        // exhausted check rather than being silently skipped.
+        if ((row.attempts || 0) < MAX_INCIDENT_REVIEW_ATTEMPTS && row.retryable !== true) {
+          lateReportsDue.push(String(row._id));
+          continue;
+        }
       }
     }
     if ((row.attempts || 0) >= MAX_INCIDENT_REVIEW_ATTEMPTS) {
