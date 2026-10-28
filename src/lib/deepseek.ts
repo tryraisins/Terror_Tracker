@@ -73,17 +73,7 @@ export async function assessIncidentDuplicate(
     return { classification: "review_required", reason: "DeepSeek duplicate check is disabled or unconfigured" };
   }
 
-  const view = (incident: DuplicateCheckIncident) => ({
-    title: incident.title,
-    description: incident.description,
-    eventDate: incident.date instanceof Date ? incident.date.toISOString() : incident.date,
-    datePrecision: incident.datePrecision || "exact_day",
-    dateRange: incident.dateRange || null,
-    location: incident.location,
-    group: incident.group,
-    casualties: incident.casualties,
-    sourceReports: (incident.sources || []).map(({ title, publisher }) => ({ title, publisher })),
-  });
+  const view = incidentView;
 
   try {
     const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
@@ -131,6 +121,97 @@ export async function assessIncidentDuplicate(
     return {
       classification: "review_required",
       reason: `DeepSeek duplicate check failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+    };
+  }
+}
+
+export type DeepSeekTollConflictClassification = "same_event_counts_differ" | "different_event" | "review_required";
+
+export interface DeepSeekTollConflictAssessment {
+  classification: DeepSeekTollConflictClassification;
+  reason: string;
+}
+
+function incidentView(incident: DuplicateCheckIncident) {
+  return {
+    title: incident.title,
+    description: incident.description,
+    eventDate: incident.date instanceof Date ? incident.date.toISOString() : incident.date,
+    datePrecision: incident.datePrecision || "exact_day",
+    dateRange: incident.dateRange || null,
+    location: incident.location,
+    group: incident.group,
+    casualties: incident.casualties,
+    sourceReports: (incident.sources || []).map(({ title, publisher }) => ({ title, publisher })),
+  };
+}
+
+/**
+ * Resolve a held toll conflict.
+ *
+ * A stored record and a fresh candidate already share the deterministic identity
+ * hash (title, event date, state, LGA, town), so the question here is narrower
+ * than "are these the same event": it is whether the differing casualty figures
+ * describe the same episode counted differently, or two separate episodes.
+ *
+ * Fails closed to review_required, like the duplicate check, so an unavailable
+ * model never produces a merge or a dismissal.
+ */
+export async function assessTollConflict(
+  existing: DuplicateCheckIncident,
+  candidate: DuplicateCheckIncident,
+): Promise<DeepSeekTollConflictAssessment> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!isDeepSeekDuplicateCheckEnabled() || !apiKey) {
+    return { classification: "review_required", reason: "DeepSeek toll-conflict check is disabled or unconfigured" };
+  }
+
+  try {
+    const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are a conservative Nigerian security incident analyst. Reply with one JSON object only.",
+          },
+          {
+            role: "user",
+            content: `Two reports share an identity hash: the same title, event date, state, LGA and town. Their casualty figures differ. Decide only which of these is true, using the evidence in the two records:\n\n- "same_event_counts_differ": the same real-world attack or abduction, counted differently. A later or fuller toll, a subset such as "bodies found so far", conflicting counts from different officials, or one report counting only those killed at one location all qualify.\n- "different_event": despite the matching identity fields, the two describe separate episodes, for example different victims, different communities within the town, or separate days inside a date range.\n- "review_required": the evidence does not distinguish the two.\n\nDo not invent facts. Do not prefer the larger figure. If the location or victim sets are described differently enough that they may be separate events, choose review_required rather than same_event_counts_differ.\n\nReturn JSON: {"classification":"same_event_counts_differ"|"different_event"|"review_required","reason":"short evidence-based reason"}\n\nRECORD A (stored):\n${JSON.stringify(incidentView(existing), null, 2)}\n\nRECORD B (new candidate):\n${JSON.stringify(incidentView(candidate), null, 2)}`,
+          },
+        ],
+        temperature: 0,
+        max_tokens: 400,
+        response_format: { type: "json_object" },
+      }),
+      signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return { classification: "review_required", reason: `DeepSeek toll-conflict check returned HTTP ${response.status}` };
+    }
+    const data: unknown = await response.json();
+    const content = data && typeof data === "object" && Array.isArray((data as { choices?: unknown[] }).choices)
+      ? (data as { choices: Array<{ message?: { content?: unknown } }> }).choices[0]?.message?.content
+      : undefined;
+    if (typeof content !== "string" || !content.trim()) {
+      return { classification: "review_required", reason: "DeepSeek toll-conflict check returned an empty response" };
+    }
+    const parsed = JSON.parse(content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()) as Record<string, unknown>;
+    const classification = parsed.classification;
+    const reason = typeof parsed.reason === "string" && parsed.reason.trim()
+      ? parsed.reason.trim().slice(0, 500)
+      : "DeepSeek returned no toll-conflict rationale";
+    if (classification === "same_event_counts_differ" || classification === "different_event" || classification === "review_required") {
+      return { classification, reason };
+    }
+    return { classification: "review_required", reason: "DeepSeek returned an invalid toll-conflict classification" };
+  } catch (error) {
+    return {
+      classification: "review_required",
+      reason: `DeepSeek toll-conflict check failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
     };
   }
 }

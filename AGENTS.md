@@ -30,11 +30,15 @@ Run this whenever the task touches ingestion, data quality, or an incident that 
 ```bash
 npm run triage:reviews                         # dry run: deterministic queue sweep
 npm run triage:reviews -- --apply
+npm run adjudicate:duplicates                              # dry run: model decides held toll conflicts
+npm run adjudicate:duplicates -- --apply
 npm run merge:incidents -- --pairs <pairs.json>            # dry run
 npm run merge:incidents -- --pairs <pairs.json> --apply
 npx tsx scripts/promote-review-lead.ts --review <rowId>    # dry run
 npx tsx scripts/promote-review-lead.ts --review <rowId> --apply
 ```
+
+`adjudicate-duplicate-reviews` runs automatically after a clean scan and clears the held toll conflicts a person would otherwise read one at a time. Before it asks anything, it re-verifies the deterministic identity of the stored record and the stored candidate (state, `placesEquivalent` town, `sameLga`, `incidentDateKey`); a near-miss stays pending. The model is told identity is established, so the only question is whether the differing tolls are one episode counted differently or two episodes, answered as `same_event_counts_differ` / `different_event` / `review_required`, and it fails closed. On `same_event_counts_differ` it attaches the article's sources to the stored record and resolves the row; on `different_event` it dismisses with the reason; on `review_required` it leaves the row alone. It never rewrites a casualty figure or an identity field, so no hash can move under it, and both tolls are recorded in the disposition note and in the artifact. Its invariant is proven end to end by `scratch/e2e-adjudicate.mjs` against a disposable database.
 
 `merge-incidents` writes a unique `run-<timestamp>` artifact directory with before/after snapshots and `summary.json`, merges sources by normalized URL, keeps the highest casualty figure and the evidence text that belongs to it, recomputes the survivor's hash when identity fields change, resolves stored-record pair reviews and retargets held candidates to the survivor, and validates hash uniqueness, active count and date integrity. It refuses a record that appears in two pair entries, and a rerun only skips records already merged into the same survivor. Put pair files and artifacts under `scratch/`, never in `audit-2026/` (tracked) or the repo root.
 
@@ -44,6 +48,8 @@ npx tsx scripts/promote-review-lead.ts --review <rowId> --apply
 ## Review queue rules
 
 `sweepIncidentReviews` runs after every scan and applies only deterministic dispositions: captured sources, stale references, exhausted retry budgets, and conclusive content rejections (no Nigerian state, no incident date, not an incident, scope rejection, fact-check). It never dismisses a non-retryable lead just because automation gave up, and it never closes an evidence-grounding failure; those stay pending as leads.
+
+Duplicate rows get a second, separate pass. `adjudicate-duplicate-reviews` runs after a clean scan and may only resolve or dismiss `kind: "duplicate"` rows, only after re-verifying the identity fields itself and only when the model returns a decidable classification. It never touches `extraction`, `fetch` or `late_report` rows, so no evidence-grounding failure is closed by it. A row it leaves pending is a row that needs a person.
 
 If you dismiss a duplicate row, the disposition note must say which case it is: same event already recorded, distinct events, or promoted. Do not dismiss a row whose candidate looks like an unrecorded event. Extra absorption is not evidence: a source URL appearing on one record does not prove every event in that article was captured.
 

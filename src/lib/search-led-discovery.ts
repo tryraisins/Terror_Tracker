@@ -197,7 +197,7 @@ function casualtiesCompatible(a: RawAttackData["casualties"], b: RawAttackData["
   );
 }
 
-function mergeSourceMetadata(
+export function mergeSourceMetadata(
   existing: Array<{ url: string; title?: string; publisher?: string; publishedAt?: Date | string | null; toObject?: () => Record<string, unknown> }>,
   incoming: RawAttackData["sources"],
 ): { sources: Array<Record<string, unknown>>; changed: boolean } {

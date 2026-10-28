@@ -53,4 +53,20 @@ fi
 find "$REPORTS" -name 'scan-*.json' -type f -mtime +30 -delete 2>/dev/null || true
 
 echo "scan finished with status $STATUS"
+
+# Clear the held duplicate leads the model can decide. This runs only after a
+# clean scan, and a failure here is logged but never turns a successful
+# collection into a failed one.
+if [ "$STATUS" -eq 0 ]; then
+  ADJUDICATE_LIMIT="${ADJUDICATE_LIMIT:-25}"
+  if docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
+    --name terror-adjudicate-slot scan \
+    npx tsx scripts/adjudicate-duplicate-reviews.ts --apply --limit "$ADJUDICATE_LIMIT" \
+    >/tmp/terror-adjudicate.log 2>&1; then
+    echo "adjudication: $(tail -n 1 /tmp/terror-adjudicate.log)"
+  else
+    echo "adjudication failed (scan unaffected): $(tail -n 1 /tmp/terror-adjudicate.log)" >&2
+  fi
+fi
+
 exit "$STATUS"

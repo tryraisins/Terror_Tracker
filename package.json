@@ -23,6 +23,7 @@
     "audit:duplicates": "node scripts/analyze-duplicates.js",
     "audit:duplicates:execute": "node scripts/analyze-duplicates.js --execute",
     "merge:incidents": "npx tsx scripts/merge-incidents.ts",
+    "adjudicate:duplicates": "npx tsx scripts/adjudicate-duplicate-reviews.ts",
     "triage:reviews": "npx tsx scripts/triage-incident-reviews.ts",
     "repair:attack-date-types": "npx tsx scripts/normalize-attack-date-types.ts",
     "repair:attack-date-types:apply": "npx tsx scripts/normalize-attack-date-types.ts --apply"
