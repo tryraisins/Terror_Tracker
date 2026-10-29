@@ -15,7 +15,7 @@ import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
 import type { LocationPrecision } from "./incident-uncertainty";
 import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkage";
-import { findTollSentence } from "./quote-grounding";
+import { findTollSentence, normalizeForQuote } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -528,8 +528,17 @@ export async function cleanAndConfirmIncident(
       }
     }
 
-    const reparsedEvidence = effectiveDateEvidence
-      ? dateEvidenceFromText(`${effectiveDateEvidence} attack`, sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null)
+    // Judge the date quote the way the reader would see it: with the words before
+    // it. A bare quote drops the introducer, and the scanner now skips a page
+    // dateline or a reacting body's own sitting day, so reparsing the quote alone
+    // would return null for a legitimate event that happened on the publication day.
+    const evidenceAt = effectiveDateEvidence ? normalizedArticle.indexOf(effectiveDateEvidence) : -1;
+    const evidenceContext = evidenceAt >= 0
+      ? normalizedArticle.slice(Math.max(0, evidenceAt - 80), evidenceAt + effectiveDateEvidence.length)
+      : effectiveDateEvidence;
+
+    const reparsedEvidence = evidenceContext
+      ? dateEvidenceFromText(`${evidenceContext} attack`, sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null)
       : null;
     const reparsedDate = reparsedEvidence ? normalizeIncidentDate({
       date: reparsedEvidence.date,
@@ -541,11 +550,14 @@ export async function cleanAndConfirmIncident(
     const lagosAnchor = new Date(latestSupportedDay.getTime() + 60 * 60 * 1000);
     const latestSupportedDayEnd = Date.UTC(lagosAnchor.getUTCFullYear(), lagosAnchor.getUTCMonth(), lagosAnchor.getUTCDate(), 23, 59, 59, 999);
     const unsupportedFuture = Boolean(effectiveDate && effectiveDate.interval.end.getTime() > latestSupportedDayEnd);
-    const evidenceMismatch = Boolean(reparsedDate && effectiveDate && (
+    // A quote that names no parseable date at all is a mismatch, not a pass. Without
+    // this, a model date one day off could ride a quote of the sitting day, because
+    // the dateline rule makes that quote reparse to nothing.
+    const evidenceMismatch = Boolean(effectiveDate && (!reparsedDate || (
       reparsedDate.datePrecision !== effectiveDate.datePrecision ||
       reparsedDate.interval.start.toISOString().slice(0, 10) !== effectiveDate.interval.start.toISOString().slice(0, 10) ||
       reparsedDate.interval.end.toISOString().slice(0, 10) !== effectiveDate.interval.end.toISOString().slice(0, 10)
-    ));
+    )));
 
     // Location degrades instead of rejecting. AGENTS.md defines the precision
     // levels for exactly this: a settlement the report places is exact, an LGA
@@ -566,12 +578,8 @@ export async function cleanAndConfirmIncident(
     const quoteNamesPlace = (quote: string) => !multiEventArticle
       || (placeForQuote.length > 2 && quote.includes(placeForQuote));
     // The quote must not be the page dateline or a reacting body's own sitting
-    // ("The Senate Wednesday called for..."). Judge it with the words before it,
-    // because the quote alone often drops the reacting subject.
-    const evidenceAt = effectiveDateEvidence ? normalizedArticle.indexOf(effectiveDateEvidence) : -1;
-    const evidenceContext = evidenceAt >= 0
-      ? normalizedArticle.slice(Math.max(0, evidenceAt - 80), evidenceAt + effectiveDateEvidence.length)
-      : effectiveDateEvidence;
+    // ("The Senate Wednesday called for..."). The context was built above so the
+    // date reparse and this guard judge the same words.
     const nonEventDateEvidence = Boolean(effectiveDateEvidence) && hasOnlyNonEventDates(
       evidenceContext,
       sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null,
@@ -608,6 +616,12 @@ export async function cleanAndConfirmIncident(
       if (value != null && !quoteSupported && !multiEventArticle) {
         const rescued = findTollSentence(articleText, value, field === "kidnapped" ? "abducted" : field);
         if (rescued) quote = rescued;
+      }
+      // In a multi-event article the quote has to belong to this event. One that does
+      // not name this record's own settlement may be another attack's figure or the
+      // article-wide total, so the figure is dropped rather than trusted.
+      if (value != null && multiEventArticle && quote && !quoteNamesPlace(quote as string)) {
+        quote = "";
       }
       const supported = Boolean(quote) && (quoteSupported || normalizedArticle.includes(quote as string));
       if (value != null && !supported) {
@@ -685,9 +699,12 @@ export async function cleanAndConfirmIncident(
     if (multiEventArticle) {
       const eventQuotes = [effectiveDateEvidence, locationEvidence,
         ...countFields.map((field) => String(casualtyMeta[field]?.sourceText || ""))]
-        .map((value) => normalizeEvidenceText(value))
+        .map((value) => normalizeForQuote(value))
         .filter(Boolean);
-      const reused = eventQuotes.find((quote) => usedEvidence.has(quote));
+      // Exact match alone misses a quote that is a sub-span of another event's
+      // sentence, so a long quote also counts as reused when one contains the other.
+      const reused = eventQuotes.find((quote) => [...usedEvidence].some((seen) =>
+        seen === quote || (quote.length > 40 && (seen.includes(quote) || quote.includes(seen)))));
       if (reused) {
         return {
           confirmed: false,
