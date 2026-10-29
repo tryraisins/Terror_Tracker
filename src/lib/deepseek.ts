@@ -512,7 +512,7 @@ export async function cleanAndConfirmIncident(
     const modelDateSupported = Boolean(dateEvidence) && normalizedArticle.includes(dateEvidence);
     let effectiveDate = normalizedDate;
     let effectiveDateEvidence = modelDateSupported ? dateEvidence : "";
-    if (!modelDateSupported || !normalizedDate) {
+    if (!multiEventArticle && (!modelDateSupported || !normalizedDate)) {
       const derived = dateEvidenceFromText(articleText.slice(0, 6000), sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null);
       const derivedNormalized = derived
         ? normalizeIncidentDate({ date: derived.date, datePrecision: derived.datePrecision, dateRange: derived.dateRange })
@@ -557,6 +557,21 @@ export async function cleanAndConfirmIncident(
     const hasTown = Boolean(town) && !placeWord.test(town);
     const locationSupported = Boolean(locationEvidence) && normalizedArticle.includes(locationEvidence);
     const stateSupported = Boolean(stateValue) && normalizedArticle.includes(normalizeEvidenceText(stateValue));
+
+    // In a multi-event article a quote has to belong to this event, not just to the
+    // article. The place the record claims must be named by the quote that grounds
+    // the date and by the quote that grounds the place, otherwise the sentence may
+    // be about a different attack in the same piece.
+    const placeForQuote = hasTown ? normalizeEvidenceText(town) : hasLga ? normalizeEvidenceText(lga) : "";
+    const quoteNamesPlace = (quote: string) => !multiEventArticle
+      || (placeForQuote.length > 2 && quote.includes(placeForQuote));
+    if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !quoteNamesPlace(effectiveDateEvidence))) {
+      return {
+        confirmed: false,
+        reviewRequired: true,
+        reason: "Article reports several events and the date or location evidence does not name this event's own settlement",
+      };
+    }
 
     // The quote must not be the page dateline or a reacting body's own sitting
     // ("The Senate Wednesday called for..."). Judge it with the words before it,
@@ -661,6 +676,24 @@ export async function cleanAndConfirmIncident(
       status: effectiveDate.datePrecision === "exact_day" ? status : "developing",
       tags: cleanedTags,
     };
+    // One sentence cannot ground two different events. In a multi-event article that
+    // is the shape of an aggregate statement ("in the two attacks, 19 died").
+    if (multiEventArticle) {
+      const eventQuotes = [effectiveDateEvidence, locationEvidence,
+        ...countFields.map((field) => String(casualtyMeta[field]?.sourceText || ""))]
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const reused = eventQuotes.find((quote) => usedEvidence.has(quote));
+      if (reused) {
+        return {
+          confirmed: false,
+          reviewRequired: true,
+          reason: "Article reports several events and one sentence would ground two of them",
+        };
+      }
+      for (const quote of eventQuotes) usedEvidence.add(quote);
+    }
+
     const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });
     if (scopeRejection) return { confirmed: false, reason: `scope re-check failed: ${scopeRejection}` };
     cleanedIncidents.push(cleaned);
