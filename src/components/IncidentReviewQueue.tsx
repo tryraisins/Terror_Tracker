@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type ReviewStatus = "pending" | "resolved" | "dismissed";
 type ReviewAction = "dismiss" | "reopen" | "request_retry";
@@ -34,7 +34,147 @@ const formatDate = (value: string | null) => value
   ? new Intl.DateTimeFormat("en-NG", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Lagos" }).format(new Date(value))
   : "Not recorded";
 
-const detailText = (value: unknown) => value == null ? "No stored detail" : JSON.stringify(value, null, 2);
+interface Candidate {
+  _id?: string;
+  title?: string;
+  date?: string;
+  dateEvidence?: string;
+  location?: { state?: string; lga?: string; town?: string; precision?: string };
+  casualties?: { killed?: number | null; injured?: number | null; kidnapped?: number | null; displaced?: number | null };
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const candidatesOf = (value: unknown): Candidate[] =>
+  (Array.isArray(value) ? value : []).filter((entry) => asRecord(entry)) as Candidate[];
+
+const articleTextOf = (evidence: unknown) => {
+  const text = asRecord(evidence)?.articleText;
+  return typeof text === "string" ? text.trim() : "";
+};
+
+const incidentDate = (value?: string) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.valueOf())
+    ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date)
+    : "";
+};
+
+const placeOf = (candidate: Candidate) => {
+  const place = candidate.location;
+  const parts = [place?.town, place?.lga && `${place.lga} LGA`, place?.state].filter(Boolean);
+  return parts.length ? `${parts.join(", ")}${place?.precision ? ` (${place.precision.replace(/_/g, " ")})` : ""}` : "";
+};
+
+const tollOf = (candidate: Candidate) => {
+  const counts = candidate.casualties;
+  return (["killed", "injured", "kidnapped", "displaced"] as const)
+    .filter((key) => typeof counts?.[key] === "number")
+    .map((key) => `${counts?.[key]} ${key}`)
+    .join(", ");
+};
+
+const NUMBER = "(?:\\d[\\d,]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|dozens?)";
+const VICTIM = "(?:kill(?:ed|ing|s)?|dead|deaths?|bod(?:y|ies)|abduct(?:ed|ion|ions|s)?|kidnap(?:ped|ping|s)?|injur(?:ed|ies|y)|wound(?:ed|s)?|displac(?:ed|ement))";
+// A number beside a victim word: "12 villagers abducted", "killed at least 5". Years are not tolls.
+const TOLL_SENTENCE = new RegExp(
+  `\\b${NUMBER}(?:\\s+[\\p{L}'-]+){0,2}?\\s+${VICTIM}\\b|\\b${VICTIM}\\s+(?:(?:at least|about|over|more than|nearly|some|around|up to)\\s+)?(?!(?:19|20)\\d{2}\\b)${NUMBER}\\b`,
+  "iu",
+);
+
+/** Splits without losing a character, so the pieces always join back to the original text. */
+function sentencesOf(text: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const isBreak = char === "\n" || (/[.!?]/.test(char) && (i + 1 === text.length || /\s/.test(text[i + 1])));
+    if (!isBreak) continue;
+    let end = i + 1;
+    while (end < text.length && /["'”’)\]]/.test(text[end])) end++;
+    while (end < text.length && /[ \t]/.test(text[end])) end++;
+    out.push(text.slice(start, end));
+    start = end;
+    i = end - 1;
+  }
+  if (start < text.length) out.push(text.slice(start));
+  return out;
+}
+
+const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function settlementPattern(candidates: Candidate[]): RegExp | null {
+  const names = new Set<string>();
+  for (const candidate of candidates) {
+    const name = (candidate.location?.town || candidate.location?.lga || "").trim();
+    if (name.length >= 3) names.add(name);
+  }
+  if (!names.size) return null;
+  const alternatives = [...names].sort((a, b) => b.length - a.length).map(escapePattern).join("|");
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
+}
+
+function withPlaces(sentence: string, pattern: RegExp | null): ReactNode {
+  if (!pattern) return sentence;
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  for (const match of sentence.matchAll(pattern)) {
+    if (match.index > last) nodes.push(sentence.slice(last, match.index));
+    nodes.push(<mark className="review-excerpt__place" key={match.index}>{match[0]}</mark>);
+    last = match.index + match[0].length;
+  }
+  if (!nodes.length) return sentence;
+  if (last < sentence.length) nodes.push(sentence.slice(last));
+  return nodes;
+}
+
+function ArticleExcerpt({ text, candidates }: { text: string; candidates: Candidate[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const body = useMemo(() => {
+    const pattern = settlementPattern(candidates);
+    return sentencesOf(text).map((sentence, index) => TOLL_SENTENCE.test(sentence)
+      ? <mark className="review-excerpt__toll" key={index}>{withPlaces(sentence, pattern)}</mark>
+      : <Fragment key={index}>{withPlaces(sentence, pattern)}</Fragment>);
+  }, [text, candidates]);
+  const long = text.length > 700 || text.split("\n").length > 8;
+
+  return <div>
+    <span className="review-detail__label">Article excerpt</span>
+    <p className={`review-excerpt${long && !expanded ? " review-excerpt--clamped" : ""}`}>{body}</p>
+    <div className="review-legend">
+      <span><mark className="review-excerpt__place">Place</mark> where the lead sets the event</span>
+      <span><mark className="review-excerpt__toll">Sentence</mark> giving a toll</span>
+    </div>
+    {long ? <button className="text-link" type="button" style={{ marginTop: ".4rem" }} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "Show less" : "Show the rest"}</button> : null}
+  </div>;
+}
+
+function ReviewDetail({ item }: { item: ReviewItem }) {
+  const text = articleTextOf(item.sourceEvidence);
+  const candidates = useMemo(() => candidatesOf(item.candidates), [item.candidates]);
+  const heading = item.kind !== "duplicate" ? "What the extractor claimed"
+    : candidates.some((candidate) => candidate._id) ? "Stored records compared" : "Held lead from the article";
+
+  return <div className="review-detail">
+    <p className="review-detail__link">
+      {item.publisher || "Publisher unknown"} · <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">{item.sourceUrl.replace(/^https?:\/\/(www\.)?/i, "")}</a>
+    </p>
+    {text ? <ArticleExcerpt text={text} candidates={candidates} /> : <p className="supporting">The article body was not stored for this row.</p>}
+    {candidates.length ? <div>
+      <span className="review-detail__label">{heading}</span>
+      <ul className="review-evidence">
+        {candidates.map((candidate, index) => <li key={candidate._id || index}><dl className="review-evidence__item">
+          {candidate.title ? <><dt>Title</dt><dd>{candidate.title}</dd></> : null}
+          {incidentDate(candidate.date) ? <><dt>Date</dt><dd>{incidentDate(candidate.date)}</dd></> : null}
+          {placeOf(candidate) ? <><dt>Place</dt><dd>{placeOf(candidate)}</dd></> : null}
+          <dt>Toll</dt><dd>{tollOf(candidate) || "None reported"}</dd>
+          {candidate.dateEvidence ? <><dt>Date basis</dt><dd>“{candidate.dateEvidence}”</dd></> : null}
+        </dl></li>)}
+      </ul>
+    </div> : null}
+  </div>;
+}
 
 export default function IncidentReviewQueue() {
   const [payload, setPayload] = useState<QueuePayload | null>(null);
@@ -61,7 +201,10 @@ export default function IncidentReviewQueue() {
     }
   }, [page, status]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = setTimeout(load, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   const act = async (item: ReviewItem, action: ReviewAction) => {
     setActing(item._id);
@@ -117,7 +260,7 @@ export default function IncidentReviewQueue() {
           <p className="supporting" style={{ margin: ".35rem 0" }}>{item.reason}</p>
           <span className="evidence-count">{item.publisher || "Publisher unknown"} · published {formatDate(item.publishedAt)} · attempt {item.attempts}/3</span>
           {item.dispositionNote ? <p className="supporting">Disposition: {item.dispositionNote}</p> : null}
-          <details style={{ marginTop: ".6rem" }}><summary className="text-link">Private evidence and candidates</summary><pre style={{ maxHeight: "20rem", overflow: "auto", whiteSpace: "pre-wrap", color: "var(--body)", fontSize: ".75rem" }}>{detailText({ sourceEvidence: item.sourceEvidence, candidates: item.candidates })}</pre></details>
+          <details style={{ marginTop: ".6rem" }}><summary className="text-link">Article and evidence</summary><ReviewDetail item={item} /></details>
           <label className="filter-label" style={{ marginTop: ".7rem" }}>Disposition note
             <input className="control" style={{ padding: ".7rem", width: "100%", height: "auto", minWidth: 0 }} value={notes[item._id] || ""} onChange={(event) => setNotes((current) => ({ ...current, [item._id]: event.target.value }))} maxLength={2000} placeholder="Optional review context" />
           </label>

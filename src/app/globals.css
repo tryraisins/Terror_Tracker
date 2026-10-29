@@ -408,6 +408,20 @@ dl.term-list dd { margin:0; }
 .admin-record__title { display:block; margin-top:.2rem; font-weight:600; }
 .admin-record__place { display:block; margin-top:.2rem; color:var(--ink-3); font-size:.8125rem; }
 .record-card__date { color:var(--ink-2); font-family:var(--sans); font-size:.8125rem; }
+.review-detail { display:grid; gap:.9rem; margin-top:.7rem; min-width:0; }
+.review-detail__label { display:block; margin-bottom:.3rem; color:var(--ink-3); font-size:.75rem; font-weight:600; letter-spacing:.04em; text-transform:uppercase; }
+.review-detail__link { color:var(--ink-2); font-size:.875rem; overflow-wrap:anywhere; }
+.review-detail__link a { color:var(--ink); font-weight:600; }
+.review-excerpt { max-width:100%; margin:0; padding:.75rem; border:1px solid var(--rule); border-radius:var(--radius); background:var(--night); color:var(--ink-2); font-size:.875rem; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; }
+.review-excerpt--clamped { max-height:14rem; overflow:hidden; }
+.review-detail mark { color:var(--ink); border-radius:2px; }
+.review-excerpt__place { background:var(--ochre-soft); box-shadow:0 1px 0 var(--ochre); }
+.review-excerpt__toll { background:var(--hover); }
+.review-legend { display:flex; flex-wrap:wrap; gap:.25rem 1rem; margin:.4rem 0 0; color:var(--ink-3); font-size:.75rem; }
+.review-evidence { display:grid; gap:.6rem; margin:0; padding:0; list-style:none; }
+.review-evidence__item { display:grid; grid-template-columns:minmax(0,max-content) minmax(0,1fr); gap:.2rem .75rem; margin:0; padding:.6rem .75rem; border:1px solid var(--rule); border-radius:var(--radius); font-size:.8125rem; }
+.review-evidence__item dt { color:var(--ink-3); }
+.review-evidence__item dd { margin:0; color:var(--ink-2); overflow-wrap:anywhere; }
 .queue-item { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.6rem 0; border-bottom:1px solid var(--rule); color:var(--ink-2); font-size:.875rem; }
 .queue-item:last-child { border-bottom:0; }
 .queue-item strong { color:var(--ink); font-family:var(--display); font-size:1.5rem; font-weight:700; }
