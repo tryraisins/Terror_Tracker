@@ -30,7 +30,7 @@ import { isSuppressedSourceHost } from "./news-source-registry";
 import { assessIncidentDuplicate, cleanAndConfirmIncident, isDeepSeekCleanupEnabled } from "./deepseek";
 import { incidentDateIntervalsOverlap, incidentDateKey, normalizeIncidentDate } from "./incident-date";
 import { discoverRegisteredFeedArticles, type DiscoveryFeedFailure } from "./discovery-feeds";
-import { lgaCompatible, normalizePlaceTokens, sameLga, sameSpecificLocation } from "./location-identity";
+import { lgaCompatible, normalizePlaceTokens, placesPlausiblySame, sameLga, sameSpecificLocation } from "./location-identity";
 
 export type SearchLedReviewLead = {
   url: string;
@@ -102,6 +102,12 @@ const ARTICLE_FETCH_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FRE
 const STATE_SCAN_CONCURRENCY = Math.max(1, Number(process.env.STATE_SCAN_CONCURRENCY || 3));
 const BRAVE_CALL_LIMIT = Number(process.env.BRAVE_SEARCH_MAX_CALLS_PER_RUN || 40);
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+search-led OSINT collector)";
+// How far apart two reports of one place may be and still reach the semantic
+// duplicate check. This equals the widest scan window (WIDEST_SCAN_WINDOW_HOURS
+// in incident-review.ts, which imports this module, so it is repeated here).
+// A report whose date was mis-read by days must still be compared with the
+// record it duplicates; the deterministic merge keeps its one-day tolerance.
+const SEMANTIC_DUPLICATE_WINDOW_MS = 336 * 3_600_000;
 
 function createReport(lookbackHours: number, windowEnd = new Date()): SearchLedReport {
   const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
@@ -812,8 +818,8 @@ export async function ingestSearchLedAttacks(
       // with the same normalized state/LGA/town in the one-day window so that
       // independent reports with town aliases (for example, "Babban Saura PW"
       // and "Babban Saura") are not inserted as separate incidents.
-      const dateWindowStart = new Date(candidateDate.interval.start.getTime() - 24 * 60 * 60 * 1000);
-      const dateWindowEnd = new Date(candidateDate.interval.end.getTime() + 24 * 60 * 60 * 1000);
+      const dateWindowStart = new Date(candidateDate.interval.start.getTime() - SEMANTIC_DUPLICATE_WINDOW_MS);
+      const dateWindowEnd = new Date(candidateDate.interval.end.getTime() + SEMANTIC_DUPLICATE_WINDOW_MS);
       const possibleMatches = await Attack.find({
         _deleted: { $ne: true },
         $or: [
@@ -877,7 +883,12 @@ export async function ingestSearchLedAttacks(
         // ("Edda" against "Afikpo South") must reach the semantic check rather
         // than being skipped before the model is asked.
         const compatibleLga = lgaCompatible(record.location?.lga || "", lga);
-        return Boolean(recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
+        // A specific town that is plausibly the same place may sit days apart
+        // (a news-day date mistaken for the event date). Such a pair reaches the
+        // model, and a "same_event" verdict across days is still only held.
+        const sameTownLabel = hasSpecificTown && placesPlausiblySame(town, record.location?.town || "");
+        const tolerance = sameTownLabel ? SEMANTIC_DUPLICATE_WINDOW_MS : 24 * 60 * 60 * 1000;
+        return Boolean(recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, tolerance));
       });
       let semanticMerged = false;
       let semanticHeld = false;

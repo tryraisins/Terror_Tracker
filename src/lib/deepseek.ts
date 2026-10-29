@@ -9,7 +9,7 @@
  * normalizer, never a source of new URLs.
  */
 
-import { RawAttackData, dateEvidenceFromText } from "./free-news";
+import { RawAttackData, dateEvidenceFromText, hasOnlyNonEventDates } from "./free-news";
 import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
@@ -479,6 +479,12 @@ export async function cleanAndConfirmIncident(
 
   const normalizedArticle = normalizeEvidenceText(articleText);
   const cleanedIncidents: RawAttackData[] = [];
+  // A multi-event article is the only case where a sentence elsewhere in the text can
+  // belong to a different attack, so the per-event guarantees below apply to it.
+  // Single-event articles keep the rescue paths, which recover figures whose quote
+  // was paraphrased without any risk of borrowing another event's evidence.
+  const multiEventArticle = parsed.incidents.length > 1;
+  const usedEvidence = new Set<string>();
   for (const raw of parsed.incidents) {
     if (!raw || typeof raw !== "object") return { confirmed: false, reviewRequired: true, reason: "DeepSeek returned an invalid event record" };
     const event = raw as Record<string, unknown>;
@@ -552,8 +558,20 @@ export async function cleanAndConfirmIncident(
     const locationSupported = Boolean(locationEvidence) && normalizedArticle.includes(locationEvidence);
     const stateSupported = Boolean(stateValue) && normalizedArticle.includes(normalizeEvidenceText(stateValue));
 
+    // The quote must not be the page dateline or a reacting body's own sitting
+    // ("The Senate Wednesday called for..."). Judge it with the words before it,
+    // because the quote alone often drops the reacting subject.
+    const evidenceAt = effectiveDateEvidence ? normalizedArticle.indexOf(effectiveDateEvidence) : -1;
+    const evidenceContext = evidenceAt >= 0
+      ? normalizedArticle.slice(Math.max(0, evidenceAt - 80), evidenceAt + effectiveDateEvidence.length)
+      : effectiveDateEvidence;
+    const nonEventDateEvidence = Boolean(effectiveDateEvidence) && hasOnlyNonEventDates(
+      evidenceContext,
+      sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null,
+    );
+
     if (!effectiveDate || !effectiveDateEvidence || !stateValue || !locationSupported || !stateSupported ||
-        unsupportedFuture || evidenceMismatch ||
+        unsupportedFuture || evidenceMismatch || nonEventDateEvidence ||
         (effectiveDate.datePrecision === "date_range" && !reparsedDate)) {
       return { confirmed: false, reviewRequired: true, reason: "Event date or location lacks specific supporting article text" };
     }

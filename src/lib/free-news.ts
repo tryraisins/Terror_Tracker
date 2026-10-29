@@ -197,11 +197,57 @@ function validUtcDate(year: number, month: number, day: number): Date | null {
   return value.getUTCFullYear() === year && value.getUTCMonth() === month && value.getUTCDate() === day ? value : null;
 }
 
+// A political or institutional body reacting to an attack ("The Senate Wednesday
+// called for...", "at plenary on Wednesday") dates its own sitting, not the
+// attack. One word of slack allows "Governor Yahaya on Monday"; two would catch
+// "governor survives ambush on Friday". A possessive ("governor's convoy") is a
+// victim, not a reacting body.
+const REACTION_ACTOR_BEFORE = /\b(?:senate|house of representatives|house of assembly|state assembly|national assembly|reps|plenary|governor)\b(?!['’]s)(?:\s+[\w.'’-]+)?\s+(?:on\s+)?$/i;
+const DATE_INTRODUCER_BEFORE = /(?:\b(?:on|of|since|until|dated|from|by|the)|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday),?)\s*$/i;
+
+function followsReactionActor(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - 80), index);
+  const boundary = Math.max(before.lastIndexOf(". "), before.lastIndexOf("! "), before.lastIndexOf("? "));
+  const clause = boundary >= 0 ? before.slice(boundary + 2) : before;
+  return REACTION_ACTOR_BEFORE.test(`${clause.trimEnd()} `);
+}
+
+/**
+ * A full date that equals the publication day and is not introduced by "on",
+ * "of", a weekday or similar is the page's own dateline ("... community..
+ * October 28, 2026 Taiye Odewale"), not an event date.
+ */
+function looksLikeDateline(text: string, matchIndex: number, matched: string, parsed: Date | null, publicationDay: Date | null): boolean {
+  if (!parsed || !publicationDay || parsed.getTime() !== publicationDay.getTime()) return false;
+  if (/^on\s/i.test(matched)) return false;
+  return !DATE_INTRODUCER_BEFORE.test(text.slice(Math.max(0, matchIndex - 24), matchIndex));
+}
+
 /**
  * Extract an exact event day or bounded event period. Relative expressions are
  * accepted only when a reliable source publication timestamp is available.
  */
 export function dateEvidenceFromText(text: string, publishedAt: Date | null = null): ExtractedIncidentDate | null {
+  return scanEventDate(text, publishedAt).result;
+}
+
+/**
+ * True when the text carries date cues but every one of them was refused as a
+ * dateline or as the sitting of a reacting body. Used to stop a model-quoted
+ * "date evidence" from smuggling such a date back in.
+ */
+export function hasOnlyNonEventDates(text: string, publishedAt: Date | null = null): boolean {
+  const scan = scanEventDate(text, publishedAt);
+  return scan.result === null && scan.skippedNonEvent;
+}
+
+function scanEventDate(text: string, publishedAt: Date | null): { result: ExtractedIncidentDate | null; skippedNonEvent: boolean } {
+  let skippedNonEvent = false;
+  const result = scanEventDateInner(text, publishedAt, () => { skippedNonEvent = true; });
+  return { result, skippedNonEvent };
+}
+
+function scanEventDateInner(text: string, publishedAt: Date | null, markSkipped: () => void): ExtractedIncidentDate | null {
   const monthName = "January|February|March|April|May|June|July|August|September|October|November|December";
   const datePart = `(?:(?:${monthName})\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s+20\\d{2})?|\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthName})(?:,?\\s+20\\d{2})?)`;
   const range = text.match(new RegExp(`\\b(?:between|from|during)\\s+(${datePart})\\s*(?:-|–|—|to|through|until|and)\\s*(${datePart})\\b`, "i"))
@@ -243,26 +289,50 @@ export function dateEvidenceFromText(text: string, publishedAt: Date | null = nu
     return null;
   }
 
-  const absolute = text.match(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/i);
-  if (absolute) {
-    const cleaned = absolute[1].replace(/(\d)(?:st|nd|rd|th)\b/i, "$1");
+  const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;
+  const parseAbsolute = (value: string): Date | null => {
+    const cleaned = value.replace(/(\d)(?:st|nd|rd|th)\b/i, "$1");
     const pieces = cleaned.match(new RegExp(`^(?:(${monthName})\\s+(\\d{1,2}),?\\s+(20\\d{2})|(\\d{1,2})\\s+(${monthName}),?\\s+(20\\d{2}))$`, "i"));
     const month = pieces ? (pieces[1] || pieces[5]) : "";
     const day = pieces ? Number(pieces[2] || pieces[4]) : NaN;
     const year = pieces ? Number(pieces[3] || pieces[6]) : NaN;
-    const parsed = month ? validUtcDate(year, MONTH_INDEX[month.toLowerCase()], day) : null;
-    const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;
-    if (parsed && (!publicationDay || parsed <= publicationDay)) return { date: parsed, datePrecision: "exact_day", evidence: absolute[0] };
+    return month ? validUtcDate(year, MONTH_INDEX[month.toLowerCase()], day) : null;
+  };
+  let absolute: RegExpMatchArray | null = null;
+  let absoluteParsed: Date | null = null;
+  for (const found of text.matchAll(/\b(?:on\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:,)?\s+(?:20)\d{2}|\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(?:20)\d{2})\b/gi)) {
+    const index = found.index ?? 0;
+    const parsed = parseAbsolute(found[1]);
+    if (followsReactionActor(text, index + found[0].length - found[1].length) || looksLikeDateline(text, index, found[0], parsed, publicationDay)) {
+      markSkipped();
+      continue;
+    }
+    absolute = found;
+    absoluteParsed = parsed;
+    break;
+  }
+  if (absolute) {
+    if (absoluteParsed && (!publicationDay || absoluteParsed <= publicationDay)) return { date: absoluteParsed, datePrecision: "exact_day", evidence: absolute[0] };
     return null;
   }
-  const relative = text.match(/\b(today|yesterday)\b/i);
+  let relative: RegExpMatchArray | null = null;
+  for (const found of text.matchAll(/\b(today|yesterday)\b/gi)) {
+    if (followsReactionActor(text, found.index ?? 0)) { markSkipped(); continue; }
+    relative = found;
+    break;
+  }
   if (relative && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
     const lagosDate = lagosPublicationDay(publishedAt);
     const dayOffset = relative[1].toLowerCase() === "yesterday" ? 1 : 0;
     const date = new Date(Date.UTC(lagosDate.getUTCFullYear(), lagosDate.getUTCMonth(), lagosDate.getUTCDate() - dayOffset));
     return { date, datePrecision: "exact_day", evidence: relative[0] };
   }
-  const weekday = text.match(/\b(last|this|next)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  let weekday: RegExpMatchArray | null = null;
+  for (const found of text.matchAll(/\b(last|this|next)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi)) {
+    if (followsReactionActor(text, (found.index ?? 0) + found[0].length - found[2].length)) { markSkipped(); continue; }
+    weekday = found;
+    break;
+  }
   if (weekday && publishedAt && !Number.isNaN(publishedAt.getTime()) && hasSecurityIncidentSignal(text)) {
     const qualifier = (weekday[1] || "").toLowerCase();
     if (qualifier === "next") return null;
