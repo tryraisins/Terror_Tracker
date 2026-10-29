@@ -15,7 +15,7 @@ import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
 import type { LocationPrecision } from "./incident-uncertainty";
 import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkage";
-import { findTollSentence, normalizeForQuote } from "./quote-grounding";
+import { countQuoteSupports, findTollSentence, normalizeForQuote } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -553,7 +553,8 @@ export async function cleanAndConfirmIncident(
     // A quote that names no parseable date at all is a mismatch, not a pass. Without
     // this, a model date one day off could ride a quote of the sitting day, because
     // the dateline rule makes that quote reparse to nothing.
-    const evidenceMismatch = Boolean(effectiveDate && (!reparsedDate || (
+    const reparsedInsideQuote = Boolean(reparsedEvidence && effectiveDateEvidence) && normalizeForQuote(effectiveDateEvidence).includes(normalizeForQuote(reparsedEvidence!.evidence));
+    const evidenceMismatch = Boolean(effectiveDate && (!reparsedDate || !reparsedInsideQuote || (
       reparsedDate.datePrecision !== effectiveDate.datePrecision ||
       reparsedDate.interval.start.toISOString().slice(0, 10) !== effectiveDate.interval.start.toISOString().slice(0, 10) ||
       reparsedDate.interval.end.toISOString().slice(0, 10) !== effectiveDate.interval.end.toISOString().slice(0, 10)
@@ -608,7 +609,7 @@ export async function cleanAndConfirmIncident(
     for (const field of countFields) {
       const value = toCount(event[field]);
       let quote = evidence(`${field}Evidence`);
-      const quoteSupported = Boolean(quote) && normalizedArticle.includes(quote as string);
+      const quoteSupported = Boolean(quote) && (quote as string).length > 0 && normalizedArticle.includes(quote as string) && countQuoteSupports(quote as string, value ?? 0, field === "kidnapped" ? "abducted" : field);
       // A figure the model quoted loosely is usually still in the article, attached
       // to a different sentence. Look for it before giving up on the number, but only
       // when this article holds a single event: in a roundup that sentence may belong
@@ -704,7 +705,7 @@ export async function cleanAndConfirmIncident(
       // Exact match alone misses a quote that is a sub-span of another event's
       // sentence, so a long quote also counts as reused when one contains the other.
       const reused = eventQuotes.find((quote) => [...usedEvidence].some((seen) =>
-        seen === quote || (quote.length > 40 && (seen.includes(quote) || quote.includes(seen)))));
+        seen === quote || ((quote.length > 40 || seen.length > 40) && (seen.includes(quote) || quote.includes(seen)))));
       if (reused) {
         return {
           confirmed: false,

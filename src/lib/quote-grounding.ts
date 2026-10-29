@@ -157,3 +157,21 @@ export function groundingCheck({ quote, articleText, place, tollFigures, recordE
 
   return { ok: true, anchor: shared };
 }
+
+/**
+ * Does this quote actually state the count, for this victim category?
+ *
+ * A verbatim quote proves nothing on its own: "three killed, seven abducted" is in
+ * the article, and it will happily ground a model figure of seven killed. The number
+ * and the category word have to sit in the same clause.
+ */
+export function countQuoteSupports(quote: string, value: number, victims: "killed" | "abducted" | "injured" | "displaced"): boolean {
+  if (!quote || !Number.isFinite(value)) return false;
+  // Commas inside a number ("1,200") are not clause breaks.
+  const clauses = quote.split(/(?<!\d),(?!\d)|[;:.()]|\band\b|\bwhile\b|\bwith\b/gi);
+  return clauses.some((clause) => {
+    if (!numbersIn(clause).has(value)) return false;
+    const words = normalizeForQuote(clause).split(" ").filter(Boolean);
+    return words.some((word) => TOLL_NOUNS[victims].has(word));
+  });
+}
