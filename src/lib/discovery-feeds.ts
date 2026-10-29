@@ -22,6 +22,9 @@ export type DiscoveryFeedResult = {
 const FEED_TIMEOUT_MS = Math.max(1_000, Number(process.env.SOURCE_FETCH_TIMEOUT_MS || 8_000));
 const FEED_ITEM_LIMIT = Math.max(1, Math.min(50, Number(process.env.SEARCH_FEED_ITEMS_PER_SOURCE || 12)));
 const FEED_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FREE_SOURCE_CONCURRENCY || 4)));
+// A publisher's first feed page holds minutes to a couple of hours of articles,
+// and scans run a few hours apart, so older pages are where the gap lives.
+const FEED_PAGES = Math.max(1, Math.min(5, Number(process.env.SEARCH_FEED_PAGES || 3)));
 const USER_AGENT = "NigeriaAttackTracker/1.0 (+registered publisher discovery)";
 const INCIDENT_HEADLINE = /\b(?:attack(?:ed|s|ing)?|ambush(?:ed|es|ing)?|kidnap(?:ped|s|ping)?|abduct(?:ed|s|ing|ion|ions)?|kill(?:ed|s|ing)?|injur(?:ed|es|ing|y|ies)?|wound(?:ed|s|ing)?|raid(?:ed|s|ing)?|shoot(?:ing|s|ers?|out)?|gunmen|bandits?|insurgents?|terrorists?|militants?|boko\s+haram|iswap|ied|clash(?:es|ed)?|massacre[ds]?|herdsmen|cultists?)\b/i;
 
@@ -69,6 +72,46 @@ function feedUrlKey(value: string): string {
   }
 }
 
+function pagedFeedUrl(value: string, page: number): string {
+  const url = new URL(value);
+  url.searchParams.set("paged", String(page));
+  return url.toString();
+}
+
+async function fetchFeedXml(url: string): Promise<string> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+    headers: { "user-agent": USER_AGENT, accept: "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*" },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const xml = await response.text();
+  if (!/<(?:rss|feed|rdf:RDF)\b/i.test(xml)) throw new Error("Publisher returned a non-feed response");
+  return xml;
+}
+
+/**
+ * First page is required: a failure there is a feed failure. Older pages are
+ * best effort, because many publishers do not paginate (they answer 404, an
+ * empty feed, or the same first page again) and that is not an outage.
+ */
+async function fetchFeedPages(feed: RegisteredNewsFeed): Promise<DiscoveryFeedArticle[]> {
+  const articles = parseFeed(await fetchFeedXml(feed.url), feed);
+  const seen = new Set(articles.map((article) => feedUrlKey(article.url)));
+  for (let page = 2; page <= FEED_PAGES; page++) {
+    let older: DiscoveryFeedArticle[];
+    try {
+      older = parseFeed(await fetchFeedXml(pagedFeedUrl(feed.url, page)), feed);
+    } catch {
+      break;
+    }
+    const fresh = older.filter((article) => !seen.has(feedUrlKey(article.url)));
+    if (!fresh.length) break;
+    for (const article of fresh) seen.add(feedUrlKey(article.url));
+    articles.push(...fresh);
+  }
+  return articles;
+}
+
 export async function discoverRegisteredFeedArticles(
   lookbackHours: number,
   windowEnd = new Date(),
@@ -83,14 +126,7 @@ export async function discoverRegisteredFeedArticles(
     const batch = feeds.slice(index, index + FEED_CONCURRENCY);
     const settled = await Promise.all(batch.map(async (feed) => {
       try {
-        const response = await fetch(feed.url, {
-          signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
-          headers: { "user-agent": USER_AGENT, accept: "application/rss+xml,application/atom+xml,application/xml,text/xml,*/*" },
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const xml = await response.text();
-        if (!/<(?:rss|feed|rdf:RDF)\b/i.test(xml)) throw new Error("Publisher returned a non-feed response");
-        return parseFeed(xml, feed).filter(({ publishedAt }) =>
+        return (await fetchFeedPages(feed)).filter(({ publishedAt }) =>
           publishedAt.getTime() >= minPublishedMs && publishedAt.getTime() <= maxPublishedMs,
         );
       } catch (error) {

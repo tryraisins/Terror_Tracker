@@ -562,17 +562,9 @@ export async function cleanAndConfirmIncident(
     // article. The place the record claims must be named by the quote that grounds
     // the date and by the quote that grounds the place, otherwise the sentence may
     // be about a different attack in the same piece.
-    const placeForQuote = hasTown ? normalizeEvidenceText(town) : hasLga ? normalizeEvidenceText(lga) : "";
+    const placeForQuote = hasTown ? normalizeEvidenceText(town) : hasLga ? normalizeEvidenceText(lga) : normalizeEvidenceText(stateValue);
     const quoteNamesPlace = (quote: string) => !multiEventArticle
       || (placeForQuote.length > 2 && quote.includes(placeForQuote));
-    if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !quoteNamesPlace(effectiveDateEvidence))) {
-      return {
-        confirmed: false,
-        reviewRequired: true,
-        reason: "Article reports several events and the date or location evidence does not name this event's own settlement",
-      };
-    }
-
     // The quote must not be the page dateline or a reacting body's own sitting
     // ("The Senate Wednesday called for..."). Judge it with the words before it,
     // because the quote alone often drops the reacting subject.
@@ -591,6 +583,16 @@ export async function cleanAndConfirmIncident(
       return { confirmed: false, reviewRequired: true, reason: "Event date or location lacks specific supporting article text" };
     }
 
+    // Per-event placement is checked after the general guard, so a rejection names the
+    // real cause: a missing or unverifiable date is not a multi-event problem.
+    if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !quoteNamesPlace(effectiveDateEvidence))) {
+      return {
+        confirmed: false,
+        reviewRequired: true,
+        reason: "Article reports several events and the date or location evidence does not name this event's own settlement",
+      };
+    }
+
     const countFields = ["killed", "injured", "kidnapped", "displaced"] as const;
     const droppedCounts: string[] = [];
     const counts: Record<string, number | null> = {};
@@ -600,8 +602,10 @@ export async function cleanAndConfirmIncident(
       let quote = evidence(`${field}Evidence`);
       const quoteSupported = Boolean(quote) && normalizedArticle.includes(quote as string);
       // A figure the model quoted loosely is usually still in the article, attached
-      // to a different sentence. Look for it before giving up on the number.
-      if (value != null && !quoteSupported) {
+      // to a different sentence. Look for it before giving up on the number, but only
+      // when this article holds a single event: in a roundup that sentence may belong
+      // to another attack.
+      if (value != null && !quoteSupported && !multiEventArticle) {
         const rescued = findTollSentence(articleText, value, field === "kidnapped" ? "abducted" : field);
         if (rescued) quote = rescued;
       }
@@ -681,7 +685,7 @@ export async function cleanAndConfirmIncident(
     if (multiEventArticle) {
       const eventQuotes = [effectiveDateEvidence, locationEvidence,
         ...countFields.map((field) => String(casualtyMeta[field]?.sourceText || ""))]
-        .map((value) => value.trim())
+        .map((value) => normalizeEvidenceText(value))
         .filter(Boolean);
       const reused = eventQuotes.find((quote) => usedEvidence.has(quote));
       if (reused) {

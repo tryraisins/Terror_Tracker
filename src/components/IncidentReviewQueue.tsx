@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 type ReviewStatus = "pending" | "resolved" | "dismissed";
@@ -150,9 +151,16 @@ function ArticleExcerpt({ text, candidates }: { text: string; candidates: Candid
   </div>;
 }
 
+const existingIdOf = (evidence: unknown) => {
+  if (!evidence || typeof evidence !== "object") return "";
+  const value = (evidence as { existingId?: unknown }).existingId;
+  return typeof value === "string" && /^[a-f0-9]{24}$/i.test(value) ? value : "";
+};
+
 function ReviewDetail({ item }: { item: ReviewItem }) {
   const text = articleTextOf(item.sourceEvidence);
   const candidates = useMemo(() => candidatesOf(item.candidates), [item.candidates]);
+  const existingId = existingIdOf(item.sourceEvidence);
   const heading = item.kind !== "duplicate" ? "What the extractor claimed"
     : candidates.some((candidate) => candidate._id) ? "Stored records compared" : "Held lead from the article";
 
@@ -160,6 +168,10 @@ function ReviewDetail({ item }: { item: ReviewItem }) {
     <p className="review-detail__link">
       {item.publisher || "Publisher unknown"} · <a href={item.sourceUrl} target="_blank" rel="noopener noreferrer">{item.sourceUrl.replace(/^https?:\/\/(www\.)?/i, "")}</a>
     </p>
+    {existingId ? <p className="supporting">
+      Compared with stored record <code>{existingId}</code>
+      {" · "}<Link className="text-link" href={`/incidents/${existingId}`}>Open it</Link>
+    </p> : null}
     {text ? <ArticleExcerpt text={text} candidates={candidates} /> : <p className="supporting">The article body was not stored for this row.</p>}
     {candidates.length ? <div>
       <span className="review-detail__label">{heading}</span>
