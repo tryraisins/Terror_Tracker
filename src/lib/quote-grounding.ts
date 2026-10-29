@@ -184,8 +184,7 @@ export function sentenceSpans(text: string): Array<{ start: number; end: number 
   const spans: Array<{ start: number; end: number }> = [];
   const boundary = /[.!?](?:\s|$)|\n+/g;
   let start = 0;
-  let match: RegExpExecArray | null;
-  while ((match = boundary.exec(text)) !== null) {
+  while (boundary.exec(text) !== null) {
     spans.push({ start, end: boundary.lastIndex });
     start = boundary.lastIndex;
   }
