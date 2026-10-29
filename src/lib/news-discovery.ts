@@ -5,7 +5,9 @@
  * publisher page before using a result as evidence or writing an Attack.
  */
 
-export type NewsDiscoveryProvider = "brave" | "duckduckgo" | "bing";
+import { isSuppressedSourceHost } from "./news-source-registry";
+
+export type NewsDiscoveryProvider = "brave" | "duckduckgo" | "bing" | "googlenews" | "deepseek";
 export type NewsDiscoverySelection = "auto" | "all" | NewsDiscoveryProvider | "none";
 export type NewsDiscoveryStatus = "PASS" | "BLOCKED" | "FAIL" | "SKIPPED";
 
@@ -60,6 +62,9 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_MAX_RESULTS = 20;
 const DEFAULT_MIN_DELAY_MS = 3_000;
 const DEFAULT_BRAVE_MIN_DELAY_MS = 1_000;
+const DEFAULT_DEEPSEEK_MIN_DELAY_MS = 250;
+// DeepSeek's documented query limit; a longer query is a 400, not a truncation.
+const DEEPSEEK_MAX_QUERY_CHARS = 128;
 const DEFAULT_USER_AGENT = "NigeriaAttackTracker/1.0 (+multi-engine incident discovery)";
 const SEARCH_HOSTS = new Set([
   "bing.com",
@@ -72,6 +77,7 @@ const SEARCH_HOSTS = new Set([
 const providerQueues = new Map<NewsDiscoveryProvider, Promise<void>>();
 const providerLastCall = new Map<NewsDiscoveryProvider, number>();
 let braveQuotaExhaustedForProcess = false;
+let deepSeekBalanceExhaustedForProcess = false;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -285,6 +291,78 @@ async function braveSearch(query: string, options: ResolvedDiscoveryOptions): Pr
   }
 }
 
+/**
+ * DeepSeek's own Search API (not the model's web_search tool): raw ranked
+ * results with publisher URLs, billed per successful call. Freshness goes in
+ * the query as `after:` because the endpoint has no freshness field.
+ */
+function deepSeekQuery(query: string, freshness: ResolvedDiscoveryOptions["freshness"]): string {
+  const days = freshness === "day" ? 1 : freshness === "week" ? 7 : freshness === "month" ? 30 : 0;
+  const suffix = days ? ` after:${new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)}` : "";
+  const room = DEEPSEEK_MAX_QUERY_CHARS - suffix.length;
+  let base = query.trim();
+  if (base.length > room) {
+    base = base.slice(0, room);
+    base = base.slice(0, Math.max(base.lastIndexOf(" "), 1)).trim();
+    // A cut inside a quoted phrase would leave an unbalanced quote.
+    if ((base.match(/"/g) || []).length % 2) base = base.replace(/"[^"]*$/, "").trim();
+  }
+  return `${base}${suffix}`;
+}
+
+async function deepSeekSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return { status: "SKIPPED", httpStatus: null, results: [], reason: "DEEPSEEK_API_KEY is not configured." };
+  if (deepSeekBalanceExhaustedForProcess) {
+    return { status: "BLOCKED", httpStatus: 402, results: [], reason: "DeepSeek balance was exhausted earlier in this scan; skipping further requests." };
+  }
+
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
+  const body = JSON.stringify({ query: deepSeekQuery(query, options.freshness), count: Math.min(50, options.maxResults), need_content: false });
+
+  try {
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      response = await fetchWithTimeout(`${baseUrl}/v1/tools/search`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", accept: "application/json" },
+        body,
+      }, options.timeoutMs);
+      // Search is read-only, so one short wait on a QPS 429 is safe.
+      if (response.status !== 429 || attempt > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+    }
+    if (!response) throw new Error("DeepSeek Search returned no response.");
+    if (!response.ok) {
+      if (response.status === 402) deepSeekBalanceExhaustedForProcess = true;
+      const errorBody: unknown = await response.json().catch(() => null);
+      const error = isRecord(errorBody) && isRecord(errorBody.error) ? stringValue(errorBody.error.message) : "";
+      return {
+        status: [401, 402, 403, 429].includes(response.status) ? "BLOCKED" : "FAIL",
+        httpStatus: response.status,
+        results: [],
+        reason: `DeepSeek Search returned HTTP ${response.status}${response.status === 402 ? " (insufficient balance)" : ""}${error ? `: ${error.slice(0, 120)}` : ""}.`,
+      };
+    }
+    const data: unknown = await response.json();
+    if (!isRecord(data) || !Array.isArray(data.results)) {
+      return { status: "FAIL", httpStatus: response.status, results: [], reason: "DeepSeek Search returned a body without a results array." };
+    }
+    const results = data.results
+      .filter(isRecord)
+      .map((result) => ({
+        url: stringValue(result.url),
+        title: stringValue(result.title),
+        publisher: stringValue(result.site_name) || publisherForUrl(stringValue(result.url)),
+      }))
+      .filter((result) => Boolean(result.url && result.title && /^https?:\/\//i.test(result.url) && !isSearchHost(result.url) && !isSuppressedSourceHost(result.url)))
+      .slice(0, options.maxResults);
+    return { status: "PASS", httpStatus: response.status, results, reason: `DeepSeek Search returned ${results.length} result(s).` };
+  } catch (error) {
+    return { status: "FAIL", httpStatus: null, results: [], reason: `DeepSeek Search request failed: ${error instanceof Error ? error.message : String(error)}.` };
+  }
+}
+
 async function duckDuckGoSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", query);
@@ -348,11 +426,138 @@ async function bingSearch(query: string, options: ResolvedDiscoveryOptions): Pro
   }
 }
 
+// Google News serves its own browser-facing pages to a browser user agent only.
+const GOOGLE_NEWS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const GOOGLE_NEWS_DECODE_CONCURRENCY = 3;
+const googleNewsDecodeCache = new Map<string, Promise<string | null>>();
+
+type GoogleNewsItem = { title: string; link: string; publisher: string; sourceUrl: string };
+
+function parseGoogleNewsRss(xml: string): GoogleNewsItem[] {
+  return (xml.match(/<item>[\s\S]*?<\/item>/g) || []).flatMap((block) => {
+    const link = decodeHtml(block.match(/<link>([\s\S]*?)<\/link>/)?.[1] || "");
+    const rawTitle = decodeHtml(block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || "");
+    const source = block.match(/<source\b([^>]*)>([\s\S]*?)<\/source>/);
+    const publisher = decodeHtml(source?.[2] || "");
+    const sourceUrl = parseAttributes(`<source ${source?.[1] || ""}>`).get("url") || "";
+    if (!link || !rawTitle) return [];
+    const suffix = publisher ? ` - ${publisher}` : "";
+    const title = suffix && rawTitle.endsWith(suffix) ? rawTitle.slice(0, -suffix.length) : rawTitle;
+    return [{ title, link, publisher, sourceUrl }];
+  });
+}
+
+/**
+ * Google News RSS links are wrappers. The article id is not the URL for current
+ * links, so the page's signed parameters are replayed to the same endpoint the
+ * Google News web app uses. Any failure returns null and the item is dropped:
+ * a wrapper is never passed on as if it were the publisher page.
+ */
+async function resolveGoogleNewsLink(link: string, timeoutMs: number): Promise<string | null> {
+  let id: string;
+  try {
+    id = new URL(link).pathname.split("/").filter(Boolean).pop() || "";
+  } catch {
+    return null;
+  }
+  if (!id) return null;
+  const cached = googleNewsDecodeCache.get(id);
+  if (cached) return cached;
+  const task = (async () => {
+    try {
+      const page = await fetchWithTimeout(`https://news.google.com/rss/articles/${id}?hl=en-NG&gl=NG&ceid=NG:en`, {
+        headers: { "user-agent": GOOGLE_NEWS_USER_AGENT, "accept-language": "en" },
+      }, timeoutMs);
+      const html = await page.text();
+      const signature = html.match(/data-n-a-sg="([^"]+)"/)?.[1];
+      const timestamp = html.match(/data-n-a-ts="([^"]+)"/)?.[1];
+      if (!signature || !timestamp) return null;
+      const inner = `["garturlreq",[["en-US","US",["FINANCE_TOP_INDICES","WEB_TEST_1_0_0"],null,null,1,1,"US:en",null,180,null,null,null,null,null,0,null,null,[1608992183,723341000]],"en-US","US",1,[2,3,4,8],1,0,"655000234",0,0,null,0],"${id}",${timestamp},"${signature}"]`;
+      const response = await fetchWithTimeout("https://news.google.com/_/DotsSplashUi/data/batchexecute", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8", "user-agent": GOOGLE_NEWS_USER_AGENT },
+        body: `f.req=${encodeURIComponent(JSON.stringify([[["Fbv4je", inner]]]))}`,
+      }, timeoutMs);
+      const text = await response.text();
+      for (const chunk of text.split("\n\n")) {
+        if (!chunk.trim().startsWith("[")) continue;
+        try {
+          const row = (JSON.parse(chunk) as unknown[]).find((item) => Array.isArray(item) && item[1] === "Fbv4je") as unknown[] | undefined;
+          const value = row ? (JSON.parse(String(row[2])) as unknown[])[1] : null;
+          if (typeof value === "string" && /^https?:\/\//i.test(value) && !isSearchHost(value) && !/(^|\.)google\.com\b/i.test(new URL(value).hostname)) return value;
+        } catch {
+          // try the next chunk
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  })();
+  googleNewsDecodeCache.set(id, task);
+  // A failed decode must not be remembered for the rest of the process.
+  void task.then((value) => { if (!value) googleNewsDecodeCache.delete(id); });
+  return task;
+}
+
+async function googleNewsSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
+  const endpoint = new URL("https://news.google.com/rss/search");
+  const when = options.freshness === "day" ? "1d" : options.freshness === "month" ? "30d" : "7d";
+  endpoint.searchParams.set("q", `${query} when:${when}`);
+  endpoint.searchParams.set("hl", "en-NG");
+  endpoint.searchParams.set("gl", "NG");
+  endpoint.searchParams.set("ceid", "NG:en");
+  try {
+    const response = await fetchWithTimeout(endpoint.toString(), {
+      headers: { accept: "application/rss+xml,application/xml,text/xml", "user-agent": GOOGLE_NEWS_USER_AGENT },
+    }, options.timeoutMs);
+    const xml = await response.text();
+    if (!response.ok || !/<rss\b/i.test(xml)) {
+      return {
+        status: response.status === 401 || response.status === 403 || response.status === 429 || (response.ok && blockedBody(xml)) ? "BLOCKED" : "FAIL",
+        httpStatus: response.status,
+        results: [],
+        reason: `Google News returned ${response.status}${response.ok ? " a non-feed page" : ""}.`,
+      };
+    }
+    // Decode only what could be used: suppressed publishers are dropped by the
+    // caller anyway, and the cap bounds the decode requests per query.
+    const items = parseGoogleNewsRss(xml)
+      .filter((item) => !item.sourceUrl || !isSuppressedSourceHost(item.sourceUrl))
+      .slice(0, options.maxResults);
+    const results: SearchResult[] = [];
+    let undecoded = 0;
+    for (let index = 0; index < items.length; index += GOOGLE_NEWS_DECODE_CONCURRENCY) {
+      const batch = items.slice(index, index + GOOGLE_NEWS_DECODE_CONCURRENCY);
+      const urls = await Promise.all(batch.map((item) => resolveGoogleNewsLink(item.link, options.timeoutMs)));
+      batch.forEach((item, position) => {
+        const url = urls[position];
+        if (url) results.push({ url, title: item.title, publisher: item.publisher || publisherForUrl(url) });
+        else undecoded++;
+      });
+    }
+    // An item list that decodes to nothing is a provider failure, not a quiet day.
+    if (items.length > 0 && results.length === 0) {
+      return { status: "FAIL", httpStatus: response.status, results: [], reason: `Google News listed ${items.length} article(s) but none resolved to a publisher URL.` };
+    }
+    return {
+      status: "PASS",
+      httpStatus: response.status,
+      results,
+      reason: `Google News returned ${results.length} result(s)${undecoded ? `; ${undecoded} could not be resolved` : ""}.`,
+    };
+  } catch (error) {
+    return { status: "FAIL", httpStatus: null, results: [], reason: `Google News request failed: ${error instanceof Error ? error.message : String(error)}.` };
+  }
+}
+
 function selectedProviders(selection: NewsDiscoverySelection): NewsDiscoveryProvider[] {
   if (selection === "none") return [];
-  if (selection === "all") return ["brave", "duckduckgo", "bing"];
+  if (selection === "all") return ["brave", "duckduckgo", "bing", "googlenews", "deepseek"];
   if (selection === "auto") {
     const providers: NewsDiscoveryProvider[] = ["duckduckgo"];
+    if (process.env.NEWS_DISCOVERY_ENABLE_GOOGLE_NEWS !== "false") providers.push("googlenews");
+    if (process.env.DEEPSEEK_API_KEY && process.env.NEWS_DISCOVERY_ENABLE_DEEPSEEK_SEARCH !== "false") providers.push("deepseek");
     if (process.env.BRAVE_SEARCH_API_KEY) providers.unshift("brave");
     if (process.env.NEWS_DISCOVERY_ENABLE_BING === "true") providers.push("bing");
     return providers;
@@ -375,10 +580,14 @@ async function scheduleProvider<T>(provider: NewsDiscoveryProvider, minDelayMs: 
 async function runProvider(provider: NewsDiscoveryProvider, query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const configuredBraveMinDelayMs = Number(process.env.BRAVE_SEARCH_MIN_DELAY_MS || DEFAULT_BRAVE_MIN_DELAY_MS);
   const braveMinDelayMs = Math.max(options.minDelayMs, Number.isFinite(configuredBraveMinDelayMs) ? configuredBraveMinDelayMs : DEFAULT_BRAVE_MIN_DELAY_MS);
-  const minDelayMs = provider === "brave" ? braveMinDelayMs : options.minDelayMs;
+  const configuredDeepSeekMinDelayMs = Number(process.env.DEEPSEEK_SEARCH_MIN_DELAY_MS || DEFAULT_DEEPSEEK_MIN_DELAY_MS);
+  const deepSeekMinDelayMs = Number.isFinite(configuredDeepSeekMinDelayMs) ? configuredDeepSeekMinDelayMs : DEFAULT_DEEPSEEK_MIN_DELAY_MS;
+  const minDelayMs = provider === "brave" ? braveMinDelayMs : provider === "deepseek" ? deepSeekMinDelayMs : options.minDelayMs;
   return scheduleProvider(provider, minDelayMs, () => {
     if (provider === "brave") return braveSearch(query, options);
+    if (provider === "deepseek") return deepSeekSearch(query, options);
     if (provider === "duckduckgo") return duckDuckGoSearch(query, options);
+    if (provider === "googlenews") return googleNewsSearch(query, options);
     return bingSearch(query, options);
   });
 }

@@ -38,6 +38,7 @@ async function run() {
   // Load collectors after dotenv so their configuration reflects this run.
   const { collectSearchLedIncidents, ingestSearchLedAttacks } = await import("../src/lib/search-led-discovery");
   const { DuplicateCheckerService } = await import("../src/lib/duplicate-checker");
+  const { searchLaneAlerts: laneAlerts, probeBraveLane } = await import("../src/lib/search-lane-health");
   const { persistIncidentReviews, persistDuplicateReviewPairs, retryIncidentReviews, sweepIncidentReviews } = await import("../src/lib/incident-review");
   const { default: ScanRun } = await import("../src/lib/models/ScanRun");
   const { assertActiveAttackDateIntegrity } = await import("../src/lib/attack-data-integrity");
@@ -63,6 +64,14 @@ async function run() {
 
     const { attacks, report } = await collectSearchLedIncidents(states, lookbackHours);
     console.log("Search report:", JSON.stringify(report));
+
+    // A search lane that is down does not fail the scan, it just shrinks it
+    // (Brave's quota ran out on 2026-10-16 and the next 13 days of scans were
+    // all DEGRADED with nobody told). Surface it as its own signal so the host
+    // can alert on it without arming a retry, which cannot fix a quota.
+    const braveProbe = await probeBraveLane();
+    const searchLaneAlerts = laneAlerts([...report.searchFailures, ...(braveProbe ? [braveProbe] : [])], states.length);
+    if (searchLaneAlerts.length) console.warn(`SEARCH LANE ALERT: ${searchLaneAlerts.join("; ")}`);
 
     const ingest = attacks.length > 0
       ? await ingestSearchLedAttacks(attacks, `SearchLedScan/${lookbackHours}h`)
@@ -104,6 +113,7 @@ async function run() {
       runId,
       runFinishedAt: new Date().toISOString(),
       coverageStatus,
+      searchLaneAlerts,
       reviewQueued,
       reviewRetries,
       fetchFailureBudget,
@@ -170,6 +180,7 @@ async function run() {
         `- Jurisdictions: ${report.queriesRun}/${states.length}`,
         `- URLs: ${report.urlsDiscovered} found, ${report.urlsFetched} fetched, ${report.fetchRetries} retry attempts, ${report.fetchFailures.length} unresolved fetch errors (budget ${fetchFailureBudget})`,
         `- Search provider errors: ${report.searchFailures.length}`,
+        `- Search lane alerts: ${searchLaneAlerts.length ? searchLaneAlerts.join("; ") : "none"}`,
         `- Candidates: ${report.candidates} admitted, ${report.reviewLeads.length} sent to review, ${report.rejected} rejected`,
         `- Database: ${ingest.inserted} inserted, ${ingest.merged} merged, ${ingest.reviewRequired.length} duplicate conflicts held for review, ${ingest.errors} errors`,
         `- DeepSeek: ${report.deepseekCalls} calls, ${report.deepseekConfirmed} confirmed, ${report.deepseekRejected} rejected, ${report.deepseekReviewRequired} held for review, ${report.deepseekErrors} errors`,

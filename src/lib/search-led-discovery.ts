@@ -661,11 +661,27 @@ export async function collectSearchLedIncidents(
         let retries = 0;
         let fallback: Awaited<ReturnType<typeof discoverForQuery>> | null = null;
 
-        // Free-first lane.
-        const free = await discoverForQuery(query, state, ["duckduckgo"], budget, report);
-        let found = await fetchAndExtract(absorbResults(free.results, seenUrls, report), report, minMs, maxMs);
+        // Primary lane: DuckDuckGo, Google News and DeepSeek Search. None shares
+        // Brave's monthly quota, and DeepSeek is pay-per-call with no cliff. One
+        // lane failing is recorded in searchFailures but only counts as a failed
+        // primary lane when every lane fails.
+        const freeLanes = [await discoverForQuery(query, state, ["duckduckgo"], budget, report)];
+        if (process.env.NEWS_DISCOVERY_ENABLE_GOOGLE_NEWS !== "false") {
+          freeLanes.push(await discoverForQuery(query, state, ["googlenews"], budget, report));
+        }
+        if (process.env.DEEPSEEK_API_KEY && process.env.NEWS_DISCOVERY_ENABLE_DEEPSEEK_SEARCH !== "false") {
+          freeLanes.push(await discoverForQuery(query, state, ["deepseek"], budget, report));
+        }
+        const free = {
+          succeeded: freeLanes.some((lane) => lane.succeeded),
+          hadFailure: freeLanes.every((lane) => lane.hadFailure),
+        };
+        let found = await fetchAndExtract(
+          freeLanes.flatMap((lane) => absorbResults(lane.results, seenUrls, report)),
+          report, minMs, maxMs,
+        );
 
-        // Retry only states where the primary search failed or produced no
+        // Retry only states where the primary lane failed or produced no
         // admissible direct-source candidate. Brave is preferred when budgeted;
         // Bing remains the no-key provider fallback.
         if (free.hadFailure || found.length === 0) {

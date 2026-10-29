@@ -2,9 +2,10 @@
 Description=Terror Tracker scan cadence (replaces the GitHub Actions schedule)
 
 [Timer]
-# The four daily slots the workflow used, pinned to UTC so the host's
-# Europe/Berlin clock and its DST shift cannot move them.
-OnCalendar=*-*-* 06,09,12,15:30 UTC
+# Two daily slots, 09:00 and 21:00 Lagos (WAT, UTC+1, no DST), pinned to UTC so
+# the host's Europe/Berlin clock and its DST shift cannot move them. The weekly
+# catch-up sits at Sunday 14:00 UTC so it can never overlap either slot.
+OnCalendar=*-*-* 08,20:00:00 UTC
 AccuracySec=1min
 RandomizedDelaySec=60
 # Catch up after downtime instead of silently skipping a slot.

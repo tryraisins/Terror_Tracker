@@ -16,6 +16,7 @@ verification steps at the bottom.
   run-scan.sh
   scan-alert.sh
   scan-deadman.sh
+  search-lane-alert.sh
 /etc/terror-tracker/
   app.env               600 root:root
   scan.env              600 root:root
@@ -46,7 +47,7 @@ chown -R 1000:1000 /var/log/terror-tracker
    both hostnames. Verify the three `TURNSTILE_*` keys exist: `netlify env:list`
    does not show them, and without them admin login returns 503.
 5. **Files.** Copy `compose.yaml`, `deploy.sh`, `run-scan.sh`, `scan-alert.sh`,
-   `scan-deadman.sh` into `/srv/terror-tracker/` and `chmod 755` the `.sh` files.
+   `scan-deadman.sh`, `search-lane-alert.sh` into `/srv/terror-tracker/` and `chmod 755` the `.sh` files.
 6. **First deploy.** `docker login ghcr.io` once, then
    `/srv/terror-tracker/deploy.sh <sha>`.
 7. **Timers.** Copy `systemd/*` into `/etc/systemd/system/`, then:
@@ -64,9 +65,10 @@ systemctl list-timers 'terror-*' 'scan-*'
 ## Why the weekly window is a separate unit
 
 The workflow computed a 336-hour lookback and `SEARCH_FRESHNESS=month` for the
-Sunday 19:30 slot. `run-scan.sh --weekly` passes those three values through `-e`
-so the weekly catch-up behaves exactly as before. The other four slots use the
-values in `scan.env`.
+Sunday catch-up slot (now 14:00 UTC, clear of the 08:00 and 20:00 UTC daily
+slots). `run-scan.sh --weekly` passes those three values through `-e` so the
+weekly catch-up behaves exactly as before. The two daily slots use the values in
+`scan.env`.
 
 ## Alerts
 

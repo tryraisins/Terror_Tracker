@@ -57,6 +57,10 @@ find "$REPORTS" -name 'scan-*.json' -type f -mtime +30 -delete 2>/dev/null || tr
 
 echo "scan finished with status $STATUS"
 
+# Tell the operator once a day if a search lane is down. A notification only:
+# it must not change the scan's exit status or arm a retry.
+"$BASE/search-lane-alert.sh" || echo "search lane alert check failed (see above)" >&2
+
 # Adjudication is paused. Two independent reviews found that the pass could close
 # a stored-pair review by comparing the record with itself, and that dismissing a
 # distinct candidate loses an unrecorded event. It stays out of the scan until

@@ -1,8 +1,10 @@
 [Unit]
-Description=Weekly catch-up slot (Sunday 19:30 UTC, fourteen-day window)
+Description=Weekly catch-up slot (Sunday 14:00 UTC, fourteen-day window)
 
 [Timer]
-OnCalendar=Sun 19:30 UTC
+# Clear of the 08:00 and 20:00 daily slots: run-scan.sh holds a flock, so an
+# overlapping slot exits 75 and raises a failure alert.
+OnCalendar=Sun 14:00:00 UTC
 AccuracySec=1min
 RandomizedDelaySec=60
 Persistent=true
