@@ -175,3 +175,27 @@ export function countQuoteSupports(quote: string, value: number, victims: "kille
     return words.some((word) => TOLL_NOUNS[victims].has(word));
   });
 }
+/**
+ * Sentence spans of a text, used to give a quote a position rather than an identity
+ * by wording. Two events quoting the same sentence must collide even when they quote
+ * different fragments of it, and two sentences that happen to read the same must not.
+ */
+export function sentenceSpans(text: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = [];
+  const boundary = /[.!?](?:\s|$)|\n+/g;
+  let start = 0;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(text)) !== null) {
+    spans.push({ start, end: boundary.lastIndex });
+    start = boundary.lastIndex;
+  }
+  if (start < text.length) spans.push({ start, end: text.length });
+  return spans;
+}
+
+/** The start offset of the sentence that contains `index`, or -1. */
+export function sentenceStartAt(spans: Array<{ start: number; end: number }>, index: number): number {
+  if (index < 0) return -1;
+  const span = spans.find((candidate) => index >= candidate.start && index < candidate.end);
+  return span ? span.start : -1;
+}

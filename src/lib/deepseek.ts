@@ -11,11 +11,12 @@
 
 import { RawAttackData, dateEvidenceFromText, hasOnlyNonEventDates } from "./free-news";
 import { normalizeStateName } from "./normalize-state";
+import { plausiblePlaceVariant } from "./location-identity";
 import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
 import type { LocationPrecision } from "./incident-uncertainty";
 import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkage";
-import { countQuoteSupports, findTollSentence, normalizeForQuote } from "./quote-grounding";
+import { countQuoteSupports, findTollSentence, normalizeForQuote, sentenceSpans, sentenceStartAt } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -485,6 +486,7 @@ export async function cleanAndConfirmIncident(
   // was paraphrased without any risk of borrowing another event's evidence.
   const multiEventArticle = parsed.incidents.length > 1;
   const usedEvidence = new Set<string>();
+  const articleSpans = sentenceSpans(normalizedArticle);
   for (const raw of parsed.incidents) {
     if (!raw || typeof raw !== "object") return { confirmed: false, reviewRequired: true, reason: "DeepSeek returned an invalid event record" };
     const event = raw as Record<string, unknown>;
@@ -595,10 +597,16 @@ export async function cleanAndConfirmIncident(
     // Per-event placement is checked after the general guard, so a rejection names the
     // real cause: a missing or unverifiable date is not a multi-event problem.
     if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !quoteNamesPlace(effectiveDateEvidence))) {
+      // A different spelling of the same settlement is not a licence to attach a
+      // figure, and it is not a reason to lose one either. Name the discrepancy and
+      // let a person decide, the same way the project treats any plausible pair.
+      const variant = plausiblePlaceVariant(`${locationEvidence} ${effectiveDateEvidence}`, [town, lga].filter(Boolean));
       return {
         confirmed: false,
         reviewRequired: true,
-        reason: "Article reports several events and the date or location evidence does not name this event's own settlement",
+        reason: variant
+          ? `Article spells the settlement "${variant}" where the record has "${town || lga}"; the figure cannot be attached without a person`
+          : "Article reports several events and the date or location evidence does not name this event's own settlement",
       };
     }
 
@@ -698,22 +706,24 @@ export async function cleanAndConfirmIncident(
     // One sentence cannot ground two different events. In a multi-event article that
     // is the shape of an aggregate statement ("in the two attacks, 19 died").
     if (multiEventArticle) {
-      const eventQuotes = [effectiveDateEvidence, locationEvidence,
+      // Identity is the sentence's position in the article, not its wording: two
+      // events quoting different fragments of one sentence must collide, and two
+      // sentences that happen to read the same must not.
+      const eventSentenceStarts = [effectiveDateEvidence, locationEvidence,
         ...countFields.map((field) => String(casualtyMeta[field]?.sourceText || ""))]
         .map((value) => normalizeForQuote(value))
-        .filter(Boolean);
-      // Exact match alone misses a quote that is a sub-span of another event's
-      // sentence, so a long quote also counts as reused when one contains the other.
-      const reused = eventQuotes.find((quote) => [...usedEvidence].some((seen) =>
-        seen === quote || ((quote.length > 40 || seen.length > 40) && (seen.includes(quote) || quote.includes(seen)))));
-      if (reused) {
+        .filter(Boolean)
+        .map((quote) => sentenceStartAt(articleSpans, normalizedArticle.indexOf(quote)))
+        .filter((start) => start >= 0);
+      const reused = eventSentenceStarts.find((start) => usedEvidence.has(String(start)));
+      if (reused !== undefined) {
         return {
           confirmed: false,
           reviewRequired: true,
           reason: "Article reports several events and one sentence would ground two of them",
         };
       }
-      for (const quote of eventQuotes) usedEvidence.add(quote);
+      for (const start of eventSentenceStarts) usedEvidence.add(String(start));
     }
 
     const scopeRejection = screenIncidentCandidate({ title: cleaned.title, description: cleaned.description, group: cleaned.group });

@@ -181,3 +181,41 @@ export function sameLga(a: string | null | undefined, b: string | null | undefin
   if (isUnknownPlace(a) || isUnknownPlace(b)) return false;
   return placesEquivalent(a, b);
 }
+
+/**
+ * Find a place name in a text that is plausibly the same settlement but not the
+ * same spelling, e.g. "Binari" for "Binnari".
+ *
+ * This deliberately returns the variant rather than answering yes or no. The project
+ * treats a plausible pair as a question for a person, not as permission to attach a
+ * figure: Kajuru and Kauru sit in the same class as a genuine typo, and only review
+ * can tell them apart.
+ */
+export function plausiblePlaceVariant(text: string, places: string[]): string | null {
+  // Only name-like tokens can form a window. Without this, "in binnari" reads as a
+  // two-word variant of "Binnari" and every exact spelling looks like a variant.
+  const filler = new Set([
+    "in", "at", "on", "the", "a", "an", "of", "and", "were", "was", "is", "are", "for", "from", "to",
+    "near", "around", "by", "with", "killed", "dead", "died", "bodies", "people", "residents", "gunmen",
+    "when", "after", "before", "that", "this", "their", "his", "her", "its", "said", "also", "over",
+  ]);
+  const words = normalizePlaceTokens(text).filter((word) => !filler.has(word) && word.length >= 3);
+  if (!words.length) return null;
+  const windows: string[] = [];
+  for (let index = 0; index < words.length; index++) {
+    windows.push(words[index]);
+    if (index + 1 < words.length) windows.push(`${words[index]} ${words[index + 1]}`);
+  }
+  for (const place of places) {
+    if (!place || isUnknownPlace(place)) continue;
+    // A window only competes with a place of the same length: "binnari ten" is not
+    // a variant of "Binnari", it is the exact name followed by another word.
+    const placeWords = normalizePlaceTokens(place).length;
+    for (const window of windows) {
+      if (window.split(" ").length !== placeWords) continue;
+      if (placesEquivalent(window, place)) continue;
+      if (placesPlausiblySame(window, place)) return window;
+    }
+  }
+  return null;
+}
