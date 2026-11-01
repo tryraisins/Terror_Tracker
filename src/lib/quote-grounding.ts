@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Grounding rules for an auto-resolved duplicate lead.
  *
  * The candidate article is the reason the pair matched in the first place, so a
@@ -14,6 +14,9 @@
  * accepted quote is written to the disposition note and the artifact so the
  * decision can be read and reversed.
  */
+
+export const TOLL_CATEGORIES = ["killed", "abducted", "injured", "displaced"] as const;
+export type TollCategory = (typeof TOLL_CATEGORIES)[number];
 
 const STOPWORDS = new Set([
   "about", "after", "again", "against", "allege", "alleged", "also", "among", "another", "area", "around",
@@ -38,11 +41,6 @@ const NUMBER_WORDS: Record<string, number> = {
 };
 
 const TENS = new Set([20, 30, 40, 50, 60, 70, 80, 90]);
-const VICTIM_NOUNS = new Set([
-  "killed", "dead", "died", "death", "deaths", "bodies", "body", "corpses", "corpse", "casualties",
-  "abducted", "kidnapped", "injured", "wounded", "displaced", "victims", "persons", "people",
-  "villagers", "worshippers", "residents", "farmers", "traders", "students", "children", "travellers",
-]);
 
 /** Numbers as written, so "1,200" and "twenty-five" are single values. */
 export function numbersIn(text: string): Set<number> {
@@ -83,7 +81,7 @@ export function anchorCandidates(recordEvidenceText: string, exclude: string[]):
  * is usually still in the article, attached to a different sentence than the model
  * reproduced. Returns the sentence when found, so it can serve as sourceText.
  */
-export function findTollSentence(articleText: string, value: number, victims: "killed" | "abducted" | "injured" | "displaced"): string | null {
+export function findTollSentence(articleText: string, value: number, victims: TollCategory): string | null {
   const nouns = TOLL_NOUNS[victims];
   const sentences = articleText.split(/(?<=[.!?])\s+|\n+/);
   for (const sentence of sentences) {
@@ -95,18 +93,28 @@ export function findTollSentence(articleText: string, value: number, victims: "k
   return null;
 }
 
-export const TOLL_NOUNS: Record<"killed" | "abducted" | "injured" | "displaced", Set<string>> = {
-  killed: new Set(["killed", "dead", "died", "death", "deaths", "bodies", "body", "corpses", "corpse", "casualties"]),
-  abducted: new Set(["abducted", "kidnapped", "kidnap", "missing", "hostages"]),
-  injured: new Set(["injured", "wounded", "hospital", "hospitalised", "hospitalized"]),
-  displaced: new Set(["displaced", "shelter", "camp", "fled"]),
+/**
+ * Verb forms matter: outlets state a toll as often as "killing more than 20
+ * people" as "20 people were killed", and the gerund carries the same victim
+ * category. Missing them dropped a figure whose sentence was sitting in the
+ * article verbatim.
+ */
+export const TOLL_NOUNS: Record<TollCategory, Set<string>> = {
+  killed: new Set([
+    "kill", "kills", "killed", "killing", "slain", "murdered", "slaughtered", "perished",
+    "dead", "died", "death", "deaths", "bodies", "body", "corpses", "corpse", "casualties",
+  ]),
+  abducted: new Set(["abduct", "abducted", "abducting", "abduction", "kidnap", "kidnapped", "kidnapping", "missing", "hostages"]),
+  injured: new Set(["injured", "injuring", "wounded", "wounding", "hospital", "hospitalised", "hospitalized"]),
+  displaced: new Set(["displaced", "displacing", "shelter", "camp", "fled"]),
 };
 
 export interface GroundingInput {
   quote: string;
   articleText: string;
   place: string;
-  tollFigures: number[];
+  /** Each side's toll with its own victim category, so a count cannot ground another. */
+  tolls: Array<{ value: number; victims: TollCategory }>;
   recordEvidenceText: string;
   /** Fields the pair already shares, so their words cannot count as an anchor. */
   sharedFields: string[];
@@ -120,10 +128,10 @@ export interface GroundingResult {
 
 /**
  * A quote counts only when it is one sentence of the body, long enough to carry
- * information, names the settlement, states one of the two records' tolls next to
- * a victim word, and shares a distinctive detail with the stored record.
+ * information, names the settlement, states one of the two records' tolls for that
+ * toll's own victim category, and shares a distinctive detail with the stored record.
  */
-export function groundingCheck({ quote, articleText, place, tollFigures, recordEvidenceText, sharedFields }: GroundingInput): GroundingResult {
+export function groundingCheck({ quote, articleText, place, tolls, recordEvidenceText, sharedFields }: GroundingInput): GroundingResult {
   const normalizedQuote = normalizeForQuote(quote);
   if (normalizedQuote.length < 60) return { ok: false, why: `quote too short (${normalizedQuote.length} chars)` };
 
@@ -138,15 +146,12 @@ export function groundingCheck({ quote, articleText, place, tollFigures, recordE
   if (wanted.length < 3) return { ok: false, why: "record has no usable settlement name to anchor the quote" };
   if (!` ${normalizedQuote} `.includes(` ${wanted} `)) return { ok: false, why: "quote does not name the settlement" };
 
-  const figures = new Set(tollFigures.filter((value) => Number.isFinite(value) && value > 0));
-  if (!figures.size) return { ok: false, why: "neither record states a toll to anchor the quote" };
-  const tokens = normalizedQuote.split(" ");
-  const statesToll = tokens.some((token, index) => {
-    const window = tokens.slice(Math.max(0, index - 3), index + 4);
-    if (!window.some((word) => VICTIM_NOUNS.has(word))) return false;
-    return [...numbersIn(window.join(" "))].some((value) => figures.has(value));
-  });
-  if (!statesToll) return { ok: false, why: "quote does not state either record's toll next to a victim count" };
+  const stated = tolls.filter((toll) => Number.isFinite(toll.value) && toll.value > 0);
+  if (!stated.length) return { ok: false, why: "neither record states a toll to anchor the quote" };
+  // Category-aware: "20 were injured" must not anchor a killed toll. The old window test
+  // accepted any victim noun near any figure, which is how a count could cross categories.
+  const matchesToll = stated.some((toll) => tollClause(quote, toll.value, toll.victims) != null);
+  if (!matchesToll) return { ok: false, why: "quote does not state either record's toll for its own victim category" };
 
   // The article produced the candidate, so quoting it is weak on its own. Require a
   // distinctive detail that belongs to the STORED record and is not merely a field
@@ -159,22 +164,39 @@ export function groundingCheck({ quote, articleText, place, tollFigures, recordE
 }
 
 /**
- * Does this quote actually state the count, for this victim category?
+ * The clause that states this figure for this victim category, or null.
  *
  * A verbatim quote proves nothing on its own: "three killed, seven abducted" is in
  * the article, and it will happily ground a model figure of seven killed. The number
  * and the category word have to sit in the same clause.
  */
-export function countQuoteSupports(quote: string, value: number, victims: "killed" | "abducted" | "injured" | "displaced"): boolean {
-  if (!quote || !Number.isFinite(value)) return false;
+export function tollClause(quote: string, value: number, victims: TollCategory): string | null {
+  if (!quote || !Number.isFinite(value)) return null;
   // Commas inside a number ("1,200") are not clause breaks.
   const clauses = quote.split(/(?<!\d),(?!\d)|[;:.()]|\band\b|\bwhile\b|\bwith\b/gi);
-  return clauses.some((clause) => {
-    if (!numbersIn(clause).has(value)) return false;
-    const words = normalizeForQuote(clause).split(" ").filter(Boolean);
+  const clause = clauses.find((part) => {
+    if (!numbersIn(part).has(value)) return false;
+    const words = normalizeForQuote(part).split(" ").filter(Boolean);
     return words.some((word) => TOLL_NOUNS[victims].has(word));
   });
+  return clause ?? null;
 }
+
+export function countQuoteSupports(quote: string, value: number, victims: TollCategory): boolean {
+  return tollClause(quote, value, victims) != null;
+}
+/**
+ * Does this normalized text name this normalized place as a whole word?
+ *
+ * Substring matching is not enough: a settlement that is the prefix of a neighbouring one
+ * ("Bori" inside "Borin") would let a quote about the neighbour ground this event.
+ */
+export function textNamesPlace(text: string, place: string): boolean {
+  if (!text || !place || place.length <= 2) return false;
+  const escaped = place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(text);
+}
+
 /**
  * Sentence spans of a text, used to give a quote a position rather than an identity
  * by wording. Two events quoting the same sentence must collide even when they quote

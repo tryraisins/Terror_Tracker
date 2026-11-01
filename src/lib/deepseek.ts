@@ -16,7 +16,7 @@ import { screenIncidentCandidate } from "./incident-scope";
 import { normalizeIncidentDate } from "./incident-date";
 import type { LocationPrecision } from "./incident-uncertainty";
 import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkage";
-import { countQuoteSupports, findTollSentence, normalizeForQuote, sentenceSpans, sentenceStartAt } from "./quote-grounding";
+import { countQuoteSupports, findTollSentence, normalizeForQuote, sentenceSpans, sentenceStartAt, textNamesPlace, tollClause } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -578,8 +578,7 @@ export async function cleanAndConfirmIncident(
     // the date and by the quote that grounds the place, otherwise the sentence may
     // be about a different attack in the same piece.
     const placeForQuote = hasTown ? normalizeEvidenceText(town) : hasLga ? normalizeEvidenceText(lga) : normalizeEvidenceText(stateValue);
-    const quoteNamesPlace = (quote: string) => !multiEventArticle
-      || (placeForQuote.length > 2 && quote.includes(placeForQuote));
+    const quoteNamesPlace = (quote: string) => !multiEventArticle || textNamesPlace(quote, placeForQuote);
     // The quote must not be the page dateline or a reacting body's own sitting
     // ("The Senate Wednesday called for..."). The context was built above so the
     // date reparse and this guard judge the same words.
@@ -616,23 +615,38 @@ export async function cleanAndConfirmIncident(
     const casualtyMeta: Record<string, { precision: "exact" | "range"; min: number | null; max: number | null; estimate: number | null; sourceText?: string }> = {};
     for (const field of countFields) {
       const value = toCount(event[field]);
+      const victims = field === "kidnapped" ? "abducted" : field;
       let quote = evidence(`${field}Evidence`);
-      const quoteSupported = Boolean(quote) && (quote as string).length > 0 && normalizedArticle.includes(quote as string) && countQuoteSupports(quote as string, value ?? 0, field === "kidnapped" ? "abducted" : field);
+      const quoteSupports = (candidateQuote: string) => Boolean(candidateQuote) &&
+        normalizedArticle.includes(candidateQuote) &&
+        countQuoteSupports(candidateQuote, value ?? 0, victims);
+      let quoteSupported = quoteSupports(quote);
       // A figure the model quoted loosely is usually still in the article, attached
       // to a different sentence. Look for it before giving up on the number, but only
       // when this article holds a single event: in a roundup that sentence may belong
-      // to another attack.
+      // to another attack. The rescued sentence is cut from the raw article, so it has
+      // to be normalized before it can be compared with the normalized article, and its
+      // support has to be judged again instead of inherited from the rejected quote.
       if (value != null && !quoteSupported && !multiEventArticle) {
-        const rescued = findTollSentence(articleText, value, field === "kidnapped" ? "abducted" : field);
-        if (rescued) quote = rescued;
+        const rescued = findTollSentence(articleText, value, victims);
+        if (rescued) {
+          const normalizedRescued = normalizeEvidenceText(rescued);
+          if (quoteSupports(normalizedRescued)) {
+            quote = normalizedRescued;
+            quoteSupported = true;
+          }
+        }
       }
       // In a multi-event article the quote has to belong to this event. One that does
       // not name this record's own settlement may be another attack's figure or the
       // article-wide total, so the figure is dropped rather than trusted.
-      if (value != null && multiEventArticle && quote && !quoteNamesPlace(quote as string)) {
+      if (value != null && multiEventArticle && quote && !quoteNamesPlace(quote)) {
         quote = "";
       }
-      const supported = Boolean(quote) && (quoteSupported || normalizedArticle.includes(quote as string));
+      // Being in the article is not the same as stating the figure: "three killed,
+      // seven abducted" is verbatim and would otherwise publish seven killed. The
+      // clause test is the gate, and textual presence is already part of it.
+      const supported = Boolean(quote) && quoteSupported;
       if (value != null && !supported) {
         // Unsupported: record the incident without the figure rather than withholding
         // the incident. A record with the right date and place and an unknown toll is
@@ -643,16 +657,20 @@ export async function cleanAndConfirmIncident(
       }
       counts[field] = value;
       if (value != null) {
-        const isMinimum = /\b(?:more than|over|at least|no fewer than)\b/i.test(quote as string);
-        const minimum = isMinimum ? value + (/\b(?:more than|over)\b/i.test(quote as string) ? 1 : 0) : value;
+        // "More than 20" and "at least 20" both mean the outlet will not stand behind a
+        // final figure, so the record keeps 20 as an open minimum and the UI shows 20+.
+        // Raising it to 21 would assert a death the source never counted. The qualifier
+        // is read from the clause that carries this figure, because the sentence may say
+        // "twenty were killed and at least five were injured".
+        const clause = tollClause(quote, value, victims) ?? quote;
+        const isMinimum = /\b(?:more than|over|at least|no fewer than)\b/i.test(clause);
         casualtyMeta[field] = {
           precision: isMinimum ? "range" : "exact",
-          min: minimum,
+          min: value,
           max: isMinimum ? null : value,
-          estimate: minimum,
-          sourceText: typeof quote === "string" ? quote.slice(0, 300) : undefined,
+          estimate: value,
+          sourceText: quote.slice(0, 300),
         };
-        if (isMinimum) counts[field] = minimum;
       }
     }
 
@@ -662,6 +680,11 @@ export async function cleanAndConfirmIncident(
       ? (event.status as RawAttackData["status"])
       : "unconfirmed";
     if (!title || !VALID_STATUSES.has(status)) return { confirmed: false, reviewRequired: true, reason: "Event title or status is invalid" };
+    // A range or a minimum toll is a figure still in motion, so the record cannot sit
+    // at "unconfirmed" while its own casualties say the count is open. This is the same
+    // rule the heuristic path applies before cleanup ever runs.
+    const openEndedToll = Object.values(casualtyMeta).some((meta) => meta.precision === "range");
+    const resolvedStatus: RawAttackData["status"] = status === "unconfirmed" && openEndedToll ? "developing" : status;
     // The model replaces the heuristic location with a town and LGA that carry
     // article evidence, so precision must follow those fields. Copying the
     // pre-extraction guess left records claiming a state-level location while
@@ -700,7 +723,7 @@ export async function cleanAndConfirmIncident(
       group,
       casualties: counts as RawAttackData["casualties"],
       casualtyMeta,
-      status: effectiveDate.datePrecision === "exact_day" ? status : "developing",
+      status: effectiveDate.datePrecision === "exact_day" ? resolvedStatus : "developing",
       tags: cleanedTags,
     };
     // One sentence cannot ground two different events. In a multi-event article that

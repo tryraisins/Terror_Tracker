@@ -474,8 +474,14 @@ export function extractCasualtyAssessment(text: string, terms: string): Casualty
     if (value != null) {
       const qualifier = counted[1]?.replace(/\s+/g, " ").toLowerCase();
       if (qualifier) {
-        const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
-        const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+        // An open-ended minimum ("at least 20", "more than 20") keeps the written
+        // figure as the floor and no ceiling, so the UI shows 20+. Raising it, or
+        // reporting a midpoint, states a number the outlet never committed to.
+        if (/^(?:over|more than|at least)$/.test(qualifier)) {
+          return { precision: "range", min: value, max: null, estimate: value, sourceText: counted[0] };
+        }
+        const min = Math.max(0, Math.floor(value * 0.9));
+        const max = /nearly/.test(qualifier) ? value : Math.ceil(value * 1.1);
         return { precision: "estimate", min, max, estimate: value, sourceText: counted[0] };
       }
       return { precision: "exact", min: value, max: value, estimate: value, sourceText: counted[0] };
@@ -489,8 +495,11 @@ export function extractCasualtyAssessment(text: string, terms: string): Casualty
     if (value != null) {
       const qualifier = verbFirst[1]?.replace(/\s+/g, " ").toLowerCase();
       if (qualifier) {
-        const min = /over|more than|at least/.test(qualifier) ? value : Math.max(0, Math.floor(value * 0.9));
-        const max = /nearly/.test(qualifier) ? value : /about|around|approximately/.test(qualifier) ? Math.ceil(value * 1.1) : null;
+        if (/^(?:over|more than|at least)$/.test(qualifier)) {
+          return { precision: "range", min: value, max: null, estimate: value, sourceText: verbFirst[0] };
+        }
+        const min = Math.max(0, Math.floor(value * 0.9));
+        const max = /nearly/.test(qualifier) ? value : Math.ceil(value * 1.1);
         return { precision: "estimate", min, max, estimate: value, sourceText: verbFirst[0] };
       }
       return { precision: "exact", min: value, max: value, estimate: value, sourceText: verbFirst[0] };

@@ -33,7 +33,7 @@ import Attack from "../src/lib/models/Attack";
 import IncidentReview, { normalizeIncidentReviewSourceUrl } from "../src/lib/models/IncidentReview";
 import { assessTollConflict, extractArticleClaims, type DuplicateCheckIncident } from "../src/lib/deepseek";
 import { fetchArticleText, mergeSourceMetadata } from "../src/lib/search-led-discovery";
-import { groundingCheck } from "../src/lib/quote-grounding";
+import { groundingCheck, type TollCategory } from "../src/lib/quote-grounding";
 import { claimsLink, type ArticleClaims } from "../src/lib/claim-linkage";
 import { normalizeStateName } from "../src/lib/normalize-state";
 import { placesEquivalent, sameLga } from "../src/lib/location-identity";
@@ -127,6 +127,17 @@ const toToll = (value: Record<string, number | null | undefined> | null | undefi
   kidnapped: value?.kidnapped ?? null,
   displaced: value?.displaced ?? null,
 });
+
+/** Each side's toll paired with its category, so a quote cannot ground the wrong one. */
+const toTollClaims = (toll: Toll): Array<{ value: number; victims: TollCategory }> =>
+  ([
+    ["killed", toll.killed],
+    ["abducted", toll.kidnapped],
+    ["injured", toll.injured],
+    ["displaced", toll.displaced],
+  ] as Array<[TollCategory, number | null]>)
+    .filter(([, value]) => typeof value === "number")
+    .map(([victims, value]) => ({ victims, value: value as number }));
 
 const toIncident = (value: {
   title?: string;
@@ -385,16 +396,12 @@ async function main() {
 
       // Verify the quote against the article we fetched. A same-event verdict that
       // cannot point at one real sentence naming the settlement and the toll is a
-      // guess, not a decision.
-      const tollFigures = [
-        existingToll.killed, existingToll.kidnapped, existingToll.injured, existingToll.displaced,
-        candidateToll.killed, candidateToll.kidnapped, candidateToll.injured, candidateToll.displaced,
-      ].filter((value): value is number => typeof value === "number");
-        const grounded = groundingCheck({
+      // guess, not a decision. Both sides' tolls travel with their own category.
+      const grounded = groundingCheck({
         quote: assessment.linkageQuote,
         articleText: candidateArticleText,
         place: existing.location?.town || existing.location?.lga || "",
-        tollFigures,
+        tolls: [...toTollClaims(existingToll), ...toTollClaims(candidateToll)],
         recordEvidenceText,
         sharedFields: [
           existing.title || "",
@@ -402,7 +409,8 @@ async function main() {
           existing.location?.lga || "",
           existing.location?.town || "",
         ],
-      });if (!grounded.ok) {
+      });
+      if (!grounded.ok) {
         summary.held += 1;
         await note({ ...decision, action: "held-ungrounded", why: grounded.why });
         continue;

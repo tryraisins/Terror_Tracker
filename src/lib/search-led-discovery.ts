@@ -352,6 +352,7 @@ async function fetchAndExtract(
   report: SearchLedReport,
   minMs: number,
   maxMs: number,
+  publicationMaxAgeHours = report.lookbackHours,
 ): Promise<RawAttackData[]> {
   const found: RawAttackData[] = [];
   for (let j = 0; j < urls.length; j += ARTICLE_FETCH_CONCURRENCY) {
@@ -370,7 +371,7 @@ async function fetchAndExtract(
         report.urlsFetched++;
         const parts = article.viaJina ? partsFromMarkdown(u.title, article.html) : extractArticleParts(article.html, u.title);
         const publishedAt = (article.viaJina ? readerPublishedAt(article.html) : extractPublishedAt(article.html)) || u.publishedAt || null;
-        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, maxMs, report.lookbackHours, (reason) => {
+        const candidate = buildCandidate(parts, u.url, u.publisher, publishedAt, maxMs, publicationMaxAgeHours, (reason) => {
           report.rejected++;
           report.rejectionReasons[reason] = (report.rejectionReasons[reason] || 0) + 1;
           if (isReviewableRejection(reason) && report.reviewLeads.length < 1000) {
@@ -599,12 +600,14 @@ function buildCandidate(
 
   const tags = ["search-led", group.toLowerCase().replace(/\W+/g, "-")];
   if (location.precision && location.precision !== "exact") tags.push("approximate-location");
+  const openEndedToll = Object.values(casualtyMeta).some(
+    (m) => m?.precision === "estimate" || m?.precision === "range" || m?.precision === "unknown",
+  );
   if (Object.values(casualtyMeta).some((m) => m?.precision === "estimate" || m?.precision === "range")) tags.push("casualty-uncertainty");
-  const status =
-    Object.values(casualtyMeta).some((m) => m?.precision === "range" || m?.precision === "unknown") ||
-    location.precision !== "exact"
-      ? "developing"
-      : "unconfirmed";
+  // A toll the outlet states as a minimum or an approximation is still moving, so the
+  // record starts at "developing" rather than "unconfirmed". The DeepSeek path applies
+  // the same rule after it rebuilds the counts.
+  const status = openEndedToll || location.precision !== "exact" ? "developing" : "unconfirmed";
 
   return {
     title,
@@ -743,16 +746,24 @@ export async function collectSearchLedIncidents(
 export async function reextractSearchLedSource(
   source: { url: string; title: string; publisher: string },
   lookbackHours = 336,
+  reachHours = lookbackHours,
 ): Promise<{ attacks: RawAttackData[]; report: SearchLedReport }> {
   if (!Number.isFinite(lookbackHours) || lookbackHours < 1 || lookbackHours > 336) {
     throw new Error("lookbackHours must be between 1 and 336");
   }
+  // The 336-hour scan window guards discovery, and it stays the default here. A backfill
+  // re-reads the article that already produced a record, so it may reach further back:
+  // the event is admitted history, not a new discovery. The article still has to support
+  // the date, place and toll it is read for.
+  if (!Number.isFinite(reachHours) || reachHours < 1) {
+    throw new Error("reachHours must be a positive number");
+  }
   const windowEnd = new Date();
-  const minMs = windowEnd.getTime() - lookbackHours * 3_600_000;
+  const minMs = windowEnd.getTime() - reachHours * 3_600_000;
   const maxMs = windowEnd.getTime() + 2 * 3_600_000;
-  const report = createReport(lookbackHours, windowEnd);
+  const report = createReport(reachHours, windowEnd);
   report.urlsDiscovered = 1;
-  const attacks = await fetchAndExtract([source], report, minMs, maxMs);
+  const attacks = await fetchAndExtract([source], report, minMs, maxMs, reachHours);
   const states = new Set([
     ...attacks.map((attack) => attack.location.state),
     ...report.reviewLeads.map((lead) => lead.state).filter((state): state is string => Boolean(state)),
