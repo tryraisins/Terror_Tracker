@@ -14,10 +14,10 @@ export const metadata: Metadata = {
  */
 export default function NotFound() {
   return (
-    <div className="page-wrap">
+    <div>
       <EmptyState
         title="Page not found"
-        action={<Link className="button-secondary" href="/incidents">Browse the record</Link>}
+        action={<Link className="btn" href="/incidents">Browse incidents</Link>}
       >
         This page may have moved, or the record may no longer be included in the public record.
       </EmptyState>

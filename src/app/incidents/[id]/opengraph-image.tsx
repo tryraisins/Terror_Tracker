@@ -1,12 +1,16 @@
 import { ImageResponse } from "next/og";
-import { incidentDateLabel, locationLabel, statusLabel } from "@/lib/incident-view";
 import { getPublicIncident } from "@/lib/incident-public";
+import { NIGERIA_MAP_DATA } from "@/lib/mapData";
+import { dayLabel, placeLine, placeName, toSummaryRow } from "@/lib/summary";
 
 export const runtime = "nodejs";
 export const alt = "NATracker incident record";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
+const STATES = Object.values(NIGERIA_MAP_DATA);
+
+/** The link preview: place, where, date and the toll, with the state lit on a map of Nigeria. Matches the in-page preview. */
 export default async function OpenGraphImage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let incident = null;
@@ -15,34 +19,31 @@ export default async function OpenGraphImage({ params }: { params: Promise<{ id:
   } catch (error) {
     console.error("Unable to render incident preview image:", error);
   }
-
-  const title = incident?.title ?? "Reported incidents across Nigeria";
-  const shortTitle = title.length > 160 ? `${title.slice(0, 157)}...` : title;
-  const location = incident ? locationLabel(incident.location, true) : "Public record · Cited sources · Visible uncertainty";
-  const date = incident ? incidentDateLabel(incident) : "NATracker";
-  const stateColor = incident?.status === "confirmed" ? "#53d17c" : incident?.status === "developing" ? "#ffad58" : "#d7b1a4";
+  const row = incident ? toSummaryRow(incident) : null;
+  const place = row ? placeName(row) : "Attacks across Nigeria";
+  const lit = row ? (row.s === "FCT" ? "Federal Capital Territory" : row.s) : "";
+  const killed = row?.k ? `${row.k.toLocaleString("en-NG")}${row.ko ? "+" : ""} killed` : "";
+  const abducted = row?.ab ? `${row.ab.toLocaleString("en-NG")}${row.abo ? "+" : ""} abducted` : "";
+  const pill = (text: string, background: string, color: string) => <span style={{ display: "flex", padding: "10px 24px", borderRadius: 999, background, color, fontSize: 30, fontWeight: 700 }}>{text}</span>;
 
   return new ImageResponse(
-    <div style={{ display: "flex", width: "100%", height: "100%", padding: 58, background: "#0b0c0f", color: "#f4efe9", fontFamily: "Arial, sans-serif" }}>
-      <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: 42, border: "1px solid #353238", borderRadius: 28, background: "linear-gradient(135deg, #17181c 0%, #111216 72%, #1d1213 100%)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ display: "flex", width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 12, background: "#e53620", fontSize: 25, fontWeight: 800 }}>N</div>
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: 1 }}>NATracker</span>
-            <span style={{ marginTop: 3, color: "#b7a9a3", fontSize: 12, letterSpacing: 2 }}>NIGERIA INCIDENT RECORD</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 9, marginLeft: "auto", padding: "10px 15px", border: "1px solid #514b4b", borderRadius: 22, color: stateColor, fontSize: 15, fontWeight: 700 }}>
-            <span style={{ display: "flex", width: 9, height: 9, borderRadius: 9, background: stateColor }} />{incident ? statusLabel(incident.status) : "PUBLIC RECORD"}
-          </div>
+    <div style={{ display: "flex", width: "100%", height: "100%", background: "#151817", color: "#edf0ee", fontFamily: "sans-serif" }}>
+      <div style={{ display: "flex", flexDirection: "column", width: 744, padding: "72px 0 64px 72px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 28, fontWeight: 800 }}>
+          <svg width="52" height="42" viewBox="0 0 1000 812">{STATES.map((item) => <path key={item.id} d={item.path} fill="#d4694f" stroke="#d4694f" strokeWidth={2} />)}</svg>
+          NATracker
         </div>
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flex: 1, marginTop: 24 }}>
-          <div style={{ display: "flex", marginBottom: 15, color: "#ff806f", fontSize: 16, fontWeight: 700, letterSpacing: 2 }}>{location} · {date}</div>
-          <div style={{ display: "flex", overflow: "hidden", color: "#f4efe9", fontFamily: "Georgia, serif", fontSize: shortTitle.length > 100 ? 40 : shortTitle.length > 65 ? 46 : 54, fontWeight: 700, lineHeight: 1.15 }}>{shortTitle}</div>
+        <div style={{ display: "flex", marginTop: "auto", color: "#b1b8b4", fontSize: 28 }}>{row ? dayLabel(row, true) : "Reported attacks with cited sources"}</div>
+        <div style={{ display: "flex", marginTop: 10, fontSize: place.length > 22 ? 56 : 72, fontWeight: 800, letterSpacing: -2, lineHeight: 1.05 }}>{place.length > 60 ? `${place.slice(0, 57)}...` : place}</div>
+        <div style={{ display: "flex", marginTop: 10, color: "#b1b8b4", fontSize: 30 }}>{row ? placeLine(row) : "terrortracker.tryraisins.dev"}</div>
+        <div style={{ display: "flex", gap: 16, marginTop: 36 }}>
+          {killed ? pill(killed, "#2a1d19", "#e9a291") : null}
+          {abducted ? pill(abducted, "#182230", "#9dbbe2") : null}
+          {row && !killed && !abducted ? pill("Toll not reported yet", "#202423", "#b1b8b4") : null}
         </div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 18, borderTop: "1px solid #353238", color: "#b7a9a3", fontSize: 16 }}>
-          <span>Reported information · Cited sources · Visible uncertainty</span>
-          <span style={{ color: "#e6cfc5", fontWeight: 700 }}>terrortracker.tryraisins.dev</span>
-        </div>
+      </div>
+      <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center", padding: 36, background: "#1d2120" }}>
+        <svg width="384" height="312" viewBox="0 0 1000 812">{STATES.map((item) => <path key={item.id} d={item.path} fill={item.name === lit ? "#edf0ee" : "#2e3432"} stroke="#1d2120" strokeWidth={4} />)}</svg>
       </div>
     </div>,
     { ...size },

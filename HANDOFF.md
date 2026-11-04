@@ -1,5 +1,15 @@
 # Project Handoff
 
+## 2026-11-04 V5 redesign implementation
+
+- The user rejected V3 and a sparse V4 comp, approved the V5 comps (`design/v5-comps/`, local and gitignored) and asked for them to be built. `DESIGN.md` is the source of truth: dark only, app shell (sidebar on desktop, bottom tab bar on phones), panels, muted colour (terracotta killed `#d4694f`, steel blue abducted `#5a8cc8`, neutral attacks), Plus Jakarta Sans only.
+- New public pages: `/patterns` (state-by-month heatmap, attributed perpetrators, deadliest attacks), `/states` and `/states/[state]` (real slugs only; unknown slugs are 404). Rebuilt: `/`, `/map` (`?m=` measure, `?s=` or `?state=` selection, status filter), `/incidents` (same API, filters, deep links, pagination; cards instead of rows), `/incidents/[id]` (share rail, record history), `/about` (`#corrections` anchor), the link-preview image and the sitemap.
+- New `GET /api/summary`: one slim public row per active record this Nigeria year plus the Lagos day; Overview, Map, Patterns and States aggregate it client-side (`src/lib/summary.ts`, `src/lib/use-summary.ts`). `/api/attacks` and `/api/stats` are unchanged.
+- Sharing: `src/components/Share.tsx` (WhatsApp, X, Facebook, Telegram, LinkedIn, copy text, save image, copy link; phones use the native share sheet first). State outlines are defined once per page (`MapDefs` in `src/components/icons.tsx`) and referenced by every locator.
+- Removed the replaced Navbar, Footer, YearChart, NigeriaMap, RecordCard, ShareIncident, ScanStatus and StatusBadge components. Admin keeps its classes, restyled through token aliases in `globals.css`; its header is a simple admin bar.
+- Verification: `npx tsc --noEmit` and `npm run build` pass. Focused ESLint leaves five `react-hooks/set-state-in-effect` errors in lines this change did not touch (admin page, incidents deep-link effect and loader, incident reload); they fail the same way on main. E2E `node scratch/v5-redesign-e2e/v5-e2e.mjs [baseUrl]` passed 9/9 against the local dev server on the production database (read-only): overview totals equal `/api/stats`, controls, map deep links, incidents deep links and pagination, share URLs, preview PNG, sheet focus return, state 200/404, phone overflow and tab bar, design rules, console, admin login. Screenshots and `results.json` sit beside the script.
+- Not verified: real phones and Safari, the authenticated admin workspace, the deployed site (nothing is committed or deployed yet), and Plus Jakarta Sans glyphs in the browser beyond the catalogue's file check. The preview image renders in the default `next/og` font, so weights there are regular.
+
 ## 2026-11-01 Review queue completed
 
 - Completed all **319 pending incident_reviews**, grouped into 199 source URLs. Live verification at 2026-11-01T19:04:20.022Z: **0 pending**, 292 resolved, 25 excluded, and 2 stored-pair reviews dismissed as distinct events with both records retained. There are **657 active incidents** after this run. Future collectors can create new reviews; this is a verified completion snapshot.

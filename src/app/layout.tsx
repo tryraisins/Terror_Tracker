@@ -1,17 +1,14 @@
 import type { Metadata } from "next";
-import { Inter, Inter_Tight } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { connection } from "next/server";
 import { headers } from "next/headers";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import AppShell from "@/components/AppShell";
 import PWARegistration from "@/components/PWARegistration";
 
-// Inter and Inter Tight cover Yoruba (ẹ ọ ṣ), Hausa (ɓ ɗ ƙ ƴ) and Igbo (ị ụ ṅ) place names
-// through the latin-ext and vietnamese subsets. Inter Tight carries titles and large figures;
-// Inter carries text and data.
-const inter = Inter({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-sans", display: "swap" });
-const interTight = Inter_Tight({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-display", display: "swap" });
+// Plus Jakarta Sans is the one catalogue face whose served file carries the Yoruba and Igbo
+// dot-below letters and combining marks; the vietnamese subset holds those letters.
+const jakarta = Plus_Jakarta_Sans({ subsets: ["latin", "latin-ext", "vietnamese"], variable: "--font-sans", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://terrortracker.tryraisins.dev"),
@@ -37,13 +34,13 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
   const nonce = (await headers()).get("x-nonce");
 
-  return <html lang="en" className={`${inter.variable} ${interTight.variable}`}><head>
+  return <html lang="en" className={jakarta.variable}><head>
     {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
-    <meta name="theme-color" content="#0b0b0c" />
+    <meta name="theme-color" content="#111312" />
     <meta name="color-scheme" content="dark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
   </head><body>
-    <a className="skip-link" href="#main-content">Skip to content</a><PWARegistration /><Navbar />
-    <main id="main-content" className="app-main">{children}</main><Footer />
+    <a className="skip-link" href="#main-content">Skip to content</a><PWARegistration />
+    <AppShell>{children}</AppShell>
   </body></html>;
 }
