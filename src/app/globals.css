@@ -192,7 +192,8 @@ a.card:hover { border-color:var(--border-strong); }
 .cmap { display:block; width:100%; height:auto; }
 .cmap path[data-state] { cursor:pointer; }
 .cmap path[data-state]:hover { filter:brightness(1.18); }
-.heat-scroll { overflow-x:auto; }
+/* Positioned so the cells' screen-reader labels stay inside the scroll area instead of widening the page. */
+.heat-scroll { position:relative; overflow-x:auto; }
 .heat { display:grid; grid-template-columns:120px repeat(var(--cols),minmax(0,1fr)) 64px; gap:3px; min-width:760px; font-size:13px; }
 .heat .h { padding-bottom:4px; color:var(--text-3); font-size:12px; text-align:center; }
 .heat .st { display:flex; align-items:center; overflow:hidden; padding-right:8px; color:var(--text); text-overflow:ellipsis; white-space:nowrap; }
