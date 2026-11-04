@@ -4,7 +4,7 @@ Updated 4 November 2026. The current direction is "V5": a calm, panel-based read
 
 ## Thesis
 
-A public record people can read at a glance and share. An app shell (sidebar on desktop, bottom tab bar on phones) holds content in panels. Every chart uses a standard form from the dataviz skill: stat tiles with sparklines, one-series column charts whose title states the finding, a binned sequential choropleth, a state-by-month heatmap, sorted bar lists. Colour carries meaning only and stays muted. Most of a page is neutral grey; terracotta means people killed, steel blue means people abducted.
+A public record people can read at a glance and share. An app shell (sidebar on desktop, bottom tab bar on phones) holds content in panels. Every chart uses a standard form from the dataviz skill: stat tiles with sparklines, one-series column charts whose title states the finding, a binned sequential choropleth, a state-by-month heatmap, sorted bar lists. Colour carries meaning only and stays muted. Most of a page is neutral grey; orange means attacks, red means people killed, blue means people abducted.
 
 Respect attention: the Overview holds only what answers "how bad, how recent, where". Everything deeper lives on its own page, and phones show less again.
 

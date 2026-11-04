@@ -36,7 +36,7 @@ export function MapDefs() {
 }
 
 /** Nigeria's outline in one colour: the brand mark. */
-export function Silhouette({ color = "#d4694f", ...props }: IconProps & { color?: string }) {
+export function Silhouette({ color = "#e5484d", ...props }: IconProps & { color?: string }) {
   return <svg viewBox="0 0 1000 812" aria-hidden="true" {...props}><use href="#ng-states" fill={color} stroke={color} strokeWidth={2} /></svg>;
 }
 

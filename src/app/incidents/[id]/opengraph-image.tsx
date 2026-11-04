@@ -30,15 +30,15 @@ export default async function OpenGraphImage({ params }: { params: Promise<{ id:
     <div style={{ display: "flex", width: "100%", height: "100%", background: "#151817", color: "#edf0ee", fontFamily: "sans-serif" }}>
       <div style={{ display: "flex", flexDirection: "column", width: 744, padding: "72px 0 64px 72px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 28, fontWeight: 800 }}>
-          <svg width="52" height="42" viewBox="0 0 1000 812">{STATES.map((item) => <path key={item.id} d={item.path} fill="#d4694f" stroke="#d4694f" strokeWidth={2} />)}</svg>
+          <svg width="52" height="42" viewBox="0 0 1000 812">{STATES.map((item) => <path key={item.id} d={item.path} fill="#e5484d" stroke="#e5484d" strokeWidth={2} />)}</svg>
           NATracker
         </div>
         <div style={{ display: "flex", marginTop: "auto", color: "#b1b8b4", fontSize: 28 }}>{row ? dayLabel(row, true) : "Reported attacks with cited sources"}</div>
         <div style={{ display: "flex", marginTop: 10, fontSize: place.length > 22 ? 56 : 72, fontWeight: 800, letterSpacing: -2, lineHeight: 1.05 }}>{place.length > 60 ? `${place.slice(0, 57)}...` : place}</div>
         <div style={{ display: "flex", marginTop: 10, color: "#b1b8b4", fontSize: 30 }}>{row ? placeLine(row) : "terrortracker.tryraisins.dev"}</div>
         <div style={{ display: "flex", gap: 16, marginTop: 36 }}>
-          {killed ? pill(killed, "#2a1d19", "#e9a291") : null}
-          {abducted ? pill(abducted, "#182230", "#9dbbe2") : null}
+          {killed ? pill(killed, "#2e1718", "#f59a9c") : null}
+          {abducted ? pill(abducted, "#182230", "#93c0f2") : null}
           {row && !killed && !abducted ? pill("Toll not reported yet", "#202423", "#b1b8b4") : null}
         </div>
       </div>

@@ -29,9 +29,9 @@ export type Measure = "attacks" | "killed" | "abducted";
 export type Period = "year" | "d90" | "d30";
 
 export const MEASURES: Record<Measure, { label: string; short: string; noun: string; one: string; color: string }> = {
-  attacks: { label: "Attacks", short: "Attacks", noun: "attacks", one: "attack", color: "#c4cbc7" },
-  killed: { label: "People killed", short: "Killed", noun: "people killed", one: "person killed", color: "#d4694f" },
-  abducted: { label: "People abducted", short: "Abducted", noun: "people abducted", one: "person abducted", color: "#5a8cc8" },
+  attacks: { label: "Attacks", short: "Attacks", noun: "attacks", one: "attack", color: "#f08c2e" },
+  killed: { label: "People killed", short: "Killed", noun: "people killed", one: "person killed", color: "#e5484d" },
+  abducted: { label: "People abducted", short: "Abducted", noun: "people abducted", one: "person abducted", color: "#3e8ee6" },
 };
 export const MEASURE_KEYS: Measure[] = ["attacks", "killed", "abducted"];
 export const PERIODS: Record<Period, { label: string; days: number | null; phrase: string }> = {
@@ -98,7 +98,7 @@ export function buckets(period: Period, today: string): Bucket[] {
 
 /** Five bins per measure; the same thresholds drive the map, heatmap and legend. */
 export const BINS: Record<Measure, number[]> = { attacks: [1, 10, 20, 40, 60], killed: [1, 20, 50, 100, 200], abducted: [1, 20, 50, 100, 200] };
-const STEPS = [0.2, 0.38, 0.57, 0.78, 1];
+const STEPS = [0.32, 0.5, 0.66, 0.83, 1];
 const BASE = [0x22, 0x26, 0x25];
 export const EMPTY_FILL = "#1f2322";
 function mix(hex: string, t: number) {

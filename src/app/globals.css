@@ -2,14 +2,14 @@
 @import "react-datepicker/dist/react-datepicker.css";
 
 /* NATracker V5: a calm, panel-based reading room. Dark is the only theme.
-   Colour carries meaning only: terracotta for people killed, steel blue for people abducted,
-   neutral grey for attacks. See DESIGN.md. */
+   Colour carries meaning only: red for people killed, blue for people abducted,
+   orange for attacks. See DESIGN.md. */
 :root {
   --bg:#111312; --side:#0c0e0d; --surface:#181b1a; --raised:#202423; --hover:#282d2b;
   --border:#2a2f2d; --border-strong:#3a403d;
   --text:#edf0ee; --text-2:#b1b8b4; --text-3:#8a938e;
-  --killed:#d4694f; --abducted:#5a8cc8; --attacks:#c4cbc7;
-  --killed-soft:#2a1d19; --abducted-soft:#182230; --killed-ink:#e9a291; --abducted-ink:#9dbbe2;
+  --killed:#e5484d; --abducted:#3e8ee6; --attacks:#f08c2e;
+  --killed-soft:#2e1718; --abducted-soft:#182230; --killed-ink:#f59a9c; --abducted-ink:#93c0f2;
   --m:var(--attacks);
   --r-card:14px; --r-ctl:10px;
   --sans:var(--font-sans),"Plus Jakarta Sans",system-ui,sans-serif;
