@@ -12,6 +12,32 @@ import type { IAttack } from "./models/Attack";
 export const WIDEST_SCAN_WINDOW_HOURS = 336;
 
 /**
+ * Stored review fields are bounded by the schema. A model can return a title
+ * longer than 500 characters (an aggregator page title, for example), and
+ * `runValidators` then rejects the whole upsert. One malformed lead used to
+ * abort the entire scan after ingest, before the duplicate pass and report, so
+ * every write clamps first and a single bad lead is skipped instead of fatal.
+ */
+const REVIEW_TEXT_LIMITS = { title: 500, publisher: 200, reason: 2000, state: 100 } as const;
+
+function clampReviewText(value: unknown, max: number): string {
+  return String(value ?? "").slice(0, max);
+}
+
+function isReviewDataError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: string; code?: number };
+  return candidate.name === "ValidationError" || candidate.name === "CastError" || candidate.code === 11000;
+}
+
+/** A malformed publication date costs the date, not the lead. */
+function safePublishedAt(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
  * Semantic findings on stored records also belong in the permanent queue.
  *
  * `same_event` is included deliberately. The model only reaches this function
@@ -22,6 +48,7 @@ export const WIDEST_SCAN_WINDOW_HOURS = 336;
  */
 export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttack; reportB: IAttack; deepSeekClassification?: string; deepSeekReason?: string }>) {
   let queued = 0;
+  let skipped = 0;
   for (const pair of pairs) {
     const classification = pair.deepSeekClassification || "not_assessed";
     if (classification !== "review_required" && classification !== "not_assessed" && classification !== "same_event") continue;
@@ -32,18 +59,27 @@ export async function persistDuplicateReviewPairs(pairs: Array<{ reportA: IAttac
     const sourceUrl = normalizeIncidentReviewSourceUrl(source.url);
     const reviewKey = createIncidentReviewKey({ sourceUrl, kind: "duplicate", reason: `Stored event pair ${ids.join("/")}` });
     const now = new Date();
-    const outcome = await IncidentReview.updateOne({ reviewKey }, {
-      $set: { title: pair.reportB.title, publisher: source.publisher || "", state: pair.reportB.location.state,
-        reason: classification === "same_event"
-          ? `same_event: ${pair.deepSeekReason || "Both records describe the same event."} Merge the pair or dismiss it after checking the evidence.`
-          : `${classification}: ${pair.deepSeekReason || "Possible duplicate requires event-level review."}`,
-        lastSeenAt: now, publishedAt: source.publishedAt || null,
-        sourceEvidence: { existingId: String(pair.reportA._id), candidateId: String(pair.reportB._id), classification },
-        candidates: [pair.reportA, pair.reportB] },
-      $setOnInsert: { sourceUrl, kind: "duplicate", status: "pending", attempts: 0, retryable: false, nextRetryAt: null },
-    }, { upsert: true, runValidators: true });
-    queued += outcome.upsertedCount;
+    try {
+      const outcome = await IncidentReview.updateOne({ reviewKey }, {
+        $set: { title: clampReviewText(pair.reportB.title, REVIEW_TEXT_LIMITS.title),
+          publisher: clampReviewText(source.publisher || "", REVIEW_TEXT_LIMITS.publisher),
+          state: clampReviewText(pair.reportB.location.state, REVIEW_TEXT_LIMITS.state),
+          reason: clampReviewText(classification === "same_event"
+            ? `same_event: ${pair.deepSeekReason || "Both records describe the same event."} Merge the pair or dismiss it after checking the evidence.`
+            : `${classification}: ${pair.deepSeekReason || "Possible duplicate requires event-level review."}`, REVIEW_TEXT_LIMITS.reason),
+          lastSeenAt: now, publishedAt: source.publishedAt || null,
+          sourceEvidence: { existingId: String(pair.reportA._id), candidateId: String(pair.reportB._id), classification },
+          candidates: [pair.reportA, pair.reportB] },
+        $setOnInsert: { sourceUrl, kind: "duplicate", status: "pending", attempts: 0, retryable: false, nextRetryAt: null },
+      }, { upsert: true, runValidators: true });
+      queued += outcome.upsertedCount;
+    } catch (error) {
+      // One over-long pair must not abort the duplicate pass.
+      if (!isReviewDataError(error)) throw error;
+      skipped += 1;
+    }
   }
+  if (skipped > 0) console.warn(`Skipped ${skipped} duplicate pair(s) whose stored fields failed validation.`);
   return queued;
 }
 
@@ -63,6 +99,7 @@ export async function persistIncidentReviews(report: SearchLedReport, ingest?: S
       retryable: false, candidates: candidate ? [candidate] : [], kind: "duplicate", existingId: conflict.existingId,
       state: candidate?.location.state, publishedAt: candidate?.sources[0]?.publishedAt });
   }
+  let skipped = 0;
   for (const lead of leads) {
     if (!/^https?:\/\//i.test(lead.url)) continue;
     const reviewKey = createIncidentReviewKey({ sourceUrl: lead.url, kind: lead.kind, reason: lead.reason });
@@ -71,16 +108,26 @@ export async function persistIncidentReviews(report: SearchLedReport, ingest?: S
     const prior = await IncidentReview.findOne({ sourceUrl, kind: lead.kind }).sort({ attempts: -1 }).select("attempts").lean();
     const attempts = prior?.attempts || 0;
     const retryable = lead.retryable && ["extraction", "fetch"].includes(lead.kind) && attempts < MAX_INCIDENT_REVIEW_ATTEMPTS;
-    const outcome = await IncidentReview.updateOne({ reviewKey }, {
-      $set: { title: lead.title, publisher: lead.publisher, reason: lead.reason, lastSeenAt: now,
-        state: lead.state || "Unknown", publishedAt: lead.publishedAt ? new Date(lead.publishedAt) : null,
-        sourceEvidence: { articleText: lead.articleText?.slice(0, 30000) || "", existingId: lead.existingId },
-        candidates: lead.candidates || [] },
-      $setOnInsert: { sourceUrl, kind: lead.kind, status: "pending", attempts, retryable,
-        nextRetryAt: retryable ? new Date(now.getTime() + 6 * 3600000) : null },
-    }, { upsert: true, runValidators: true });
-    queued += outcome.upsertedCount;
+    try {
+      const outcome = await IncidentReview.updateOne({ reviewKey }, {
+        $set: { title: clampReviewText(lead.title, REVIEW_TEXT_LIMITS.title),
+          publisher: clampReviewText(lead.publisher, REVIEW_TEXT_LIMITS.publisher),
+          reason: clampReviewText(lead.reason, REVIEW_TEXT_LIMITS.reason), lastSeenAt: now,
+          state: clampReviewText(lead.state || "Unknown", REVIEW_TEXT_LIMITS.state),
+          publishedAt: safePublishedAt(lead.publishedAt),
+          sourceEvidence: { articleText: lead.articleText?.slice(0, 30000) || "", existingId: lead.existingId },
+          candidates: lead.candidates || [] },
+        $setOnInsert: { sourceUrl, kind: lead.kind, status: "pending", attempts, retryable,
+          nextRetryAt: retryable ? new Date(now.getTime() + 6 * 3600000) : null },
+      }, { upsert: true, runValidators: true });
+      queued += outcome.upsertedCount;
+    } catch (error) {
+      // A malformed lead must cost one lead, not the scan.
+      if (!isReviewDataError(error)) throw error;
+      skipped += 1;
+    }
   }
+  if (skipped > 0) console.warn(`Skipped ${skipped} review lead(s) whose stored fields failed validation.`);
   // A normal scan may recover a source before its queued retry becomes due.
   // Keep human dismissals and unresolved per-source conflicts intact.
   if (ingest && ingest.errors === 0) {

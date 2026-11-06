@@ -15,6 +15,8 @@ export type NewsDiscoveryResult = {
   url: string;
   title: string;
   publisher: string;
+  /** Publisher timestamp when the engine returns one (DeepSeek does). */
+  date?: string;
   providers: NewsDiscoveryProvider[];
 };
 
@@ -50,7 +52,7 @@ type ResolvedDiscoveryOptions = {
   freshness?: "day" | "week" | "month";
 };
 
-type SearchResult = { url: string; title: string; publisher: string };
+type SearchResult = { url: string; title: string; publisher: string; date?: string };
 type ProviderResponse = {
   status: NewsDiscoveryStatus;
   httpStatus: number | null;
@@ -354,6 +356,7 @@ async function deepSeekSearch(query: string, options: ResolvedDiscoveryOptions):
         url: stringValue(result.url),
         title: stringValue(result.title),
         publisher: stringValue(result.site_name) || publisherForUrl(stringValue(result.url)),
+        date: stringValue(result.date) || undefined,
       }))
       .filter((result) => Boolean(result.url && result.title && /^https?:\/\//i.test(result.url) && !isSearchHost(result.url) && !isSuppressedSourceHost(result.url)))
       .slice(0, options.maxResults);
@@ -503,7 +506,10 @@ async function resolveGoogleNewsLink(link: string, timeoutMs: number): Promise<s
 async function googleNewsSearch(query: string, options: ResolvedDiscoveryOptions): Promise<ProviderResponse> {
   const endpoint = new URL("https://news.google.com/rss/search");
   const when = options.freshness === "day" ? "1d" : options.freshness === "month" ? "30d" : "7d";
-  endpoint.searchParams.set("q", `${query} when:${when}`);
+  // A backfill supplies its own `after:`/`before:` bounds. Appending `when:`
+  // would silently intersect them with the last week and empty the window.
+  const explicitBounds = /\b(?:after|before):\d{4}-\d{2}-\d{2}\b/i.test(query);
+  endpoint.searchParams.set("q", explicitBounds ? query : `${query} when:${when}`);
   endpoint.searchParams.set("hl", "en-NG");
   endpoint.searchParams.set("gl", "NG");
   endpoint.searchParams.set("ceid", "NG:en");

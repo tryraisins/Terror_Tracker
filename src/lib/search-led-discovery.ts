@@ -353,6 +353,7 @@ async function fetchAndExtract(
   minMs: number,
   maxMs: number,
   publicationMaxAgeHours = report.lookbackHours,
+  historical = false,
 ): Promise<RawAttackData[]> {
   const found: RawAttackData[] = [];
   for (let j = 0; j < urls.length; j += ARTICLE_FETCH_CONCURRENCY) {
@@ -404,7 +405,10 @@ async function fetchAndExtract(
               });
               continue;
             }
-            const inWindow = incidentDateIntervalsOverlap(normalized, {
+            // A backfill asks for a historical event on purpose. The identity
+            // gates still decide admission; only the now-relative window check
+            // is skipped, and the caller bounds the event date itself.
+            const inWindow = historical || incidentDateIntervalsOverlap(normalized, {
               interval: { start: new Date(minMs), end: new Date(maxMs) },
             });
             if (!inWindow) {
@@ -747,6 +751,7 @@ export async function reextractSearchLedSource(
   source: { url: string; title: string; publisher: string },
   lookbackHours = 336,
   reachHours = lookbackHours,
+  options: { historical?: boolean } = {},
 ): Promise<{ attacks: RawAttackData[]; report: SearchLedReport }> {
   if (!Number.isFinite(lookbackHours) || lookbackHours < 1 || lookbackHours > 336) {
     throw new Error("lookbackHours must be between 1 and 336");
@@ -763,7 +768,7 @@ export async function reextractSearchLedSource(
   const maxMs = windowEnd.getTime() + 2 * 3_600_000;
   const report = createReport(reachHours, windowEnd);
   report.urlsDiscovered = 1;
-  const attacks = await fetchAndExtract([source], report, minMs, maxMs, reachHours);
+  const attacks = await fetchAndExtract([source], report, minMs, maxMs, reachHours, options.historical === true);
   const states = new Set([
     ...attacks.map((attack) => attack.location.state),
     ...report.reviewLeads.map((lead) => lead.state).filter((state): state is string => Boolean(state)),

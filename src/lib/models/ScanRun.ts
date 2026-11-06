@@ -55,6 +55,7 @@ export interface IScanRun extends Document {
   source: string;
   jurisdictions: ScanRunJurisdiction[];
   counts: ScanRunCounts;
+  error: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -102,6 +103,9 @@ const ScanRunSchema = new Schema<IScanRun>(
         { _id: false },
       ),
     ],
+    // Why a run ended FAILED. Previously the only evidence was a host log, and
+    // the ScanRun row showed zero counts with no cause.
+    error: { type: String, default: null, trim: true, maxlength: 2000 },
     counts: {
       urlsDiscovered: countField,
       urlsFetched: countField,

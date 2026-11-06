@@ -202,7 +202,11 @@ async function run() {
     }
   } catch (error) {
     // Preserve a completed INCOMPLETE report; unexpected failures must never look like a healthy scan.
-    await ScanRun.updateOne({ runId, coverageStatus: "RUNNING" }, { $set: { coverageStatus: "FAILED", finishedAt: new Date() } });
+    await ScanRun.updateOne({ runId, coverageStatus: "RUNNING" }, { $set: {
+      coverageStatus: "FAILED",
+      finishedAt: new Date(),
+      error: String(error instanceof Error ? error.message : error).slice(0, 2000),
+    } });
     throw error;
   } finally {
     await mongoose.disconnect();
