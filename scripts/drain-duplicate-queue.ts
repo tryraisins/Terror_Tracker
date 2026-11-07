@@ -18,6 +18,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -35,13 +36,24 @@ async function main() {
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const preferred = process.env.SCAN_QUEUE_DRAIN_DIR || "/var/log/terror-tracker/queue-drain";
-  let outDir = path.join(preferred, stamp);
-  try {
-    fs.mkdirSync(outDir, { recursive: true });
-  } catch {
-    outDir = path.join("scratch", "queue-drain", stamp);
-    fs.mkdirSync(outDir, { recursive: true });
+  const candidates = [
+    path.join(preferred, stamp),
+    path.join("scratch", "queue-drain", stamp),
+    path.join(os.tmpdir(), "queue-drain", stamp),
+  ];
+  let outDir = candidates[candidates.length - 1];
+  let ready = false;
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      outDir = dir;
+      ready = true;
+      break;
+    } catch {
+      // try the next writable location
+    }
   }
+  if (!ready) throw new Error("no writable directory for queue-drain artifacts");
 
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 15_000 });
   const IncidentReview = (await import("../src/lib/models/IncidentReview")).default;
