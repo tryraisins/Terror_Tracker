@@ -171,38 +171,45 @@ async function main() {
       continue;
     }
 
-    // Held candidate against the nearest stored record.
+    // Held candidate against the stored record it collided with. A queued row
+    // already records that id; only fall back to a nearby search without one.
     const candidate = item.candidate;
-    if (!candidate) { write({ id, subject: "held", verdict: "dismiss", reasons: ["candidate payload missing from the ledger"] }); continue; }
-    const date = new Date(candidate.date);
-    const since = new Date(date.getTime() - 14 * 86_400_000);
-    const until = new Date(date.getTime() + 14 * 86_400_000);
-    const nearby = (await Attack.find({
-      _deleted: { $ne: true }, "location.state": candidate.location?.state, date: { $gte: since, $lte: until },
-    }, { title: 1, description: 1, date: 1, datePrecision: 1, dateRange: 1, location: 1, group: 1, casualties: 1, sources: 1 }).lean()) as AnyAttack[];
-
-    const scored = nearby.map((record) => {
-      const gap = daysApart(record, candidate);
-      let score = 0;
-      if (placesPlausiblySame(record.location?.town, candidate.location?.town)) score += 4;
-      if (sameLga(record.location?.lga, candidate.location?.lga)) score += 2;
-      if (incidentDateKey(record) === incidentDateKey(candidate)) score += 3;
-      score -= gap / 4;
-      return { record, score, gap };
-    }).sort((a, b) => b.score - a.score);
-
-    if (!scored.length) {
-      write({
-        id, subject: "held", verdict: "promote", existingId: null,
-        reasons: ["no active record in this state within 14 days", "candidate passed extraction and scope gates"],
-        evidence: { title: candidate.title, date: candidate.date, location: candidate.location, url: item.url },
-      });
-      console.log(`held ${id}: promote (no nearby record)`);
-      continue;
+    if (!candidate) { write({ id, subject: "held", verdict: "dismiss", reasons: ["candidate payload missing"] }); continue; }
+    let existing: AnyAttack | null = null;
+    let bestGap = 0;
+    if (item.existingId) {
+      existing = await Attack.findById(new ObjectId(item.existingId)).lean() as AnyAttack | null;
+      if (existing) bestGap = daysApart(existing, candidate);
+    }
+    if (!existing) {
+      const date = new Date(candidate.date);
+      const since = new Date(date.getTime() - 14 * 86_400_000);
+      const until = new Date(date.getTime() + 14 * 86_400_000);
+      const nearby = (await Attack.find({
+        _deleted: { $ne: true }, "location.state": candidate.location?.state, date: { $gte: since, $lte: until },
+      }, { title: 1, description: 1, date: 1, datePrecision: 1, dateRange: 1, location: 1, group: 1, casualties: 1, sources: 1 }).lean()) as AnyAttack[];
+      const scored = nearby.map((record) => {
+        const gap = daysApart(record, candidate);
+        let score = 0;
+        if (placesPlausiblySame(record.location?.town, candidate.location?.town)) score += 4;
+        if (sameLga(record.location?.lga, candidate.location?.lga)) score += 2;
+        if (incidentDateKey(record) === incidentDateKey(candidate)) score += 3;
+        score -= gap / 4;
+        return { record, score, gap };
+      }).sort((a, b) => b.score - a.score);
+      if (!scored.length) {
+        write({
+          id, subject: "held", verdict: "promote", existingId: null, reviewId: item.reviewId || null,
+          reasons: ["no active record in this state within 14 days", "candidate passed extraction and scope gates"],
+          evidence: { title: candidate.title, date: candidate.date, location: candidate.location, url: item.url },
+        });
+        console.log(`held ${id}: promote (no nearby record)`);
+        continue;
+      }
+      existing = scored[0].record;
+      bestGap = scored[0].gap;
     }
 
-    const best = scored[0];
-    const existing = best.record;
     const [left, right] = await Promise.all([
       readSide({ ...candidate, sources: [{ url: item.url, title: item.title }] }),
       readSide(existing, item.url),
@@ -218,7 +225,6 @@ async function main() {
     const samePlace = placesPlausiblySame(existing.location?.town, candidate.location?.town);
     const bothNamed = left.claims.people.length >= 2 && right.claims.people.length >= 2;
     const distinctVictims = bothNamed && !linkage.linked;
-    const farApart = best.gap > 2.5;
 
     let verdict: "same_event" | "promote";
     const reasons: string[] = [];
@@ -231,9 +237,12 @@ async function main() {
     } else if (!samePlace) {
       verdict = "promote";
       reasons.push("candidate settlement differs from the stored record");
-    } else if (farApart) {
+    } else if (assessment.classification === "distinct_events") {
+      // Same settlement is the neighbourhood. Only the identity model saying
+      // these are different events, with no shared victim, justifies a second
+      // record; a date gap alone does not, because late reports shift dates.
       verdict = "promote";
-      reasons.push(`${best.gap.toFixed(1)} days from the nearest record on the same settlement`);
+      reasons.push("identity assessment says distinct events at the same settlement");
     } else {
       verdict = "same_event";
       reasons.push(`same settlement and ${sameDate ? "event date" : "overlapping date window"}`, `no claim link (${linkage.why || "none"}), but no distinct victim set`);
@@ -242,13 +251,13 @@ async function main() {
     reasons.push(`identity assessment: ${assessment.classification} (${assessment.reason})`);
 
     write({
-      id, subject: "held", verdict, existingId: String(existing._id), url: item.url,
+      id, subject: "held", verdict, existingId: String(existing._id), reviewId: item.reviewId || null, url: item.url,
       candidateHash: item.candidateHash, state: candidate.location?.state, reasons,
       evidence: {
         candidateTitle: candidate.title, candidateDate: candidate.date, candidateLocation: candidate.location,
         candidateTolls: candidate.casualties, existingTitle: existing.title, existingDate: existing.date,
         existingTown: existing.location?.town, existingTolls: existing.casualties,
-        gapDays: best.gap, linkage, assessment: assessment.classification, assessmentReason: assessment.reason,
+        gapDays: bestGap, linkage, assessment: assessment.classification, assessmentReason: assessment.reason,
         articlesRead: { candidate: left.articles, existing: right.articles },
         people: { candidate: left.claims.people, existing: right.claims.people },
       },

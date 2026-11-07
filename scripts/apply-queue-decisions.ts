@@ -40,6 +40,7 @@ async function main() {
   const outFile = arg("out", "scratch/backfill/queue/apply-report.json");
   if (!decisionsFile || !queueFile) throw new Error("--decisions and --queue are required");
   const apply = process.argv.includes("--apply");
+  const dismissUnplaceable = process.argv.includes("--dismiss-unplaceable");
 
   const decisions = readLines(decisionsFile);
   const queue = new Map<string, Record<string, any>>();
@@ -69,6 +70,15 @@ async function main() {
         await attach(item, blocked[1]);
         await resolveRow(item.reviewId, `Held candidate was already recorded as ${blocked[1]}; its source was attached instead of inserting a duplicate.`);
         report.blockedAttached += 1;
+        continue;
+      }
+      // An automatic pass cannot leave a state-only lead pending forever. It is
+      // dismissed with the reason so the ledger keeps it and a person can revisit.
+      if (dismissUnplaceable && /no usable settlement or LGA/.test(output)) {
+        if (apply) {
+          await dismissRow(item.reviewId, "The article does not name a settlement or LGA for this event, so no placed record can be created. Retained in the source ledger.");
+          report.dismissed += 1;
+        }
         continue;
       }
       report.failed.push({ id: decision.id, error: output.slice(-300) });
