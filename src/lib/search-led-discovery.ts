@@ -272,7 +272,17 @@ function absorbResults(
     if (isSuppressedSourceHost(r.url)) continue;
     seenUrls.add(key);
     report.urlsDiscovered++;
-    urls.push({ url: r.url, title: r.title, publisher: r.publisher });
+    // Search engines that return a publication date (DeepSeek does) hand it to
+    // extraction. Without it a weekday-only report ("on Sunday") has no anchor
+    // and is dropped as "no explicit incident date", which was the single cause
+    // of every miss in the recall sample.
+    const searchDate = r.date ? new Date(r.date) : null;
+    urls.push({
+      url: r.url,
+      title: r.title,
+      publisher: r.publisher,
+      publishedAt: searchDate && Number.isFinite(searchDate.getTime()) ? searchDate : undefined,
+    });
   }
   return urls;
 }
@@ -748,7 +758,7 @@ export async function collectSearchLedIncidents(
 
 /** Re-run one queued URL through the normal guarded extraction path. */
 export async function reextractSearchLedSource(
-  source: { url: string; title: string; publisher: string },
+  source: { url: string; title: string; publisher: string; publishedAt?: string },
   lookbackHours = 336,
   reachHours = lookbackHours,
   options: { historical?: boolean } = {},
@@ -768,7 +778,13 @@ export async function reextractSearchLedSource(
   const maxMs = windowEnd.getTime() + 2 * 3_600_000;
   const report = createReport(reachHours, windowEnd);
   report.urlsDiscovered = 1;
-  const attacks = await fetchAndExtract([source], report, minMs, maxMs, reachHours, options.historical === true);
+  const publishedAt = source.publishedAt ? new Date(source.publishedAt) : null;
+  const attacks = await fetchAndExtract([{
+    url: source.url,
+    title: source.title,
+    publisher: source.publisher,
+    publishedAt: publishedAt && Number.isFinite(publishedAt.getTime()) ? publishedAt : undefined,
+  }], report, minMs, maxMs, reachHours, options.historical === true);
   const states = new Set([
     ...attacks.map((attack) => attack.location.state),
     ...report.reviewLeads.map((lead) => lead.state).filter((state): state is string => Boolean(state)),
