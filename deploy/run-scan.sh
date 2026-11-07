@@ -66,6 +66,12 @@ docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
   --name terror-queue-slot scan npx tsx scripts/drain-duplicate-queue.ts --limit 12 --apply \
   || echo "duplicate queue drain failed (see /var/log/terror-tracker/queue-drain)" >&2
 
+# Stored-pair rows hold two records and are decided by claim linkage instead.
+docker rm -f terror-pair-slot >/dev/null 2>&1 || true
+docker compose --env-file .env.deploy --profile scan run --rm --no-deps \
+  --name terror-pair-slot scan npx tsx scripts/drain-pair-queue.ts --limit 4 --apply \
+  || echo "stored-pair drain failed (see /var/log/terror-tracker/queue-drain)" >&2
+
 # Tell the operator once a day if a search lane is down. A notification only:
 # it must not change the scan's exit status or arm a retry.
 "$BASE/search-lane-alert.sh" || echo "search lane alert check failed (see above)" >&2
