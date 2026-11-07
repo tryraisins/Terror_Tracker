@@ -16,7 +16,7 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import type { LocationPrecision } from "../src/lib/incident-uncertainty";
 import { hashFor } from "../src/lib/search-led-discovery";
-import { lgaCompatible, placesPlausiblySame } from "../src/lib/location-identity";
+import { lgaCompatible, placesPlausiblySame, sameLga } from "../src/lib/location-identity";
 
 dotenv.config({ path: ".env.local" });
 
@@ -52,8 +52,14 @@ async function main() {
 
   const date = new Date(candidate.date);
   if (Number.isNaN(date.getTime())) throw new Error("Candidate has no valid event date");
-  if (!candidate.location?.state || !candidate.location?.town) throw new Error("Candidate has no usable location");
-  if (/^(?:unknown|unspecified|n\/?a)$/i.test(candidate.location.town)) throw new Error(`Candidate town "${candidate.location.town}" is a placeholder`);
+  // A report that names only the LGA is still a placed event: the field
+  // conventions allow `approximate_lga`, and refusing it dropped real events.
+  const town = String(candidate.location?.town || "").trim();
+  const lga = String(candidate.location?.lga || "").trim();
+  const isPlaceholder = (value: string) => !value || /^(?:unknown|unspecified|n\/?a|multiple|various)$/i.test(value);
+  if (!candidate.location?.state) throw new Error("Candidate has no usable state");
+  const lgaOnly = isPlaceholder(town);
+  if (lgaOnly && isPlaceholder(lga)) throw new Error("Candidate has no usable settlement or LGA");
   if (candidate.datePrecision === "date_range" && !(candidate.dateRange?.start && candidate.dateRange?.end)) {
     throw new Error("Candidate declares a date range without range bounds");
   }
@@ -73,10 +79,12 @@ async function main() {
     dateEvidence: candidate.dateEvidence || "",
     location: {
       state: candidate.location.state,
-      lga: candidate.location.lga || "Unknown",
-      town: candidate.location.town,
-      precision: (candidate.location.precision || "approximate_lga") as LocationPrecision,
-      notes: candidate.location.notes || "",
+      lga: lga || "Unknown",
+      town: lgaOnly ? "Unknown" : town,
+      precision: (lgaOnly ? "approximate_lga" : candidate.location.precision || "approximate_lga") as LocationPrecision,
+      notes: lgaOnly
+        ? `Source places the incident in ${lga} LGA but names no settlement.`
+        : candidate.location.notes || "",
     },
     group: candidate.group || "Unknown",
     casualties: candidate.casualties || { killed: null, injured: null, kidnapped: null, displaced: null },
@@ -104,8 +112,10 @@ async function main() {
     date: { $gte: new Date(date.getTime() - 86400000), $lte: new Date(date.getTime() + 86400000) },
   }).project({ _id: 1, title: 1, location: 1, date: 1, casualties: 1 }).toArray();
   const samePlace = nearby.find((record) =>
-    placesPlausiblySame(record.location?.town || "", doc.location.town)
-    && lgaCompatible(record.location?.lga || "", doc.location.lga));
+    lgaOnly
+      ? sameLga(record.location?.lga || "", doc.location.lga) && !isPlaceholder(String(record.location?.lga || ""))
+      : placesPlausiblySame(record.location?.town || "", doc.location.town)
+        && lgaCompatible(record.location?.lga || "", doc.location.lga));
   if (samePlace) throw new Error(`Nearby active record already covers this place and date: ${String(samePlace._id)} "${samePlace.title}"`);
 
   console.log(`Mode: ${apply ? "APPLY" : "DRY RUN"}`);
