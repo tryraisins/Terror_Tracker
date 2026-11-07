@@ -54,6 +54,7 @@ type Args = {
   apply: boolean;
   publishBatch: number;
   statusOnly: boolean;
+  coverage: boolean;
 };
 
 const QUERY_TERMS = [
@@ -108,6 +109,7 @@ function parseArgs(argv: string[]): Args {
     apply: has("apply"),
     publishBatch: Number(get("publish-batch", "10")),
     statusOnly: has("status"),
+    coverage: has("coverage"),
   };
 }
 
@@ -169,10 +171,32 @@ async function main() {
   });
   const todo = args.limit > 0 ? pending.slice(0, args.limit) : pending;
 
-  if (args.statusOnly) {
-    const rows = readJsonl<{ cell: string; status: string }>(cellsFile);
+  if (args.statusOnly || args.coverage) {
+    const rows = readJsonl<{ cell: string; status: string; state: string; days?: string[] }>(cellsFile);
     const done = rows.filter((row) => row.status === "done").length;
     const failed = rows.filter((row) => row.status === "failed").length;
+    if (args.coverage) {
+      // One row per jurisdiction-day, so "every day for every state" is a
+      // readable matrix rather than a claim. A day is covered when a finished
+      // cell spans it.
+      const coverage = new Map<string, Set<string>>();
+      for (const state of args.states) coverage.set(state, new Set());
+      for (const row of rows) {
+        if (row.status !== "done" || !row.days) continue;
+        const set = coverage.get(row.state);
+        if (!set) continue;
+        for (const day of row.days) set.add(day);
+      }
+      const days: string[] = [];
+      for (let cursor = dayStart(args.from); cursor < dayStart(args.to); cursor = new Date(cursor.getTime() + 86_400_000)) days.push(isoDay(cursor));
+      const missing: Array<{ state: string; day: string }> = [];
+      for (const [state, set] of coverage) for (const day of days) if (!set.has(day)) missing.push({ state, day });
+      const matrix = Object.fromEntries([...coverage.entries()].map(([state, set]) => [state, { covered: days.filter((day) => set.has(day)).length, total: days.length }]));
+      const coverageReport = { runId: args.runId, days: days.length, states: args.states.length, jurisdictionDays: days.length * args.states.length, covered: days.length * args.states.length - missing.length, missing: missing.length, matrix, gaps: missing.slice(0, 200) };
+      fs.writeFileSync(path.join(ledgerDir, "coverage.json"), JSON.stringify(coverageReport, null, 2));
+      console.log(JSON.stringify({ ...coverageReport, gaps: undefined, gapSample: missing.slice(0, 10) }, null, 2));
+      return;
+    }
     console.log(JSON.stringify({ runId: args.runId, cells: allCells.length, done, failed, pending: allCells.length - done - failed, ledgerDir }, null, 2));
     return;
   }
