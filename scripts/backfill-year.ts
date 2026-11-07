@@ -55,6 +55,7 @@ type Args = {
   publishBatch: number;
   statusOnly: boolean;
   coverage: boolean;
+  publishOnly: boolean;
 };
 
 const QUERY_TERMS = [
@@ -110,6 +111,7 @@ function parseArgs(argv: string[]): Args {
     publishBatch: Number(get("publish-batch", "10")),
     statusOnly: has("status"),
     coverage: has("coverage"),
+    publishOnly: has("publish-only"),
   };
 }
 
@@ -227,7 +229,7 @@ async function main() {
 
   console.log(`Backfill ${args.from}..${args.to}, ${args.states.length} states, ${allCells.length} cells, ${todo.length} to run, ledger ${ledgerDir}`);
 
-  for (const cell of todo) {
+  for (const cell of args.publishOnly ? [] : todo) {
     runReport.cellsRun += 1;
     const cellStart = Date.now();
     const urls = new Map<string, { title: string; publisher: string; date?: string }>();
