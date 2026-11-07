@@ -1,5 +1,12 @@
 # Project Handoff
 
+## 2026-11-07 Palette: red attacks, neutral killed
+
+- Red now means attacks (`--attacks:#e5484d`); the killed measure is neutral `#c4cbc7` with pill ink `#edf0ee` on `#24282a`, so a death toll is never red. Abducted stays `#3e8ee6`. `--danger:#e5484d` and `--danger-soft:#2e1718` keep error panels and the admin checkbox red now that `--killed` is neutral.
+- Touched `src/app/globals.css`, `src/lib/summary.ts` (`MEASURES` colours), the Killed impact key in `IncidentDetailClient.tsx`, the killed pill in `opengraph-image.tsx`, and `DESIGN.md`.
+- Verified: `npx tsc --noEmit`, `npm run build` with a disposable `JWT_SECRET`, and computed styles plus screenshots on the overview, `/patterns` (attacks and killed measures), `/map`, an incident page and its OG image. Killed figures stay `#edf0ee` (about 9:1 on the surface); literal black was rejected as unreadable on the dark cards.
+- Unchanged: the red brand silhouette, the unused legacy `AttackCard`/`StatCard`/`HorizontalBar`, admin layout. `next dev` re-adds a Next.js agent-rules block to `AGENTS.md`; it was reverted rather than committed.
+
 ## 2026-11-07 Scan crash fixed, year backfill built and piloted
 
 - **Why the 2026-11-06 20:00 and 20:37 scans recorded FAILED with every count at zero:** `persistIncidentReviews` upserted an aggregator page title of 2,247 characters against a 500-character schema maximum, `runValidators: true` threw, and the run aborted after ingest but before the sweep, duplicate pass and report. Host log: `ValidationError: title ... length 2247 ... at persistIncidentReviews (incident-review.ts:74)`. Fix: every stored review field is clamped to its schema limit before the write, an invalid `publishedAt` costs the date rather than the lead, and a lead that still fails validation is skipped and counted instead of killing the run. `ScanRun` gained an optional `error` field so a failure records its cause instead of zero counts. Proof: `npx tsx scratch/backfill/e2e-review-limits.ts` against a disposable database, 12/12 (long title, publisher, state and reason clamped; blank reason skipped; bad date stored with null; duplicate-pair writer protected; zero attacks written).
@@ -37,6 +44,11 @@
   - The scheduled scan had already produced 66 new holds by the time this was built, which is exactly the recurrence the drain exists to stop. At 12 rows per scan it drains over a few runs; it is a bound, not a promise of an empty queue at all times.
   - First production run (`/var/log/terror-tracker/queue-drain/2026-11-07T21-30-10-410Z/`): 12 pending, 9 exportable, 9 decided, 4 dismissed, 2 guard-blocked and attached, 0 failed, pending 66 to 57, exit 0.
   - Caveat found by that run: the drain handles **single-candidate held leads**. A stored-pair row (two candidates in one row) is skipped by this path and still needs the pair adjudicator or a merge. Those are the ones the audit produces, and they should be closed by the audit workflow, not this drain.
+- **Stored-pair pass built but deliberately kept manual (2026-11-07).** `scripts/drain-pair-queue.ts` adjudicates a stored pair with claim linkage, merges eligible pairs through `merge-incidents`, and dismisses the rest as distinct events. On a live pair it exceeded 17 minutes without producing a decision, because each side can fetch two articles and run a claim-extraction model call per article. That does not fit a scan slot, so it is **not** wired into `run-scan.sh`. Run it by hand with a small limit:
+  `docker compose --env-file .env.deploy --profile scan run --rm --no-deps scan npx tsx scripts/drain-pair-queue.ts --limit 2 --apply`
+  - Both drains now carry hard timeouts (20 minutes for adjudication, 8 for a merge, 25 for the applier) and `terror-scan.service` is raised to `TimeoutStartSec=5400` so a slow pass cannot kill a scan.
+  - Consequence for the queue: the held-lead stream is self-draining after each scan; **stored-pair rows are not**. At the time of writing there were 57 stored pairs pending, which is the honest remainder of this automation.
+  - Next improvement, if it is worth it: let the automated pass read one article per side instead of two. That roughly halves the cost; the manual path keeps the two-article depth for hard cases.
 - **Recall follow-up:** the 7 misses are documented but not inserted; their pages expose no publication date to the import path, and inventing one would be the exact wrong-date risk the rules forbid.
 - **Ops:** new image `d4c1687-scan` deployed. Backfill ledger mount is `/srv/terror-tracker/backfill` (uid 1000). Reproduce with `docker compose --env-file .env.deploy --profile scan run --rm --no-deps -v /srv/terror-tracker/backfill:/app/scratch/backfill-year scan npx tsx scripts/backfill-year.ts --from 2026-01-01 --to 2026-11-07 --run-id sweep-20261107 --coverage`, and publish with `--publish-only --apply` (never without `--publish-only`, or it re-runs discovery).
 

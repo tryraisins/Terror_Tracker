@@ -4,7 +4,7 @@ Updated 4 November 2026. The current direction is "V5": a calm, panel-based read
 
 ## Thesis
 
-A public record people can read at a glance and share. An app shell (sidebar on desktop, bottom tab bar on phones) holds content in panels. Every chart uses a standard form from the dataviz skill: stat tiles with sparklines, one-series column charts whose title states the finding, a binned sequential choropleth, a state-by-month heatmap, sorted bar lists. Colour carries meaning only and stays muted. Most of a page is neutral grey; orange means attacks, red means people killed, blue means people abducted.
+A public record people can read at a glance and share. An app shell (sidebar on desktop, bottom tab bar on phones) holds content in panels. Every chart uses a standard form from the dataviz skill: stat tiles with sparklines, one-series column charts whose title states the finding, a binned sequential choropleth, a state-by-month heatmap, sorted bar lists. Colour carries meaning only and stays muted. Most of a page is neutral grey; red means attacks, killed figures stay neutral, blue means people abducted.
 
 Respect attention: the Overview holds only what answers "how bad, how recent, where". Everything deeper lives on its own page, and phones show less again.
 
@@ -22,7 +22,7 @@ Rules kept from the design skills: no arrow glyphs on or after links, no underli
 
 ## Tokens (src/app/globals.css)
 
-Canvas `#111312`, sidebar `#0c0e0d`, surface `#181b1a`, raised `#202423`, hover `#282d2b`, border `#2a2f2d`, strong border `#3a403d`. Text `#edf0ee`, secondary `#b1b8b4`, muted `#8a938e`. Killed `#d4694f`, abducted `#5a8cc8`, attacks neutral `#c4cbc7`. Killed and abducted were validated with the dataviz palette script against the surface (lightness band, chroma floor, CVD separation, normal-vision floor, contrast all pass). Map and heatmap use five bins per measure mixed from `#222625` toward the measure colour; attacks bins are 1, 10, 20, 40, 60, people bins 1, 20, 50, 100, 200. Cards have a 14px radius, controls 10px. Older variable names (`--ink`, `--rule`, `--field`, `--signal` and so on) remain as aliases for react-select, the date picker and the admin workspace.
+Canvas `#111312`, sidebar `#0c0e0d`, surface `#181b1a`, raised `#202423`, hover `#282d2b`, border `#2a2f2d`, strong border `#3a403d`. Text `#edf0ee`, secondary `#b1b8b4`, muted `#8a938e`. Attacks `#e5484d`, killed neutral `#c4cbc7`, abducted `#3e8ee6`. Red means attacks and, as `--danger`, destructive or failed states; a death toll is never red. Killed figures read as plain text on the surface (about 9:1), so the measures stay separable by hue: one red, one neutral, one blue. Map and heatmap use five bins per measure mixed from `#222625` toward the measure colour; attacks bins are 1, 10, 20, 40, 60, people bins 1, 20, 50, 100, 200. Cards have a 14px radius, controls 10px. Older variable names (`--ink`, `--rule`, `--field`, `--signal` and so on) remain as aliases for react-select, the date picker and the admin workspace.
 
 ## Typography
 

@@ -2,14 +2,14 @@
 @import "react-datepicker/dist/react-datepicker.css";
 
 /* NATracker V5: a calm, panel-based reading room. Dark is the only theme.
-   Colour carries meaning only: red for people killed, blue for people abducted,
-   orange for attacks. See DESIGN.md. */
+   Colour carries meaning only: red for attacks, neutral grey for people killed,
+   blue for people abducted. See DESIGN.md. */
 :root {
   --bg:#111312; --side:#0c0e0d; --surface:#181b1a; --raised:#202423; --hover:#282d2b;
   --border:#2a2f2d; --border-strong:#3a403d;
   --text:#edf0ee; --text-2:#b1b8b4; --text-3:#8a938e;
-  --killed:#e5484d; --abducted:#3e8ee6; --attacks:#f08c2e;
-  --killed-soft:#2e1718; --abducted-soft:#182230; --killed-ink:#f59a9c; --abducted-ink:#93c0f2;
+  --killed:#c4cbc7; --abducted:#3e8ee6; --attacks:#e5484d; --danger:#e5484d; --danger-soft:#2e1718;
+  --killed-soft:#24282a; --abducted-soft:#182230; --killed-ink:#edf0ee; --abducted-ink:#93c0f2;
   --m:var(--attacks);
   --r-card:14px; --r-ctl:10px;
   --sans:var(--font-sans),"Plus Jakarta Sans",system-ui,sans-serif;
@@ -331,7 +331,7 @@ a.card:hover { border-color:var(--border-strong); }
 .panel,.state-message { padding:20px; border:1px solid var(--border); border-radius:var(--r-card); background:var(--surface); }
 .panel--alt,.panel--notice { background:var(--raised); }
 .panel--caution { border-left:3px solid var(--abducted); }
-.panel--danger { border-color:var(--killed); background:var(--killed-soft); }
+.panel--danger { border-color:var(--danger); background:var(--danger-soft); }
 .state-message { display:grid; justify-items:start; gap:12px; min-height:12rem; }
 .state-message p { max-width:45rem; margin:0; color:var(--text-2); }
 .state-message h2 { font-size:22px; }
@@ -389,7 +389,7 @@ a.card:hover { border-color:var(--border-strong); }
 .search-select__description { color:var(--text-3); font-size:.75rem; font-weight:500; line-height:1.25; }
 .admin-record { display:grid; grid-template-columns:1.5rem minmax(0,1fr) 8rem 7.5rem; align-items:start; gap:1rem; padding:1rem 0; border-top:1px solid var(--border); }
 .admin-record:first-child { border-top:0; }
-.admin-record input[type="checkbox"] { width:1rem; height:1rem; margin-top:.3rem; accent-color:var(--killed); }
+.admin-record input[type="checkbox"] { width:1rem; height:1rem; margin-top:.3rem; accent-color:var(--danger); }
 .admin-record__title { display:block; margin-top:.2rem; font-weight:600; }
 .admin-record__place { display:block; margin-top:.2rem; color:var(--text-3); font-size:.8125rem; }
 .record-card__date { color:var(--text-2); font-size:.8125rem; }

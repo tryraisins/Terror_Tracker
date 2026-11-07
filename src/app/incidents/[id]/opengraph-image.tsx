@@ -37,7 +37,7 @@ export default async function OpenGraphImage({ params }: { params: Promise<{ id:
         <div style={{ display: "flex", marginTop: 10, fontSize: place.length > 22 ? 56 : 72, fontWeight: 800, letterSpacing: -2, lineHeight: 1.05 }}>{place.length > 60 ? `${place.slice(0, 57)}...` : place}</div>
         <div style={{ display: "flex", marginTop: 10, color: "#b1b8b4", fontSize: 30 }}>{row ? placeLine(row) : "terrortracker.tryraisins.dev"}</div>
         <div style={{ display: "flex", gap: 16, marginTop: 36 }}>
-          {killed ? pill(killed, "#2e1718", "#f59a9c") : null}
+          {killed ? pill(killed, "#24282a", "#edf0ee") : null}
           {abducted ? pill(abducted, "#182230", "#93c0f2") : null}
           {row && !killed && !abducted ? pill("Toll not reported yet", "#202423", "#b1b8b4") : null}
         </div>

@@ -29,8 +29,8 @@ export type Measure = "attacks" | "killed" | "abducted";
 export type Period = "year" | "d90" | "d30";
 
 export const MEASURES: Record<Measure, { label: string; short: string; noun: string; one: string; color: string }> = {
-  attacks: { label: "Attacks", short: "Attacks", noun: "attacks", one: "attack", color: "#f08c2e" },
-  killed: { label: "People killed", short: "Killed", noun: "people killed", one: "person killed", color: "#e5484d" },
+  attacks: { label: "Attacks", short: "Attacks", noun: "attacks", one: "attack", color: "#e5484d" },
+  killed: { label: "People killed", short: "Killed", noun: "people killed", one: "person killed", color: "#c4cbc7" },
   abducted: { label: "People abducted", short: "Abducted", noun: "people abducted", one: "person abducted", color: "#3e8ee6" },
 };
 export const MEASURE_KEYS: Measure[] = ["attacks", "killed", "abducted"];

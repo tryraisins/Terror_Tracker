@@ -44,7 +44,7 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
   const created = stamp(record.createdAt); const updated = stamp(record.updatedAt);
   const firstPublished = sources.map((source) => source.publishedAt).filter(Boolean).sort()[0];
   const impacts: [string, number | null, CasualtyCountMetadata | undefined, string, string | null][] = [
-    ["Killed", record.casualties.killed, record.casualtyMeta?.killed, "No deaths reported", "#e5484d"],
+    ["Killed", record.casualties.killed, record.casualtyMeta?.killed, "No deaths reported", "var(--killed)"],
     ["Abducted", record.casualties.kidnapped, record.casualtyMeta?.kidnapped, "No abductions reported", "#3e8ee6"],
     ["Injured", record.casualties.injured, record.casualtyMeta?.injured, "No injuries reported", null],
     ["Displaced", record.casualties.displaced, record.casualtyMeta?.displaced, "No displacement reported", null],
