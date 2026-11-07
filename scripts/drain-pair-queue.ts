@@ -90,7 +90,7 @@ async function main() {
   if (!pairs.length) { console.log("pair drain: nothing decidable"); await mongoose.disconnect(); return; }
   fs.writeFileSync(pairsFile, JSON.stringify(pairs, null, 2));
 
-  const adjudicate = spawnSync(`npx tsx scripts/adjudicate-backfill.ts --pairs ${pairsFile} --out ${decisionsFile}`, { shell: true, encoding: "utf8" });
+  const adjudicate = spawnSync(`npx tsx scripts/adjudicate-backfill.ts --pairs ${pairsFile} --out ${decisionsFile}`, { shell: true, encoding: "utf8", timeout: 20 * 60_000, killSignal: "SIGKILL" });
   if (adjudicate.status !== 0) {
     console.error("pair drain: adjudication failed; rows stay pending");
     await mongoose.disconnect();
@@ -104,7 +104,7 @@ async function main() {
 
   if (apply && merges.length) {
     fs.writeFileSync(mergeFile, JSON.stringify(merges.map((row) => ({ keep: row.keepId, absorb: [row.absorbId], reason: (row.reasons || []).join(" | ") })), null, 2));
-    const merge = spawnSync(`npx tsx scripts/merge-incidents.ts --pairs ${mergeFile} --apply`, { shell: true, encoding: "utf8" });
+    const merge = spawnSync(`npx tsx scripts/merge-incidents.ts --pairs ${mergeFile} --apply`, { shell: true, encoding: "utf8", timeout: 8 * 60_000, killSignal: "SIGKILL" });
     summary.merge = { status: merge.status, tail: `${merge.stdout || ""}${merge.stderr || ""}`.split(/\r?\n/).filter(Boolean).slice(-4) };
   }
 

@@ -12,7 +12,7 @@ WorkingDirectory=/srv/terror-tracker
 ExecStart=/srv/terror-tracker/run-scan.sh
 # A full run is 5-14 minutes; the ceiling exists so a wedged run cannot hold
 # the lock into the next slot.
-TimeoutStartSec=3600
+TimeoutStartSec=5400
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

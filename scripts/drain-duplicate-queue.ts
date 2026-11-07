@@ -89,7 +89,7 @@ async function main() {
   const reportFile = path.join(outDir, "apply-report.json");
   fs.writeFileSync(queueFile, JSON.stringify(queue, null, 2));
 
-  const adjudicate = spawnSync(`npx tsx scripts/adjudicate-backfill.ts --held ${queueFile} --out ${decisionsFile}`, { shell: true, encoding: "utf8" });
+  const adjudicate = spawnSync(`npx tsx scripts/adjudicate-backfill.ts --held ${queueFile} --out ${decisionsFile}`, { shell: true, encoding: "utf8", timeout: 20 * 60_000, killSignal: "SIGKILL" });
   summary.adjudication = { status: adjudicate.status, tail: `${adjudicate.stdout || ""}${adjudicate.stderr || ""}`.split(/\r?\n/).filter(Boolean).slice(-4) };
   if (adjudicate.status !== 0) {
     fs.writeFileSync(path.join(outDir, "summary.json"), JSON.stringify(summary, null, 2));
@@ -99,7 +99,7 @@ async function main() {
     return;
   }
 
-  const applier = spawnSync(`npx tsx scripts/apply-queue-decisions.ts --decisions ${decisionsFile} --queue ${queueFile} --out ${reportFile} ${apply ? "--apply --dismiss-unplaceable" : ""}`.trim(), { shell: true, encoding: "utf8" });
+  const applier = spawnSync(`npx tsx scripts/apply-queue-decisions.ts --decisions ${decisionsFile} --queue ${queueFile} --out ${reportFile} ${apply ? "--apply --dismiss-unplaceable" : ""}`.trim(), { shell: true, encoding: "utf8", timeout: 25 * 60_000, killSignal: "SIGKILL" });
   summary.applied = { status: applier.status, tail: `${applier.stdout || ""}${applier.stderr || ""}`.split(/\r?\n/).filter(Boolean).slice(-6) };
   if (applier.status !== 0) summary.warning = "applier exited non-zero; inspect apply-report.json";
 
