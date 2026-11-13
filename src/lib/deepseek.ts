@@ -21,6 +21,13 @@ import { countQuoteSupports, findTollSentence, normalizeForQuote, sentenceSpans,
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-flash";
 const DEEPSEEK_TIMEOUT_MS = Number(process.env.DEEPSEEK_TIMEOUT_MS || 30000);
+// deepseek-flash runs with thinking mode on by default, while the legacy
+// deepseek-chat alias is served without it. Every call here is a bounded JSON
+// classification with a small max_tokens, so thinking spent the budget on
+// reasoning and returned empty content (measured 2026-11-13: 8 empty duplicate
+// checks and an INCOMPLETE scan). Disable it explicitly so the reasoning tokens
+// cannot starve the answer.
+const DEEPSEEK_THINKING = { type: "disabled" };
 const MAX_ARTICLE_CHARS = 6000;
 
 export interface DeepSeekCleanupResult {
@@ -84,6 +91,7 @@ export async function assessIncidentDuplicate(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [
           {
             role: "system",
@@ -193,6 +201,7 @@ export async function assessTollConflict(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [
           {
             role: "system",
@@ -263,6 +272,7 @@ export async function extractArticleClaims(articleText: string, scope = ""): Pro
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [
           {
             role: "system",
@@ -432,6 +442,7 @@ export async function cleanAndConfirmIncident(
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [
           {
             role: "system",

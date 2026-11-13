@@ -70,7 +70,7 @@ async function main() {
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify({ model, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model, thinking: { type: "disabled" }, temperature: 0, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] }),
       });
       const body = await response.json();
       parsed = JSON.parse(body.choices?.[0]?.message?.content || "{}");
