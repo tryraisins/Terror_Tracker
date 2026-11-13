@@ -58,6 +58,12 @@ systemctl enable --now terror-scan.timer terror-scan-weekly.timer scan-deadman.t
 systemctl list-timers 'terror-*' 'scan-*'
 ```
 
+Both scan timers carry `Persistent=true`, so applying a schedule whose newly
+added slot already passed fires one catch-up run the moment the timer restarts.
+Changing the slots therefore costs one extra scan and one extra scan's spend on
+the day you change them. Check `systemctl is-active terror-scan.service` after
+the restart so that run is not mistaken for a fault.
+
 8. **Only after the timers are live**, strip the `schedule:` block from
    `.github/workflows/daily-scan.yml`. Both schedules firing means two scans per
    slot; the dedup gate absorbs it, but it doubles Brave spend.
@@ -65,7 +71,7 @@ systemctl list-timers 'terror-*' 'scan-*'
 ## Why the weekly window is a separate unit
 
 The workflow computed a 336-hour lookback and `SEARCH_FRESHNESS=month` for the
-Sunday catch-up slot (now 14:00 UTC, clear of the 08:00 and 20:00 UTC daily
+Sunday catch-up slot (now 14:00 UTC, clear of the 11:00 and 23:00 UTC daily
 slots). `run-scan.sh --weekly` passes those three values through `-e` so the
 weekly catch-up behaves exactly as before. The two daily slots use the values in
 `scan.env`.

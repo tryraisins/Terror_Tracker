@@ -2,10 +2,19 @@
 Description=Terror Tracker scan cadence (replaces the GitHub Actions schedule)
 
 [Timer]
-# Two daily slots, 09:00 and 21:00 Lagos (WAT, UTC+1, no DST), pinned to UTC so
-# the host's Europe/Berlin clock and its DST shift cannot move them. The weekly
-# catch-up sits at Sunday 14:00 UTC so it can never overlap either slot.
-OnCalendar=*-*-* 08,20:00:00 UTC
+# Two daily slots, 12:00 and 00:00 Lagos (WAT, UTC+1, no DST), pinned to UTC so
+# the host's Europe/Berlin clock and its DST shift cannot move them.
+#
+# Both slots sit inside DeepSeek's off-peak window. Billing is 2x between
+# 01:00-04:00 and 06:00-10:00 UTC on weekdays and half price at every other
+# hour, including the whole weekend. 11:00 UTC is an hour clear of the 10:00
+# boundary and 23:00 UTC is two hours clear of the 01:00 one, and a retry 20
+# minutes later is still off-peak. The slots stay 12h apart, so
+# SCAN_HEALTH_STALE_HOURS=18 and the hourly watchdog need no change.
+#
+# The weekly catch-up sits at Sunday 14:00 UTC, which is off-peak all weekend
+# and can never overlap either slot.
+OnCalendar=*-*-* 11,23:00:00 UTC
 AccuracySec=1min
 RandomizedDelaySec=60
 # Catch up after downtime instead of silently skipping a slot.

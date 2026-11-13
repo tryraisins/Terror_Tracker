@@ -10,8 +10,9 @@ OnFailure=terror-scan-alert.service
 Type=oneshot
 WorkingDirectory=/srv/terror-tracker
 ExecStart=/srv/terror-tracker/run-scan.sh
-# A full run is 5-14 minutes; the ceiling exists so a wedged run cannot hold
-# the lock into the next slot.
+# A measured full run is about 22-25 minutes (37 states, 13 batches, ~750
+# article fetches); the ceiling exists so a wedged run cannot hold the lock
+# into the next slot.
 TimeoutStartSec=5400
 Nice=10
 IOSchedulingClass=best-effort

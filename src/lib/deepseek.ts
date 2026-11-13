@@ -19,7 +19,7 @@ import { EMPTY_CLAIMS, type ArticleClaims, type TollClaim } from "./claim-linkag
 import { countQuoteSupports, findTollSentence, normalizeForQuote, sentenceSpans, sentenceStartAt, textNamesPlace, tollClause } from "./quote-grounding";
 
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-flash";
 const DEEPSEEK_TIMEOUT_MS = Number(process.env.DEEPSEEK_TIMEOUT_MS || 30000);
 const MAX_ARTICLE_CHARS = 6000;
 

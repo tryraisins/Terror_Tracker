@@ -39,7 +39,7 @@ jobs:
       DEEPSEEK_CLEANUP_ENABLED: "true"
       DEEPSEEK_DUPLICATE_CHECK_ENABLED: "true"
       DEEPSEEK_DUPLICATE_MAX_PAIRS: "30"
-      DEEPSEEK_MODEL: deepseek-chat
+      DEEPSEEK_MODEL: deepseek-flash
       NEWS_DISCOVERY_ENABLE_BING: "false"
       INCIDENT_LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '168' }}
       SEARCH_PUBLICATION_MAX_AGE_HOURS: ${{ github.event.inputs.lookback_hours == '336' && '336' || '168' }}
@@ -49,6 +49,7 @@ jobs:
       INCIDENT_REVIEW_MAX_ATTEMPTS: "3"
       SEARCH_LED_FEEDS_ENABLED: "true"
       STATE_SCAN_CONCURRENCY: "3"
+      FREE_SOURCE_CONCURRENCY: "8"
       BRAVE_SEARCH_MAX_CALLS_PER_RUN: "40"
       BRAVE_SEARCH_MIN_DELAY_MS: "5000"
       SEARCH_RESULTS_PER_QUERY: "10"
