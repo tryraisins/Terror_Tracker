@@ -1,6 +1,14 @@
 # Project Handoff
 
-## Review-queue second pass, 2026-11-20 21:35 UTC (latest) - pending queue 81 -> 19 rows, 7 more incidents added
+## Review-queue third pass, 2026-11-20 21:50 UTC (latest) - pending queue 19 -> 15 rows, 2 more incidents added
+
+- **Added** (`scratch/queue-insert-D7.mjs`, `review-batch-20261120-41.json`): Delta Issele-Azagba, Aniocha North (young man hacked to death in a suspected Black Axe killing on 27 Oct; four arrests 3 Nov, a fifth 4 Nov; Vanguard and TVC), and Kebbi Dolen Kwandage, Suru (three abducted, five rescued including two Yarma women held earlier; the date is `datePrecision: unknown` anchored on the police statement of Sunday 8 Nov because no report gives the invasion day). Closed 4 rows against them and the Zwagal/Sambak/Sho records (Sun 'gunmen kill 5').
+- **Not linked on purpose:** Punch's 'Delta cult clash claims two lives' (4 rows) describes one suspect arrested and four at large, which does not match the five arrested for the Issele-Azagba killing, so it stays a separate unresolved lead.
+- **Live state:** 1011 active, 0 duplicate hashes, every active id has a review entry, new ids return API 200.
+- **Still pending: 15 rows in 4 groups** (searches this pass found nothing new): Rivers Agba Ndele/Ogbema reprisal (1; weekday dates only), Kachia 'at least 21 Christians, four villages' (8; page blocked, no matching report), Delta Punch cult clash (4; no date or place), Nasarawa hotel arrests (2; operations report with no dated event).
+- **Open records, no further evidence found:** Kinuba `bd1574` vs Gambarun `0b7920` (no source ties or separates them), placeholder `f22d86`, null-killed `8fb62d` (Gidan Sarki: several killed, over 20 abducted, no official toll), `8fba1a` (Lakurawa-bandit clash, 'several fighters died', unverified), `8fbc94` (Gero: only cattle reported killed; left null, not set to 0, because no source states that no one died).
+
+## Review-queue second pass, 2026-11-20 21:35 UTC - pending queue 81 -> 19 rows, 7 more incidents added
 
 - **Closed 62 more rows.** For rows whose page cannot be retrieved, the decision note says the match rests on the headline and the existing record (rules in `scratch/queue-gen-J.mjs`, applied through `apply-review-decisions.ts` with the stored row title as the quote). Others were closed after retrieving the article by another route (`scratch/duplicate-review-20261108-all-pairs/cache-url.mjs`: live, then Wayback).
 - **7 incidents added** (`scratch/queue-insert-D5.mjs`, `D6.mjs`; reviewed in `review-batch-20261120-40.json`): Imo Bishop's Court (Gift Okoro shot dead, Nov 11), Zamfara child abducted by her aunt (Oct 27-30 range), Kano boy killed in an inheritance plot (Apr 20-29 range, state-level place), Kano Ubaidu Sammani abduction (Jul 3, state-level place), Katsina Faskari 17-village attack (Aug 28-31 range, no counts; the held row carried a wrong November date), Lagos Sogunro/Iwaya attack (Nov 2, four to five killed), Lagos Victoria Island bus stop (three homeless men, Nov 1). Two of these were found only because the held article's headline pointed at an event with no record; a web search then located readable sources.
