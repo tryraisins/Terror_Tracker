@@ -1,6 +1,14 @@
 # Project Handoff
 
-## Review-queue third pass, 2026-11-20 21:50 UTC (latest) - pending queue 19 -> 15 rows, 2 more incidents added
+## Spot check of the incidents added from queue review, 2026-11-20 22:10 UTC (latest)
+
+- **Scope and count.** 22 incidents were inserted today from source review (`queue-insert-D1..D7.mjs`; earlier messages that said 20 or 35 were wrong). All 22 were checked by `scratch/spotcheck.mjs`, `scratch/spotcheck-live.mjs` and a render check.
+- **Checks and results.** Each stored toll appears in its own quote (one implicit-two and one singular quote noted, both fine); weekday words match the stored dates; each date lies inside its own range; no unrelated near-duplicate (the 11 'similar nearby' flags were siblings from one article or different places and dates, each checked); all 22 incident pages render with the right title; 21 of 22 `dateEvidence`/toll quotes were re-found in a fresh copy of the primary source, and the 22nd (Ungwan Joshua Kaso) differs only by a volatile 'N days ago' prefix that the stored quote picked up, with the cited sentence present verbatim.
+- **One fix:** Anambra Echezona stored an unknown LGA with `approximate_lga` precision; it now states Anaocha LGA (both reports write 'Aniocha') with a note (`pairs-spotcheck-20261120.json`).
+- **Not independently corroborated (web search found nothing either way):** Borno Rumirgo (Truth Nigeria citing EYN), Plateau Kantoma and Tanjol (Daily Post), Nasarawa Angwan Dariya (youth leader). All four are `unconfirmed`, which is the right status; treat them as single-source.
+- **Cosmetic:** several stored quotes carry a few words of page navigation before the sentence (the quote window started 100 characters before the match). The cited sentence is intact in each.
+
+## Review-queue third pass, 2026-11-20 21:50 UTC - pending queue 19 -> 15 rows, 2 more incidents added
 
 - **Added** (`scratch/queue-insert-D7.mjs`, `review-batch-20261120-41.json`): Delta Issele-Azagba, Aniocha North (young man hacked to death in a suspected Black Axe killing on 27 Oct; four arrests 3 Nov, a fifth 4 Nov; Vanguard and TVC), and Kebbi Dolen Kwandage, Suru (three abducted, five rescued including two Yarma women held earlier; the date is `datePrecision: unknown` anchored on the police statement of Sunday 8 Nov because no report gives the invasion day). Closed 4 rows against them and the Zwagal/Sambak/Sho records (Sun 'gunmen kill 5').
 - **Not linked on purpose:** Punch's 'Delta cult clash claims two lives' (4 rows) describes one suspect arrested and four at large, which does not match the five arrested for the Issele-Azagba killing, so it stays a separate unresolved lead.
