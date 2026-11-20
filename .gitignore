@@ -73,3 +73,7 @@ security-audit/
 /scripts/test-extract-casualty.ts
 /scripts/update-plateau-incident.ts
 /scripts/update-recent-top3.ts
+
+# Slop scan reports
+yeknal-slopscan.log
+yeknal-slopscan.json

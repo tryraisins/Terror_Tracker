@@ -35,6 +35,7 @@ export function Controls({ measure, onMeasure, period, onPeriod, year }: { measu
   return <div className="controls">
     <div className="seg" role="group" aria-label="Measure">{MEASURE_KEYS.map((key) => <button key={key} type="button" aria-pressed={measure === key} onClick={() => onMeasure(key)}><span className="key" style={{ color: MEASURES[key].color }} />{MEASURES[key].short}</button>)}</div>
     {period && onPeriod ? <div className="seg" role="group" aria-label="Period">{PERIOD_KEYS.map((key) => <button key={key} type="button" aria-pressed={period === key} onClick={() => onPeriod(key)}>{key === "year" ? String(year) : PERIODS[key].label}</button>)}</div> : null}
+    {period ? <p className="date-scope-note">Time totals exclude incidents with unknown dates or date ranges crossing the selected period.</p> : null}
   </div>;
 }
 
@@ -114,6 +115,7 @@ export function ColumnChart({ rows, period, measure, today, height = 300, note }
         return <g><line x1={x} x2={x + 14 * dir} y1={y(d.v) + 6} y2={y(d.v) + 6} stroke="#8a938e" /><text x={x + 18 * dir} y={y(d.v) + 10} textAnchor={right ? "start" : "end"} fontSize={12} fill="#edf0ee" fontWeight={600} paintOrder="stroke" stroke="#181b1a" strokeWidth={5}>{note.text}</text></g>;
       })() : null}
     </svg> : <div style={{ height: H }} />}
+    <p className="date-scope-note">Date ranges crossing a chart interval are excluded from its columns.</p>
     {shown && hover != null ? <div className="tip" style={{ left: Math.min(Math.max(padL + hover * bw + bw / 2 - 80, 0), W - 170), top: Math.max(y(shown.v) - 96, 0) }}>
       <b>{shown.long}</b><div className="r"><span>Attacks</span><span>{fmt(shown.a)}</span></div><div className="r"><span>People killed</span><span>{fmt(shown.k)}</span></div><div className="r"><span>People abducted</span><span>{fmt(shown.ab)}</span></div>
     </div> : null}

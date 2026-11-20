@@ -7,7 +7,10 @@ export interface SummaryRow {
   /** Nigeria calendar day of the incident, YYYY-MM-DD. */
   d: string;
   /** Present only when the day is not exact. */
-  dp?: "month_only" | "date_range";
+  dp?: "month_only" | "date_range" | "unknown";
+  /** Calendar bounds for a reported range, not an exact event day. */
+  ds?: string;
+  de?: string;
   t: string;
   town: string;
   lga: string;
@@ -24,6 +27,12 @@ export interface SummaryRow {
 }
 
 export interface SummaryPayload { today: string; year: number; records: SummaryRow[] }
+
+export function summaryDatePrecision(datePrecision?: string | null, tags?: string[]): SummaryRow["dp"] {
+  if (datePrecision === "unknown"
+    || (tags?.includes("date-uncertainty") === true && (!datePrecision || datePrecision === "exact_day"))) return "unknown";
+  return datePrecision === "month_only" || datePrecision === "date_range" ? datePrecision : undefined;
+}
 
 export type Measure = "attacks" | "killed" | "abducted";
 export type Period = "year" | "d90" | "d30";
@@ -53,13 +62,34 @@ export const ageDays = (row: Pick<SummaryRow, "d">, today: string) => Math.round
 export const valueOf = (row: SummaryRow, measure: Measure) => measure === "attacks" ? 1 : measure === "killed" ? row.k ?? 0 : row.ab ?? 0;
 export const total = (rows: SummaryRow[], measure: Measure) => rows.reduce((sum, row) => sum + valueOf(row, measure), 0);
 
+/** Return the possible calendar days, never the internal unknown-date anchor. */
+function dateBounds(row: SummaryRow): [string, string] | null {
+  if (row.dp === "unknown") return null;
+  if (row.dp === "date_range") return row.ds && row.de && row.ds <= row.de ? [row.ds, row.de] : null;
+  if (row.dp === "month_only") {
+    const month = row.d.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return null;
+    const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    return [`${month}-01`, last];
+  }
+  return row.d ? [row.d, row.d] : null;
+}
+
+/** Count an uncertain incident only when every possible day fits the interval. */
+export function withinDates(row: SummaryRow, start: string, end: string) {
+  const bounds = dateBounds(row);
+  return !!bounds && bounds[0] >= start && bounds[1] <= end;
+}
+const dayAtOffset = (today: string, offset: number) => new Date(dayValue(today) - offset * dayMs).toISOString().slice(0, 10);
 export function inPeriod(period: Period, today: string) {
   const days = PERIODS[period].days;
-  return (row: SummaryRow) => days == null || ageDays(row, today) < days;
+  const start = days == null ? `${today.slice(0, 4)}-01-01` : dayAtOffset(today, days - 1);
+  const end = days == null ? `${today.slice(0, 4)}-12-31` : today;
+  return (row: SummaryRow) => withinDates(row, start, end);
 }
 export function inPreviousPeriod(period: Period, today: string) {
   const days = PERIODS[period].days;
-  return (row: SummaryRow) => { if (days == null) return false; const age = ageDays(row, today); return age >= days && age < 2 * days; };
+  return (row: SummaryRow) => days != null && withinDates(row, dayAtOffset(today, 2 * days - 1), dayAtOffset(today, days));
 }
 
 export function byKey(rows: SummaryRow[], measure: Measure, key: (row: SummaryRow) => string | null) {
@@ -79,7 +109,11 @@ export function buckets(period: Period, today: string): Bucket[] {
     return Array.from({ length: month }, (_, index) => ({
       label: MONTHS[index],
       long: `${MONTHS_LONG[index]}${index === month - 1 ? " (so far)" : ""}`,
-      test: (row: SummaryRow) => Number(row.d.slice(5, 7)) === index + 1,
+      test: (row: SummaryRow) => {
+        const start = `${today.slice(0, 4)}-${String(index + 1).padStart(2, "0")}-01`;
+        const end = new Date(Date.UTC(Number(today.slice(0, 4)), index + 1, 0)).toISOString().slice(0, 10);
+        return withinDates(row, start, end);
+      },
     }));
   }
   const count = period === "d90" ? 13 : 30;
@@ -91,7 +125,7 @@ export function buckets(period: Period, today: string): Bucket[] {
     return {
       label: label(oldest),
       long: size === 1 ? label(newest) : `${label(oldest)} to ${label(newest)}`,
-      test: (row: SummaryRow) => { const age = ageDays(row, today); return age >= newest && age <= oldest; },
+      test: (row: SummaryRow) => withinDates(row, dayAtOffset(today, oldest), dayAtOffset(today, newest)),
     };
   });
 }
@@ -132,7 +166,16 @@ export function placeLine(row: Pick<SummaryRow, "town" | "lga" | "s">) {
   const lga = known(row.lga);
   return [lga && lga.toLowerCase() !== place.toLowerCase() ? `${lga.replace(/\s+lga$/i, "")} LGA` : "", stateLabel(row.s)].filter(Boolean).join(", ");
 }
-export function dayLabel(row: Pick<SummaryRow, "d" | "dp">, long = false) {
+export function dayLabel(row: Pick<SummaryRow, "d" | "dp" | "ds" | "de">, long = false) {
+  if (row.dp === "unknown") return "Incident date not established";
+  if (row.dp === "date_range") {
+    if (!row.ds || !row.de) return "Date range not available";
+    const label = (value: string) => {
+      const date = new Date(`${value.slice(0, 10)}T12:00:00Z`);
+      return `${date.getUTCDate()} ${MONTHS_LONG[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+    };
+    return `${label(row.ds)} to ${label(row.de)}`;
+  }
   const date = new Date(`${row.d}T12:00:00Z`);
   if (row.dp === "month_only") return `${MONTHS_LONG[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
   return long ? `${date.getUTCDate()} ${MONTHS_LONG[date.getUTCMonth()]} ${date.getUTCFullYear()}` : `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
@@ -151,7 +194,9 @@ export function toSummaryRow(record: IncidentRecord): SummaryRow {
     id: record._id,
     // The stored calendar day, as recordDay reads it; formatting in Lagos could shift range ends.
     d: (record.dateRange?.end || record.date || "").slice(0, 10),
-    dp: record.datePrecision === "month_only" || record.datePrecision === "date_range" ? record.datePrecision : undefined,
+    dp: summaryDatePrecision(record.datePrecision, record.tags),
+    ds: record.dateRange?.start?.slice(0, 10),
+    de: record.dateRange?.end?.slice(0, 10),
     t: record.title,
     town: record.location?.town || "",
     lga: record.location?.lga || "",

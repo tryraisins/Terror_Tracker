@@ -5,6 +5,8 @@ import { normalizeStateName } from "./normalize-state";
 import { screenIncidentCandidate } from "./incident-scope";
 import { assertActiveAttackDateIntegrity } from "./attack-data-integrity";
 import { normalizeIncidentDate } from "./incident-date";
+import { lgaCompatible, placesPlausiblySame } from "./location-identity";
+import IncidentReview, { createIncidentReviewKey, normalizeIncidentReviewSourceUrl } from "./models/IncidentReview";
 
 export interface IngestResult {
   saved: number;
@@ -59,6 +61,33 @@ export async function ingestAttacks(
       if (!dateEvidence) throw new Error(`[${label}: ${rawAttack.title}] Incident date evidence is missing or invalid.`);
       const attackDate = dateEvidence.date;
       const hash = generateAttackHash(rawAttack);
+      // A storage anchor cannot establish an unknown-date incident's identity.
+      // Keep potentially related legacy leads in the human review queue.
+      const unknownRecords = await Attack.find({ _deleted: { $ne: true }, datePrecision: "unknown" }).lean();
+      const incomingUrls = new Set(rawAttack.sources.map((source) => normalizeIncidentReviewSourceUrl(source.url)));
+      const uncertain = unknownRecords.find((record) => {
+        const sameSource = (record.sources || []).some((source) => incomingUrls.has(normalizeIncidentReviewSourceUrl(source.url)));
+        const sameState = normalizeStateName(record.location?.state || "").toLowerCase() === normalizeStateName(rawAttack.location.state).toLowerCase();
+        const samePlace = sameState && lgaCompatible(record.location?.lga, rawAttack.location.lga) && placesPlausiblySame(record.location?.town, rawAttack.location.town);
+        return record.hash === hash || sameSource || samePlace;
+      });
+      const holdUnknownDate = async (id: unknown) => {
+        const source = rawAttack.sources[0];
+        const reason = `Existing incident ${String(id)} has no established event date; source review is required.`;
+        const sourceUrl = normalizeIncidentReviewSourceUrl(source.url);
+        const reviewKey = createIncidentReviewKey({ sourceUrl, kind: "duplicate", reason });
+        await IncidentReview.updateOne({ reviewKey }, {
+          $set: { title: rawAttack.title.slice(0, 500), publisher: (source.publisher || "").slice(0, 200), reason,
+            state: rawAttack.location.state.slice(0, 100), lastSeenAt: new Date(),
+            sourceEvidence: { existingId: String(id) }, candidates: [rawAttack] },
+          $setOnInsert: { sourceUrl, kind: "duplicate", status: "pending", attempts: 0, retryable: false, nextRetryAt: null },
+        }, { upsert: true, runValidators: true });
+        console.log(`[${label}] Held uncertain-date lead for review: "${rawAttack.title}"`);
+      };
+      if (uncertain) {
+        await holdUnknownDate(uncertain._id);
+        continue;
+      }
       let existing = await Attack.findOne({ hash });
 
       if (!existing) {
@@ -204,6 +233,10 @@ export async function ingestAttacks(
           }).sort({ date: 1 }); // oldest first — original incident predates re-report
 
           if (broadCandidate) {
+            if (broadCandidate.datePrecision === "unknown") {
+              await holdUnknownDate(broadCandidate._id);
+              continue;
+            }
             console.log(
               `[${label}] Broad follow-up match: "${rawAttack.title}" → existing "${broadCandidate.title}" (${broadCandidate.date.toISOString().slice(0, 10)}). Merging sources only.`,
             );
@@ -278,6 +311,10 @@ export async function ingestAttacks(
               });
 
               if (matched) {
+                if (matched.datePrecision === "unknown") {
+                  await holdUnknownDate(matched._id);
+                  continue;
+                }
                 console.log(
                   `[${label}] Cross-state duplicate guard matched "${rawAttack.title}" with "${matched.title}" (${matched.location.state}). Merging instead of inserting.`,
                 );
@@ -292,6 +329,10 @@ export async function ingestAttacks(
       }
 
       if (existing) {
+        if (existing.datePrecision === "unknown") {
+          await holdUnknownDate(existing._id);
+          continue;
+        }
         console.log(`[${label}] Duplicate found: "${rawAttack.title}" — merging with "${existing.title}"`);
         if (existing.hash === hash) {
           const existingUrls = new Set(

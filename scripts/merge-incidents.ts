@@ -18,6 +18,7 @@
  *   "absorb": ["<id>", ...],
  *   "reason": "why these describe one event",
  *   "set": { ...optional field overrides on the survivor },
+ *   "retargetTombstones": ["<previously absorbed id>"],
  *   "addSources": [{ "url", "title", "publisher", "publishedAt" }],
  *   "dropSources": ["<url>"]
  * }
@@ -29,7 +30,8 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import type { LocationPrecision } from "../src/lib/incident-uncertainty";
-import { assertActiveAttackDateIntegrity } from "../src/lib/attack-data-integrity";
+import { assertActiveAttackDateIntegrity, parseIncidentDate } from "../src/lib/attack-data-integrity";
+import { INCIDENT_DATE_PRECISION_VALUES } from "../src/lib/incident-date";
 import { hashFor } from "../src/lib/search-led-discovery";
 
 dotenv.config({ path: ".env.local" });
@@ -42,16 +44,17 @@ type MergePair = {
   keep: string;
   absorb: string[];
   reason: string;
-  set?: Partial<Record<"title" | "description" | "date" | "datePrecision" | "dateRange" | "dateEvidence" | "location" | "group" | "casualties" | "casualtyMeta" | "status" | "tags", unknown>>;
+  set?: Partial<Record<"title" | "description" | "date" | "datePrecision" | "dateRange" | "dateEvidence" | "location" | "group" | "casualties" | "casualtyMeta" | "status" | "tags" | "sources", unknown>>;
   addSources?: Source[];
   dropSources?: string[];
+  retargetTombstones?: string[];
 };
 
 const CASUALTY_FIELDS = ["killed", "injured", "kidnapped", "displaced"] as const;
 const ACTOR = "duplicate-reconciliation";
 const ALLOWED_SET_KEYS = new Set([
   "title", "description", "date", "datePrecision", "dateRange", "dateEvidence",
-  "location", "group", "casualties", "casualtyMeta", "status", "tags",
+  "location", "group", "casualties", "casualtyMeta", "status", "tags", "sources",
 ]);
 
 function arg(name: string): string | undefined {
@@ -81,11 +84,13 @@ function unionSources(base: Source[], incoming: Source[], drop: Set<string>): So
     const key = normalizeUrl(source?.url || "");
     if (!key || seen.has(key) || drop.has(key)) continue;
     seen.add(key);
+    const publishedAt = source.publishedAt ? new Date(source.publishedAt) : null;
+    if (publishedAt && Number.isNaN(publishedAt.getTime())) throw new Error(`Invalid source publication date for ${source.url}`);
     out.push({
       url: source.url,
       title: source.title || "",
       publisher: source.publisher || "",
-      publishedAt: source.publishedAt ? new Date(source.publishedAt) : null,
+      publishedAt,
     });
   }
   return out;
@@ -130,7 +135,7 @@ async function main() {
   // repeated id would let a later plan overwrite an earlier merge.
   const seenIds = new Set<string>();
   for (const pair of pairs) {
-    for (const id of [pair.keep, ...pair.absorb]) {
+    for (const id of [pair.keep, ...pair.absorb, ...(pair.retargetTombstones || [])]) {
       if (seenIds.has(id)) throw new Error(`Record ${id} appears in more than one pair entry`);
       seenIds.add(id);
     }
@@ -150,6 +155,7 @@ async function main() {
   for (const pair of pairs) {
     touchedIds.add(pair.keep);
     for (const id of pair.absorb) touchedIds.add(id);
+    for (const id of pair.retargetTombstones || []) touchedIds.add(id);
   }
   const snapshotBefore = await attacks
     .find({ _id: { $in: [...touchedIds].map((id) => new ObjectId(id)) } })
@@ -184,7 +190,7 @@ async function main() {
       console.log(`SKIP ${pair.keep}: every absorbed record is already merged into this survivor (idempotent rerun)`);
       continue;
     }
-    if (!pair.absorb.length && !pair.set && !pair.addSources && !pair.dropSources) {
+    if (!pair.absorb.length && !pair.set && !pair.addSources && !pair.dropSources && !pair.retargetTombstones?.length) {
       console.log(`SKIP ${pair.keep}: no absorbed record and no field override`);
       continue;
     }
@@ -194,6 +200,10 @@ async function main() {
     for (const key of Object.keys(pair.set || {})) {
       if (!ALLOWED_SET_KEYS.has(key)) problems.push(`${pair.keep}: unsupported override "${key}"`);
     }
+    if (pair.set?.datePrecision !== undefined &&
+        pair.set.datePrecision !== "unknown" && !INCIDENT_DATE_PRECISION_VALUES.some((value) => value === pair.set?.datePrecision)) {
+      problems.push(`${pair.keep}: invalid date precision "${String(pair.set.datePrecision)}"`);
+    }
     const location = pair.set?.location as { precision?: string } | undefined;
     if (location?.precision && !["exact", "surrounding_area", "approximate_lga", "approximate_state", "unknown"].includes(location.precision)) {
       problems.push(`${pair.keep}: invalid location precision "${location.precision}"`);
@@ -201,6 +211,35 @@ async function main() {
 
     const absorbed = pendingAbsorb.map((doc) => JSON.parse(JSON.stringify(doc)));
     const keepDoc = JSON.parse(JSON.stringify(keep));
+    const tombstones: Array<{ id: mongoose.Types.ObjectId; reason: string; priorTarget: string; chain: Array<{ id: mongoose.Types.ObjectId; reason: string }> }> = [];
+    for (const id of pair.retargetTombstones || []) {
+      const seen = new Set<string>([id]);
+      let doc = await attacks.findOne({ _id: new ObjectId(id) });
+      if (!doc || doc._deleted !== true) throw new Error(`${id}: retarget requires a deleted incident`);
+      const originalReason = String(doc._deletedReason || "");
+      const chain: Array<{ id: mongoose.Types.ObjectId; reason: string }> = [];
+      const first = /^Duplicate of ([a-f0-9]{24})\./.exec(originalReason);
+      if (!first) throw new Error(`${id}: missing duplicate target`);
+      let target = first[1];
+      while (target !== pair.keep) {
+        if (seen.has(target)) throw new Error(`${id}: duplicate ancestry contains a cycle`);
+        seen.add(target);
+        doc = await attacks.findOne({ _id: new ObjectId(target) });
+        const next = doc?._deleted === true && /^Duplicate of ([a-f0-9]{24})\./.exec(String(doc._deletedReason || ""));
+        if (!next) throw new Error(`${id}: duplicate ancestry does not reach ${pair.keep}`);
+        chain.push({ id: doc._id as mongoose.Types.ObjectId, reason: String(doc._deletedReason) });
+        target = next[1];
+      }
+      if (first[1] !== pair.keep) tombstones.push({ id: new ObjectId(id), reason: originalReason, priorTarget: first[1], chain });
+    }
+    if (pair.set?.sources !== undefined) {
+      if (!Array.isArray(pair.set.sources)) throw new Error(`${pair.keep}: sources override must be an array`);
+      const original = new Set((keepDoc.sources || []).map((source: Source) => normalizeUrl(source.url)));
+      const replacement = new Set((pair.set.sources as Source[]).map((source) => normalizeUrl(source?.url || "")));
+      if (original.size !== replacement.size || [...original].some((url) => !url || !replacement.has(url))) {
+        throw new Error(`${pair.keep}: sources override must preserve all existing source URLs`);
+      }
+    }
     const drop = new Set((pair.dropSources || []).map(normalizeUrl));
     const sources = unionSources(
       (pair.set?.sources as Source[] | undefined) || (keepDoc.sources || []),
@@ -228,7 +267,18 @@ async function main() {
     };
     for (const [key, value] of Object.entries(pair.set || {})) {
       if (key === "sources" || key === "casualties" || key === "casualtyMeta") continue;
-      update[key] = key === "date" && typeof value === "string" ? new Date(value) : value;
+      if (key === "date") {
+        update[key] = parseIncidentDate(value, `${pair.keep} date`);
+      } else if (key === "dateRange" && value !== null) {
+        if (typeof value !== "object" || Array.isArray(value)) throw new Error(`${pair.keep}: invalid dateRange`);
+        const range = value as Record<string, unknown>;
+        const start = range.start == null ? null : parseIncidentDate(range.start, `${pair.keep} dateRange.start`);
+        const end = range.end == null ? null : parseIncidentDate(range.end, `${pair.keep} dateRange.end`);
+        if (start && end && start > end) throw new Error(`${pair.keep}: dateRange start is after end`);
+        update[key] = { start, end };
+      } else {
+        update[key] = value;
+      }
     }
 
     // Identity hash covers title, date and location, so it must follow them.
@@ -263,8 +313,9 @@ async function main() {
         hash: update.hash || keepDoc.hash,
       },
       absorbedTitles: absorbed.map((doc) => doc.title),
+      retargetTombstones: tombstones.map((doc) => ({ id: String(doc.id), priorTarget: doc.priorTarget })),
     };
-    plans.push({ pair, keepId, absorbDocs: pendingAbsorb, update, plan });
+    plans.push({ pair, keepId, absorbDocs: pendingAbsorb, tombstones, update, plan });
     console.log(`\n${pair.keep} <- ${pair.absorb.join(", ")}`);
     console.log(`  reason: ${pair.reason}`);
     console.log(`  title: ${keepDoc.title}`);
@@ -285,7 +336,7 @@ async function main() {
 
   let activeAfter = activeBefore;
   if (apply) {
-    for (const { pair, keepId, absorbDocs, update } of plans) {
+    for (const { pair, keepId, absorbDocs, tombstones, update } of plans) {
       // A recomputed identity hash can equal the absorbed record's existing
       // hash, because the merge may adopt its location spelling. The unique
       // hash index covers soft-deleted rows too, so the absorbed hash is
@@ -301,6 +352,7 @@ async function main() {
       const session = await mongoose.startSession();
       try {
         await session.withTransaction(async () => {
+          if (!await attacks.findOne({ _id: keepId, _deleted: { $ne: true } }, { session })) throw new Error(`${pair.keep}: survivor is no longer active`);
           for (const doc of absorbDocs) {
             const rewritten = rewrittenHashes.get(String(doc._id));
             await attacks.updateOne({ _id: doc._id, _deleted: { $ne: true } }, {
@@ -313,6 +365,15 @@ async function main() {
                 ...(rewritten ? { hash: rewritten } : {}),
               },
             }, { session });
+          }
+          for (const doc of tombstones) {
+            for (const link of doc.chain) {
+              if (!await attacks.findOne({ _id: link.id, _deleted: true, _deletedReason: link.reason }, { session })) throw new Error(`${String(link.id)}: duplicate ancestry changed during retarget`);
+            }
+            const result = await attacks.updateOne({ _id: doc.id, _deleted: true, _deletedReason: doc.reason }, {
+              $set: { _deletedReason: `Duplicate of ${pair.keep}. Previously merged through ${doc.priorTarget}. ${doc.reason}`, updatedAt: new Date() },
+            }, { session });
+            if (result.modifiedCount !== 1) throw new Error(`${String(doc.id)}: tombstone changed during retarget`);
           }
           await attacks.updateOne({ _id: keepId, _deleted: { $ne: true } }, { $set: update }, { session });
         });
@@ -336,9 +397,13 @@ async function main() {
       let resolvedPairs = 0;
       let retargeted = 0;
       for (const [absorbedId, survivorId] of absorbMap) {
-        // A stored-record pair whose candidate is now absorbed is settled.
+        // Only the exact pair being merged is settled, in either orientation.
+        // A review comparing the absorbed record with a third incident is not.
         const resolved = await reviews.updateMany(
-          { kind: "duplicate", status: "pending", "sourceEvidence.candidateId": absorbedId },
+          { kind: "duplicate", status: "pending", $or: [
+            { "sourceEvidence.existingId": survivorId, "sourceEvidence.candidateId": absorbedId },
+            { "sourceEvidence.existingId": absorbedId, "sourceEvidence.candidateId": survivorId },
+          ] },
           { $set: {
             status: "resolved",
             reviewedAt: now,
@@ -350,13 +415,18 @@ async function main() {
           } },
         );
         resolvedPairs += resolved.modifiedCount;
-        // A held candidate that was compared against the absorbed record is not
-        // settled by that merge: point it at the survivor and keep it open.
-        const retarget = await reviews.updateMany(
-          { kind: "duplicate", status: "pending", "sourceEvidence.existingId": absorbedId, "sourceEvidence.candidateId": { $exists: false } },
+        // Retarget every remaining pending reference, including held leads
+        // with a missing or null candidate ID and stored pairs with a third
+        // incident. Their identity has not been adjudicated by this merge.
+        const existingRetarget = await reviews.updateMany(
+          { kind: "duplicate", status: "pending", "sourceEvidence.existingId": absorbedId },
           { $set: { "sourceEvidence.existingId": survivorId, updatedAt: now } },
         );
-        retargeted += retarget.modifiedCount;
+        const candidateRetarget = await reviews.updateMany(
+          { kind: "duplicate", status: "pending", "sourceEvidence.candidateId": absorbedId },
+          { $set: { "sourceEvidence.candidateId": survivorId, updatedAt: now } },
+        );
+        retargeted += existingRetarget.modifiedCount + candidateRetarget.modifiedCount;
       }
       console.log(`Resolved ${resolvedPairs} settled pair review row(s); retargeted ${retargeted} held candidate(s) to their survivor.`);
     }

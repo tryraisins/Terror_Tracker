@@ -38,7 +38,41 @@ export async function GET(req: NextRequest) {
     sevenDaysAgo.setDate(now.getDate() - 7);
 
     // Exclude soft-deleted records from all queries
-    const active = { _deleted: { $ne: true } };
+    // All statistics here are time-based. An unknown event date must not be
+    // counted in the period containing its internal storage anchor.
+    const active = { _deleted: { $ne: true }, datePrecision: { $ne: "unknown" as const } };
+    // Date ranges are intervals, not their storage anchor. A month-only date
+    // spans its full calendar month. Convert old string endpoints defensively.
+    const rangeStart = { $convert: { input: "$dateRange.start", to: "date", onError: null, onNull: null } };
+    const rangeEnd = { $convert: { input: "$dateRange.end", to: "date", onError: null, onNull: null } };
+    const monthStart = { $dateTrunc: { date: "$date", unit: "month", timezone: "UTC" } };
+    const monthEnd = { $dateSubtract: { startDate: { $dateAdd: { startDate: monthStart, unit: "month", amount: 1 } }, unit: "millisecond", amount: 1 } };
+    const intervalStart = { $switch: { branches: [
+      { case: { $eq: ["$datePrecision", "date_range"] }, then: rangeStart },
+      { case: { $eq: ["$datePrecision", "month_only"] }, then: monthStart },
+    ], default: "$date" } };
+    const intervalEnd = { $switch: { branches: [
+      { case: { $eq: ["$datePrecision", "date_range"] }, then: rangeEnd },
+      { case: { $eq: ["$datePrecision", "month_only"] }, then: monthEnd },
+    ], default: "$date" } };
+    const endOfToday = new Date(Date.UTC(nigeriaYear, nigeriaMonth - 1, nigeriaDay, 23, 59, 59, 999));
+    const endOfTodayLagos = new Date(endOfToday.getTime() - 60 * 60 * 1000);
+    // Range endpoints are calendar-day labels stored in UTC; exact timestamps
+    // retain the endpoint's established Nigeria-local grouping behavior.
+    const rangeOrMonth = { $in: ["$datePrecision", ["date_range", "month_only"]] };
+    const calendarTimezone = { $cond: [rangeOrMonth, "UTC", NIGERIA_TIMEZONE] };
+    const periodEnd = { $cond: [rangeOrMonth, endOfToday, endOfTodayLagos] };
+    const inside = (start: Date, end: unknown = periodEnd) => ({ ...active, $expr: { $and: [
+      { $ne: [intervalStart, null] }, { $ne: [intervalEnd, null] },
+      { $lte: [intervalStart, intervalEnd] }, { $gte: [intervalStart, start] }, { $lte: [intervalEnd, end] },
+    ] } });
+    const sameCalendarUnit = (format: string) => ({ $eq: [
+      { $dateToString: { date: intervalStart, format, timezone: calendarTimezone } },
+      { $dateToString: { date: intervalEnd, format, timezone: calendarTimezone } },
+    ] });
+    const yearEndUtc = new Date(Date.UTC(nigeriaYear, 11, 31, 23, 59, 59, 999));
+    const yearEnd = { $cond: [rangeOrMonth, yearEndUtc, new Date(yearEndUtc.getTime() - 60 * 60 * 1000)] };
+    const inYear = inside(startOfYear, yearEnd);
 
     const [
       totalAttacks,
@@ -55,58 +89,58 @@ export async function GET(req: NextRequest) {
       recentAttacks,
     ] = await Promise.all([
       // Total attacks this year
-      Attack.countDocuments({ ...active, date: { $gte: startOfYear } }),
+      Attack.countDocuments(inYear),
 
       // Total killed
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.killed", 0] } } } },
       ]),
 
       // Total injured
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.injured", 0] } } } },
       ]),
 
       // Total kidnapped
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } } } },
       ]),
 
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: null, total: { $sum: { $ifNull: ["$casualties.displaced", 0] } } } },
       ]),
 
       // Attacks in last 30 days
-      Attack.countDocuments({ ...active, date: { $gte: thirtyDaysAgo } }),
+      Attack.countDocuments(inside(thirtyDaysAgo)),
 
       // Attacks in last 7 days
-      Attack.countDocuments({ ...active, date: { $gte: sevenDaysAgo } }),
+      Attack.countDocuments(inside(sevenDaysAgo)),
 
       // Attacks by state: every jurisdiction, because the dashboard map shades all 37
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: "$location.state", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
 
       // Attacks by group
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: inYear },
         { $group: { _id: "$group", count: { $sum: 1 }, killed: { $sum: { $ifNull: ["$casualties.killed", 0] } } } },
         { $sort: { count: -1 } },
         { $limit: 10 },
       ]),
 
-      // Attacks by month
+      // Only intervals contained by one month can enter that month's bin.
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: { ...inYear, $expr: { $and: [inYear.$expr, sameCalendarUnit("%Y-%m")] } } },
         {
           $group: {
-            _id: { $month: { date: "$date", timezone: NIGERIA_TIMEZONE } },
+            _id: { $month: { date: intervalStart, timezone: calendarTimezone } },
             count: { $sum: 1 },
             killed: { $sum: { $ifNull: ["$casualties.killed", 0] } },
             kidnapped: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } },
@@ -115,12 +149,12 @@ export async function GET(req: NextRequest) {
         { $sort: { _id: 1 } },
       ]),
 
-      // Attacks by Nigeria calendar day, for the year chart. Days without records are filled in by the client.
+      // Only intervals contained by one day can enter a daily bin.
       Attack.aggregate([
-        { $match: { ...active, date: { $gte: startOfYear } } },
+        { $match: { ...inYear, $expr: { $and: [inYear.$expr, sameCalendarUnit("%Y-%m-%d")] } } },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: NIGERIA_TIMEZONE } },
+            _id: { $dateToString: { format: "%Y-%m-%d", date: intervalStart, timezone: calendarTimezone } },
             count: { $sum: 1 },
             killed: { $sum: { $ifNull: ["$casualties.killed", 0] } },
             kidnapped: { $sum: { $ifNull: ["$casualties.kidnapped", 0] } },

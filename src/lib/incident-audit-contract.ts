@@ -42,7 +42,7 @@ export const REVISED_2026_AUDIT_POLICY = {
     "Prefer the exact original event day when direct evidence supports it.",
     "Use date_range with both bounds when evidence supports only a period of days; use the range start as a storage anchor, not as an asserted exact date.",
     "Use month_only when the event month is supported but no narrower period is; use the first day as a storage anchor and retain the full month range.",
-    "Do not publish datePrecision unknown. Mark date_range and month_only records developing with date-uncertainty.",
+    "Do not ingest new incidents with unknown event dates. Manually reviewed legacy records may retain unknown precision, with the storage date labelled as an anchor rather than evidence. Mark date_range and month_only records developing with date-uncertainty.",
   ],
   location: [
     "Use an exact town, village, ward, road, facility or coordinates when a direct source states it.",

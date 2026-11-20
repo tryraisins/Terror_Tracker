@@ -7,7 +7,7 @@ import { Locator } from "@/components/icons";
 import { PageSkeleton } from "@/components/PageState";
 import { LinkPreview, NativeShareButton, ShareActions } from "@/components/Share";
 import { ColumnChart, RowItem } from "@/components/Viz";
-import { IncidentRecord, IncidentStatus, casualtyDetail, displayValue, incidentDateLabel, locationLabel, locationPrecisionLabel } from "@/lib/incident-view";
+import { IncidentRecord, IncidentStatus, casualtyDetail, displayValue, incidentDateIsUncertain, incidentDateLabel, locationLabel, locationPrecisionLabel } from "@/lib/incident-view";
 import type { CasualtyCountMetadata } from "@/lib/incident-uncertainty";
 import { SITE_URL } from "@/lib/site-config";
 import { fmt, placeLine, placeName, stateSlug, toSummaryRow, total } from "@/lib/summary";
@@ -28,15 +28,39 @@ const stamp = (value?: string | null) => {
 
 export default function IncidentDetailPage({ id, initialRecord }: { id: string; initialRecord: IncidentRecord | null }) {
   const [record, setRecord] = useState<IncidentRecord | null>(initialRecord); const [loading, setLoading] = useState(!initialRecord); const [failed, setFailed] = useState(false); const [notFound, setNotFound] = useState(false); const [offline, setOffline] = useState(false);
-  const load = useCallback(async () => { if (!id) return; setLoading(true); setFailed(false); setNotFound(false); setOffline(typeof navigator !== "undefined" && !navigator.onLine); try { const response = await fetch(`/api/attacks/${id}`, { cache: "no-store" }); if (response.status === 404) { setNotFound(true); return; } if (!response.ok) throw new Error("Record unavailable"); const payload = await response.json(); setRecord(payload.attack as IncidentRecord); } catch { setFailed(true); } finally { setLoading(false); } }, [id]);
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      const response = await fetch(`/api/attacks/${id}`, { cache: "no-store" });
+      if (response.status === 404) { setNotFound(true); return; }
+      if (!response.ok) throw new Error("Record unavailable");
+      const payload = await response.json();
+      setRecord(payload.attack as IncidentRecord);
+      setFailed(false);
+      setNotFound(false);
+    } catch {
+      setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+      setFailed(true);
+    } finally { setLoading(false); }
+  }, [id]);
+  const retry = useCallback(() => {
+    setLoading(true);
+    setFailed(false);
+    setNotFound(false);
+    setOffline(typeof navigator !== "undefined" && !navigator.onLine);
+    void load();
+  }, [load]);
+  useEffect(() => {
+    const task = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(task);
+  }, [load]);
   const summary = useSummary();
   const row = useMemo(() => record ? toSummaryRow(record) : null, [record]);
   const stateRows = useMemo(() => summary.data && row ? summary.data.records.filter((item) => item.s === row.s) : [], [summary.data, row]);
 
   if (loading && !record) return <PageSkeleton title="Incident" />;
   if (notFound) return <EmptyState title="Record not found" action={<Link className="btn" href="/incidents">Browse incidents</Link>}>This record may not exist or may no longer be included in the public record.</EmptyState>;
-  if (failed && !record) return <ErrorState offline={offline} retry={load} />;
+  if (failed && !record) return <ErrorState offline={offline} retry={retry} />;
   if (!record || !row) return null;
 
   const sources = record.sources ?? [];
@@ -52,7 +76,7 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
 
   return <div className="inc-page">
     <nav className="crumbs" aria-label="Breadcrumb"><Link href="/incidents">Incidents</Link><span aria-hidden="true">/</span><Link href={`/states/${stateSlug(row.s)}`}>{row.s}</Link><span aria-hidden="true">/</span><span>{place}</span></nav>
-    {failed ? <div className="notice">The record could not be refreshed. This is the last successful copy. <button type="button" className="text-link" onClick={load}>Retry</button></div> : null}
+    {failed ? <div className="notice">The record could not be refreshed. This is the last successful copy. <button type="button" className="text-link" onClick={retry}>Retry</button></div> : null}
     <div className="inc-layout">
       <div className="inc-main">
         <section className="card">
@@ -71,7 +95,7 @@ export default function IncidentDetailPage({ id, initialRecord }: { id: string; 
           <dl className="facts">
             <dt>What happened</dt><dd>{record.description || "No narrative summary is available for this record."}</dd>
             <dt>Where</dt><dd>{locationLabel(record.location)}. Location precision: {locationPrecisionLabel(record.location)}.{record.location.notes ? <blockquote>{record.location.notes}</blockquote> : null}</dd>
-            <dt>When</dt><dd>{incidentDateLabel(record, true)}, recorded to {DATE_PRECISION_LABEL[record.datePrecision || "exact_day"] ?? "the day"}.{record.dateEvidence ? <blockquote>&ldquo;{record.dateEvidence}&rdquo;</blockquote> : null}</dd>
+            <dt>When</dt><dd>{incidentDateLabel(record, true)}{incidentDateIsUncertain(record) ? "." : `, recorded to ${DATE_PRECISION_LABEL[record.datePrecision || "exact_day"] ?? "the day"}.`}{record.dateEvidence ? <blockquote>&ldquo;{record.dateEvidence}&rdquo;</blockquote> : null}</dd>
             <dt>Attributed to</dt><dd>{record.group || "Unknown"}, as named in reporting. Not independently attributed.</dd>
           </dl>
         </section>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { incidentDateLabel } from "@/lib/incident-view";
-import type { IncidentDatePrecision } from "@/lib/incident-date";
+import type { StoredIncidentDatePrecision } from "@/lib/incident-date";
 
 interface TickerItem {
     title: string;
@@ -21,7 +21,7 @@ export default function BreakingTicker() {
                 const data = await res.json();
                 if (data.attacks?.length) {
                     setItems(
-                        data.attacks.map((a: { title: string; location: { state: string; }; date: string; datePrecision?: IncidentDatePrecision; dateRange?: { start?: string | null; end?: string | null } }) => ({
+                        data.attacks.map((a: { title: string; location: { state: string; }; date: string; datePrecision?: StoredIncidentDatePrecision; dateRange?: { start?: string | null; end?: string | null }; tags?: string[] }) => ({
                             title: a.title,
                             location: a.location?.state || "",
                             date: incidentDateLabel(a),

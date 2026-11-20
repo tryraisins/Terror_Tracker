@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { MapIcon, TableIcon } from "@/components/icons";
 import { PageError, PageSkeleton } from "@/components/PageState";
 import { BarList, Change, Choropleth, ColumnChart, Controls, DataTable, Legend, RowItem, Sparkline, StatTile } from "@/components/Viz";
-import { MEASURES, PERIODS, ageDays, buckets, byState, dayLabel, fmt, inPeriod, inPreviousPeriod, stateSlug, total, type Measure, type Period } from "@/lib/summary";
+import { MEASURES, PERIODS, ageDays, buckets, byState, dayLabel, fmt, inPeriod, inPreviousPeriod, stateSlug, total, withinDates, type Measure, type Period } from "@/lib/summary";
 import { useSummary } from "@/lib/use-summary";
 
 export default function OverviewPage() {
@@ -23,7 +23,8 @@ export default function OverviewPage() {
     const spark = (m: Measure) => sparkBuckets.map((bucket) => total(records.filter(bucket.test), m));
     const trend = buckets(period, today).map((bucket) => ({ bucket, value: total(records.filter(bucket.test), measure) }));
     const peak = trend.reduce((best, item, i) => item.value > trend[best].value ? i : best, 0);
-    const week = records.filter((row) => ageDays(row, today) < 7);
+    const weekStart = new Date(`${today}T00:00:00Z`); weekStart.setUTCDate(weekStart.getUTCDate() - 6);
+    const week = records.filter((row) => withinDates(row, weekStart.toISOString().slice(0, 10), today));
     const ranked = byState(current, measure);
     return { current, previous, spark, trend, peak, week, ranked, states: new Set(current.map((row) => row.s)).size };
   }, [data, period, measure]);
@@ -70,9 +71,10 @@ export default function OverviewPage() {
     <div className="panels">
       <section className="card span-8" aria-labelledby="trend-title">
         <div className="card-head">
-          <div><h2 id="trend-title">{trend[peak].value ? `${M.label} peaked in ${trend[peak].bucket.long.replace(" (so far)", "")}, with ${fmt(trend[peak].value)}` : `No ${M.noun} ${phrase}`}</h2><p className="ov-trend-note">{M.label} per {unit}, {phrase}. Hover a column for all three measures.</p></div>
+          <div><h2 id="trend-title">{trend[peak].value ? `${M.label} peaked in ${trend[peak].bucket.long.replace(" (so far)", "")}, with ${fmt(trend[peak].value)}` : `No ${M.noun} can be assigned to a ${unit} ${phrase}`}</h2><p className="ov-trend-note">{M.label} per {unit}, {phrase}. Hover a column for all three measures.</p></div>
           <div className="seg seg--sm" role="group" aria-label="View"><button type="button" aria-pressed={view === "chart"} onClick={() => setView("chart")}>Chart</button><button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}><TableIcon />Table</button></div>
         </div>
+        {view === "table" ? <p className="date-scope-note">Date ranges crossing a table interval are excluded from its rows.</p> : null}
         {view === "table"
           ? <DataTable head={[unit[0].toUpperCase() + unit.slice(1), "Attacks", "Killed", "Abducted"]} rows={trend.map(({ bucket }) => { const items = records.filter(bucket.test); return [bucket.long, items.length, total(items, "killed"), total(items, "abducted")]; })} />
           : <ColumnChart rows={records} period={period} measure={measure} today={today} height={360} note={note} />}
@@ -89,7 +91,7 @@ export default function OverviewPage() {
 
     <div className="panels">
       <section className="card span-7 ov-map" aria-labelledby="map-title">
-        <div className="card-head"><div><h2 id="map-title">{ranked[0] ? `${ranked[0][0]} has the most ${M.noun}` : `No ${M.noun} ${phrase}`}</h2><p>{M.label} by state, {phrase}.</p></div><Link className="btn" href={`/map?m=${measure}`}><MapIcon />Open the map</Link></div>
+        <div className="card-head"><div><h2 id="map-title">{ranked[0] ? `${ranked[0][0]} has the most ${M.noun}` : `No ${M.noun} can be assigned to a ${unit} ${phrase}`}</h2><p>{M.label} by state, {phrase}.</p></div><Link className="btn" href={`/map?m=${measure}`}><MapIcon />Open the map</Link></div>
         <Choropleth values={new Map(ranked)} measure={measure} />
         <div className="card-foot"><Legend measure={measure} /></div>
       </section>

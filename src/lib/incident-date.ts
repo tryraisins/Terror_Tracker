@@ -1,6 +1,9 @@
 export const INCIDENT_DATE_PRECISION_VALUES = ["exact_day", "date_range", "month_only"] as const;
 
 export type IncidentDatePrecision = (typeof INCIDENT_DATE_PRECISION_VALUES)[number];
+// Unknown dates are allowed on manually reviewed legacy incidents. Ingestion
+// still requires a source-supported exact day, range, or month.
+export type StoredIncidentDatePrecision = IncidentDatePrecision | "unknown";
 
 export type IncidentDateRange = {
   start: Date;

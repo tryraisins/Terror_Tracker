@@ -65,16 +65,37 @@ export async function GET(req: NextRequest) {
     if (status) filter.status = status;
     if (source) filter["sources.publisher"] = source;
 
-    if (month) {
-      const [y, m] = month.split("-").map(Number);
-      filter.date = {
-        $gte: new Date(y, m - 1, 1),
-        $lte: new Date(y, m, 0, 23, 59, 59, 999),
-      };
-    } else if (startDate || endDate) {
-      filter.date = {};
-      if (startDate) (filter.date as Record<string, unknown>).$gte = new Date(startDate);
-      if (endDate) (filter.date as Record<string, unknown>).$lte = new Date(endDate);
+    if (month || startDate || endDate) {
+      // A ranged incident can match either boundary month. Showing it in both
+      // lists is safe because the card shows the range, not an invented day.
+      let start: Date | undefined;
+      let end: Date | undefined;
+      if (month) {
+        const [year, monthNumber] = month.split("-").map(Number);
+        start = new Date(year, monthNumber - 1, 1);
+        end = new Date(year, monthNumber, 0, 23, 59, 59, 999);
+      } else {
+        if (startDate) start = new Date(startDate);
+        if (endDate) end = new Date(endDate);
+      }
+      const date: Record<string, Date> = {};
+      if (start) date.$gte = start;
+      if (end) date.$lte = end;
+      const rangeStart = { $convert: { input: "$dateRange.start", to: "date", onError: null, onNull: null } };
+      const rangeEnd = { $convert: { input: "$dateRange.end", to: "date", onError: null, onNull: null } };
+      const rangeChecks: Record<string, unknown>[] = [{ $ne: [rangeStart, null] }, { $ne: [rangeEnd, null] }, { $lte: [rangeStart, rangeEnd] }];
+      if (start) rangeChecks.push({ $gte: [rangeEnd, start] });
+      if (end) rangeChecks.push({ $lte: [rangeStart, end] });
+      const overlap = { datePrecision: "date_range", $expr: { $and: rangeChecks } };
+      const monthValue = { $dateToString: { format: "%Y-%m", date: "$date", timezone: "UTC" } };
+      const monthChecks: Record<string, unknown>[] = [];
+      if (start) monthChecks.push({ $gte: [monthValue, start.toISOString().slice(0, 7)] });
+      if (end) monthChecks.push({ $lte: [monthValue, end.toISOString().slice(0, 7)] });
+      filter.$and = [{ $or: [
+        { datePrecision: { $nin: ["unknown", "date_range", "month_only"] }, date },
+        overlap,
+        { datePrecision: "month_only", $expr: { $and: monthChecks } },
+      ] }];
     }
 
     if (search) {

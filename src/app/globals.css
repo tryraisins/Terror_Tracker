@@ -90,6 +90,7 @@ h1,h2,h3,h4 { margin:0; color:var(--text); font-weight:750; letter-spacing:-.015
 
 /* Controls */
 .controls { display:flex; flex-wrap:wrap; gap:10px; }
+.date-scope-note { flex-basis:100%; margin:4px 0 0; color:var(--muted, #8a938e); font-size:12px; }
 .seg { display:inline-flex; gap:2px; padding:4px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
 .seg button { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:7px 14px; border:0; border-radius:8px; background:none; color:var(--text-2); font-size:14px; font-weight:600; white-space:nowrap; }
 .seg button:hover { color:var(--text); }

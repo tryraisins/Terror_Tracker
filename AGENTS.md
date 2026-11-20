@@ -73,3 +73,13 @@ If you dismiss a duplicate row, the disposition note must say which case it is: 
 ## Verification before calling work done
 
 `npx tsc --noEmit`, focused ESLint, and `npm run build` (needs `JWT_SECRET`; use a disposable value). Then exercise the real path you changed. Update `HANDOFF.md` for anything another agent would need to continue.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -52,7 +52,7 @@ export interface DuplicateCheckIncident {
   title: string;
   description: string;
   date: Date | string;
-  datePrecision?: RawAttackData["datePrecision"];
+  datePrecision?: RawAttackData["datePrecision"] | "unknown";
   dateRange?: { start?: Date | string | null; end?: Date | string | null };
   location: { state: string; lga: string; town: string };
   group: string;
@@ -78,6 +78,9 @@ export async function assessIncidentDuplicate(
   reportA: DuplicateCheckIncident,
   reportB: DuplicateCheckIncident,
 ): Promise<DeepSeekDuplicateAssessment> {
+  if (reportA.datePrecision === "unknown" || reportB.datePrecision === "unknown") {
+    return { classification: "review_required", reason: "An incident has no established event date" };
+  }
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!isDeepSeekDuplicateCheckEnabled() || !apiKey) {
     return { classification: "review_required", reason: "DeepSeek duplicate check is disabled or unconfigured" };

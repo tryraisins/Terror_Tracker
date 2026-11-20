@@ -48,6 +48,7 @@ export default function StateClient({ state }: { state: string }) {
       <p className="share-note" role="status" aria-live="polite" style={{ margin: "8px 0 0" }}>{shareNote}</p>
     </div><Locator state={state} /></div></section>
 
+    <p className="date-scope-note">Time totals exclude incidents with unknown dates or date ranges crossing the selected period.</p>
     <div className="panels">
       <StatTile label="Attacks" color={MEASURES.attacks.color} value={fmt(rows.length)}><span className="tile-delta">{ra ? `${ordinal(ra)} of 37 states` : "No attacks recorded"}</span></StatTile>
       <StatTile label="People killed" color={MEASURES.killed.color} value={fmt(total(rows, "killed"))}><span className="tile-delta">{ordinal(rankOf("killed") || 37)} of 37 states</span></StatTile>
@@ -56,7 +57,7 @@ export default function StateClient({ state }: { state: string }) {
     </div>
 
     <section className="card" style={{ marginTop: 16 }} aria-labelledby="trend-title">
-      <div className="card-head"><div><h2 id="trend-title">{trend[peak]?.value ? `${MEASURES[measure].label} in ${title} peaked in ${trend[peak].bucket.long.replace(" (so far)", "")}, with ${fmt(trend[peak].value)}` : `No ${MEASURES[measure].noun} recorded in ${title} this year`}</h2><p>Per month, since 1 January. Hover a column for all three measures.</p></div>
+      <div className="card-head"><div><h2 id="trend-title">{trend[peak]?.value ? `${MEASURES[measure].label} in ${title} peaked in ${trend[peak].bucket.long.replace(" (so far)", "")}, with ${fmt(trend[peak].value)}` : `No ${MEASURES[measure].noun} can be assigned to a month in ${title} this year`}</h2><p>Per month, since 1 January. Hover a column for all three measures.</p></div>
         <div className="seg seg--sm" role="group" aria-label="Measure">{MEASURE_KEYS.map((key) => <button key={key} type="button" aria-pressed={measure === key} onClick={() => setMeasure(key)}>{MEASURES[key].short}</button>)}</div></div>
       <ColumnChart rows={rows} period="year" measure={measure} today={data.today} height={280} />
     </section>

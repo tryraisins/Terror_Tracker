@@ -10,7 +10,7 @@ import {
     ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import { displayValue, incidentDateLabel, locationLabel } from "@/lib/incident-view";
-import type { IncidentDatePrecision } from "@/lib/incident-date";
+import type { StoredIncidentDatePrecision } from "@/lib/incident-date";
 import type { CasualtyCountMetadata, LocationPrecision } from "@/lib/incident-uncertainty";
 
 interface AttackCardProps {
@@ -19,7 +19,7 @@ interface AttackCardProps {
         title: string;
         description: string;
         date: string;
-        datePrecision?: IncidentDatePrecision;
+        datePrecision?: StoredIncidentDatePrecision;
         dateRange?: { start?: string | null; end?: string | null };
         location: {
             state: string;

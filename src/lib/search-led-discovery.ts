@@ -842,6 +842,10 @@ export async function ingestSearchLedAttacks(
       });
 
       if (existing) {
+        if (existing.datePrecision === "unknown") {
+          reviewRequired.push({ url: candidate.sources?.[0]?.url || "", candidateTitle: candidate.title, existingId: String(existing._id), reason: "Existing incident has no established event date; its storage anchor cannot prove identity." });
+          continue;
+        }
         if (!casualtiesCompatible(candidate.casualties, existing.casualties)) {
           reviewRequired.push({
             url: candidate.sources?.[0]?.url || "",
@@ -871,16 +875,49 @@ export async function ingestSearchLedAttacks(
       const possibleMatches = await Attack.find({
         _deleted: { $ne: true },
         $or: [
+          { datePrecision: "unknown" },
+          // Retrieve nearby dates across state lines too, so normalized URL
+          // variants can be compared before a border-road lead is inserted.
+          { date: { $gte: dateWindowStart, $lte: dateWindowEnd } },
+          { "dateRange.start": { $lte: dateWindowEnd }, "dateRange.end": { $gte: dateWindowStart } },
           ...(candidateUrls.length ? [{ "sources.url": { $in: (candidate.sources || []).map((source) => source.url) } }] : []),
           {
             "location.state": { $regex: `^${escapeRegExp(candidate.location.state)}$`, $options: "i" },
             $or: [
               { date: { $gte: dateWindowStart, $lte: dateWindowEnd } },
               { "dateRange.start": { $lte: dateWindowEnd }, "dateRange.end": { $gte: dateWindowStart } },
+              { datePrecision: "unknown" },
             ],
           },
         ],
       }).lean();
+
+      // An unknown-date record has no comparable interval. Hold a plausible
+      // same-place lead for human review instead of treating its storage date
+      // as evidence or silently inserting a possible duplicate.
+      const unknownDateMatch = possibleMatches.find((record) => {
+        const sameState = normalizePlaceTokens(record.location?.state || "").join(" ") === normalizePlaceTokens(candidate.location.state).join(" ");
+        const sameSource = (record.sources || []).some((source) => candidateUrls.includes(normalizeSourceUrl(source.url)));
+        const samePlace = hasSpecificTown && lgaCompatible(record.location?.lga || "", lga) && placesPlausiblySame(town, record.location?.town || "");
+        return record.datePrecision === "unknown" && (sameSource || (sameState && samePlace));
+      });
+      if (unknownDateMatch) {
+        reviewRequired.push({ url: candidate.sources?.[0]?.url || "", candidateTitle: candidate.title, existingId: String(unknownDateMatch._id), reason: "A plausible existing incident has no established event date; event identity requires source review." });
+        continue;
+      }
+
+      // A border road can be described under either state. A shared source is
+      // only a reason to hold the lead, never proof that its events are equal.
+      const crossStateSourceMatch = possibleMatches.find((record) => {
+        const sameState = normalizePlaceTokens(record.location?.state || "").join(" ") === normalizePlaceTokens(candidate.location.state).join(" ");
+        const sameSource = (record.sources || []).some((source) => candidateUrls.includes(normalizeSourceUrl(source.url)));
+        const recordDate = normalizeIncidentDate(record);
+        return !sameState && sameSource && !!recordDate && incidentDateIntervalsOverlap(candidateDate, recordDate, SEMANTIC_DUPLICATE_WINDOW_MS);
+      });
+      if (crossStateSourceMatch) {
+        reviewRequired.push({ url: candidate.sources?.[0]?.url || "", candidateTitle: candidate.title, existingId: String(crossStateSourceMatch._id), reason: "A date-compatible incident in another state cites the same source; the separate events must be compared before insertion." });
+        continue;
+      }
 
       const nearbyEventMatches = possibleMatches.filter((record) => {
         const sameState = normalizePlaceTokens(record.location?.state || "").join(" ") === normalizePlaceTokens(candidate.location.state).join(" ");

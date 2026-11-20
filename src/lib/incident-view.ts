@@ -6,7 +6,7 @@ import {
   type LocationPrecision,
   casualtyRepresentativeValue,
 } from "./incident-uncertainty";
-import type { IncidentDatePrecision } from "./incident-date";
+import type { StoredIncidentDatePrecision } from "./incident-date";
 
 export type IncidentStatus = "confirmed" | "developing" | "unconfirmed";
 
@@ -15,7 +15,7 @@ export interface IncidentRecord {
   title: string;
   description: string;
   date: string;
-  datePrecision?: IncidentDatePrecision;
+  datePrecision?: StoredIncidentDatePrecision;
   dateEvidence?: string;
   dateRange?: { start?: string | null; end?: string | null };
   location: {
@@ -46,8 +46,17 @@ export function formatDateLong(value?: string) {
   return Number.isNaN(date.valueOf()) ? "Not recorded" : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" }).format(date);
 }
 
-export function incidentDateLabel(record: Pick<IncidentRecord, "date" | "datePrecision" | "dateRange">, long = false) {
-  const precision = record.datePrecision || "exact_day";
+type IncidentDateDisplay = Pick<IncidentRecord, "date" | "datePrecision" | "dateRange"> & { tags?: string[] };
+
+export function incidentDateIsUncertain(record: Pick<IncidentRecord, "datePrecision"> & { tags?: string[] }) {
+  return record.datePrecision === "unknown"
+    || (record.tags?.includes("date-uncertainty") === true
+      && (!record.datePrecision || record.datePrecision === "exact_day"));
+}
+
+export function incidentDateLabel(record: IncidentDateDisplay, long = false) {
+  const precision = incidentDateIsUncertain(record) ? "unknown" : record.datePrecision || "exact_day";
+  if (precision === "unknown") return "Incident date not established";
   if (precision === "exact_day") return long ? formatDateLong(record.date) : formatDate(record.date);
   if (precision === "month_only") {
     const date = new Date(record.dateRange?.start || record.date);
@@ -55,7 +64,7 @@ export function incidentDateLabel(record: Pick<IncidentRecord, "date" | "datePre
   }
   const start = record.dateRange?.start;
   const end = record.dateRange?.end;
-  if (!start || !end) return long ? formatDateLong(record.date) : formatDate(record.date);
+  if (!start || !end) return "Date range not available";
   // Stored range bounds represent UTC calendar days, including 23:59:59.999
   // on the final day. Formatting that instant in Lagos would add a false day.
   return `${formatDateLong(start.slice(0, 10))} to ${formatDateLong(end.slice(0, 10))}`;

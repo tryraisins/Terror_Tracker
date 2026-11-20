@@ -13,7 +13,7 @@ dotenv.config({path:'.env.local',quiet:true});
 type Decision = {
   reviewId: string;
   fingerprint: string;
-  outcome: 'recorded' | 'excluded' | 'distinct_stored_events';
+  outcome: 'recorded' | 'excluded' | 'distinct_stored_events' | 'reopen_merged_pair';
   note: string;
   recordIds: string[];
   evidence: Array<{url:string; quote:string}>;
@@ -35,12 +35,13 @@ async function main(){
  for(const d of decisions){
   if(!/^[a-f0-9]{24}$/.test(d.reviewId)||ids.has(d.reviewId))throw Error('Invalid or repeated review ID');ids.add(d.reviewId);
   if(!/^[a-f0-9]{64}$/.test(d.fingerprint))throw Error('Missing review fingerprint');
-  if(!['recorded','excluded','distinct_stored_events'].includes(d.outcome))throw Error('Invalid outcome');
+  if(!['recorded','excluded','distinct_stored_events','reopen_merged_pair'].includes(d.outcome))throw Error('Invalid outcome');
   if(typeof d.note!=='string'||d.note.trim().length<60||d.note.length>1800)throw Error('Each decision needs a specific disposition note');
   if(!Array.isArray(d.evidence)||!d.evidence.length||d.evidence.some(e=>!/^https?:\/\//.test(e.url)||!e.quote||e.quote.length<20))throw Error('Each decision needs source evidence');
   if(!Array.isArray(d.recordIds)||d.recordIds.some(id=>!/^[a-f0-9]{24}$/.test(id)))throw Error('Invalid record IDs');
   if(d.outcome==='recorded'&&!d.recordIds.length)throw Error('Recorded outcome requires active incident IDs');
   if(d.outcome==='distinct_stored_events'&&new Set(d.recordIds).size<2)throw Error('Distinct-pair disposition requires both stored incidents');
+  if(d.outcome==='reopen_merged_pair'&&(d.recordIds.length!==2||new Set(d.recordIds).size!==2))throw Error('Reopening requires two distinct active incident IDs in existing/candidate order');
  }
  if(!process.env.MONGODB_URI)throw Error('MONGODB_URI is required');
  await mongoose.connect(process.env.MONGODB_URI,{serverSelectionTimeoutMS:15000});
@@ -49,6 +50,19 @@ async function main(){
   const plans=[];
   for(const d of decisions){
    const row=await reviews.findOne({_id:new mongoose.Types.ObjectId(d.reviewId)});if(!row)throw Error(`Review missing: ${d.reviewId}`);
+   if(d.outcome==='reopen_merged_pair'){
+    const match=String(row.dispositionNote||'').match(/^Resolved by the merge of ([a-f0-9]{24}) into ([a-f0-9]{24})\.$/);
+    const existing=String(row.sourceEvidence?.existingId||'');const candidate=String(row.sourceEvidence?.candidateId||'');
+    if(row.kind!=='duplicate'||row.status!=='resolved'||row.reviewedBy!=='duplicate-reconciliation'||!match||fingerprint(row)!==d.fingerprint)throw Error(`Review is not an unchanged automatic merge disposition: ${d.reviewId}`);
+    const [,absorbed,survivor]=match;
+    if((existing===absorbed)===(candidate===absorbed)||existing===survivor||candidate===survivor)throw Error(`Review is not a third-incident comparison: ${d.reviewId}`);
+    const expected=[existing===absorbed?survivor:existing,candidate===absorbed?survivor:candidate];
+    if(expected.some((id,index)=>id!==d.recordIds[index]))throw Error(`Reopened incident IDs do not match the original pair: ${d.reviewId}`);
+    const tombstone=await attacks.findOne({_id:new mongoose.Types.ObjectId(absorbed),_deleted:true});
+    if(!tombstone||!String(tombstone._deletedReason||'').includes(survivor))throw Error(`Absorbed incident does not point to the stated survivor: ${d.reviewId}`);
+    for(const id of d.recordIds)if(!await attacks.findOne({_id:new mongoose.Types.ObjectId(id),_deleted:{$ne:true}}))throw Error(`Referenced incident is not active: ${id}`);
+    plans.push({d,row,note:`Reopened for independent review: ${d.note}`,status:'pending',skip:false});continue;
+   }
    const status=d.outcome==='recorded'?'resolved':'dismissed';
    const note=`${d.outcome==='recorded'?'Same event already recorded':d.outcome==='distinct_stored_events'?'Distinct events':'Excluded after source review'}: ${d.note}${d.recordIds.length?' Records: '+d.recordIds.join(', '):''}`;
    if(note.length>2000)throw Error('Disposition note exceeds maximum length');
@@ -64,8 +78,8 @@ async function main(){
   await fs.writeFile(path.join(out,'attacks-before.json'),JSON.stringify(await attacks.find({}).toArray(),null,2));
   let modified=0,skipped=0;
   for(const p of plans){if(p.skip){skipped++;continue;}if(!apply)continue;
-   const now=new Date();const filter={_id:p.row._id,status:'pending',updatedAt:p.row.updatedAt};
-   const r=await reviews.updateOne(filter,{$set:{status:p.status,reviewedAt:now,reviewedBy:'evidence-reviewed-manifest',dispositionNote:p.note,retryable:false,nextRetryAt:null,updatedAt:now}});
+   const now=new Date();const reopen=p.d.outcome==='reopen_merged_pair';const filter={_id:p.row._id,status:reopen?'resolved':'pending',updatedAt:p.row.updatedAt};
+   const r=await reviews.updateOne(filter,{$set:{status:p.status,reviewedAt:reopen?null:now,reviewedBy:reopen?null:'evidence-reviewed-manifest',dispositionNote:p.note,retryable:false,nextRetryAt:null,updatedAt:now,...(reopen?{'sourceEvidence.existingId':p.d.recordIds[0],'sourceEvidence.candidateId':p.d.recordIds[1]}:{})}});
    if(r.modifiedCount!==1)throw Error(`Concurrent change prevented disposition: ${p.d.reviewId}`);modified++;
    await fs.appendFile(path.join(out,'applied.jsonl'),JSON.stringify({reviewId:p.d.reviewId,status:p.status,note:p.note})+'\n');
   }

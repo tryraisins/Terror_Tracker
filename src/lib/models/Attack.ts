@@ -5,13 +5,13 @@ import {
   type CasualtyMetadata,
   type LocationPrecision,
 } from "../incident-uncertainty";
-import type { IncidentDatePrecision } from "../incident-date";
+import type { StoredIncidentDatePrecision } from "../incident-date";
 
 export interface IAttack extends Document {
   title: string;
   description: string;
   date: Date;
-  datePrecision?: IncidentDatePrecision;
+  datePrecision?: StoredIncidentDatePrecision;
   dateEvidence?: string;
   dateRange?: { start: Date; end: Date };
   location: {
@@ -72,7 +72,7 @@ const AttackSchema = new Schema<IAttack>(
     },
     datePrecision: {
       type: String,
-      enum: ["exact_day", "date_range", "month_only"],
+      enum: ["exact_day", "date_range", "month_only", "unknown"],
       default: "exact_day",
       index: true,
     },
