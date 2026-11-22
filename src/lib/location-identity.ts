@@ -38,7 +38,9 @@ function cleanPlace(value: string): string {
  * because they identify subdivisions: "Garki Area 1" and "Garki Area 2" are
  * different places. */
 export function normalizePlaceTokens(value: string): string[] {
-  const cleaned = cleanPlace(value).replace(/[^a-z0-9\s]/g, " ");
+  // An in-word apostrophe is part of the name ("Ba'are", "Ba’are"), not a word
+  // break; splitting there leaves stub tokens that cannot anchor a comparison.
+  const cleaned = cleanPlace(value).replace(/(?<=[a-z0-9])['’‘`](?=[a-z0-9])/g, "").replace(/[^a-z0-9\s]/g, " ");
   return [...new Set(cleaned.split(/\s+/).filter((part) => (part.length > 1 || /^\d+$/.test(part)) && !IGNORED_PLACE_WORDS.has(part)))].sort();
 }
 
@@ -155,7 +157,42 @@ export function placesPlausiblySame(a: string | null | undefined, b: string | nu
   // An anchored variant needs only a two-character prefix, because the
   // unchanged token already fixes the place. Karim-Lamido/Kalim-Lamido and
   // Kajuru/Kauru both land here and are left to the semantic check.
-  return hasSingleVariantWord(left, right, 2);
+  if (hasSingleVariantWord(left, right, 2)) return true;
+  return hasAnchoredTwoEditWord(left, right);
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+/**
+ * Transliterations of one village name often differ by two letters
+ * ("Lumma Ba'are" / "Luman Ba'are"). Tolerated only when an unchanged anchor
+ * token fixes the place, the differing word is at least five letters, and the
+ * two spellings share a three-letter prefix. Single-token names never qualify,
+ * so Hong/Song and Kajuru/Kauru are unaffected, and short directional words
+ * (Ibadan South East/West) and unrelated words (Abeokuta North/South) fail the
+ * length or prefix test. Plausible only: it routes a pair to the semantic
+ * check and never merges by itself.
+ */
+function hasAnchoredTwoEditWord(left: string[], right: string[]): boolean {
+  if (left.length < 2 || left.length !== right.length) return false;
+  const unmatchedLeft = left.filter((token) => !right.includes(token));
+  const unmatchedRight = right.filter((token) => !left.includes(token));
+  if (unmatchedLeft.length !== 1 || unmatchedRight.length !== 1) return false;
+  const [a, b] = [unmatchedLeft[0], unmatchedRight[0]];
+  if (/\d/.test(a) || /\d/.test(b)) return false;
+  if (Math.min(a.length, b.length) < 5) return false;
+  if (commonPrefixLength(a, b) < 3) return false;
+  return editDistance(a, b) <= 2;
 }
 
 /**

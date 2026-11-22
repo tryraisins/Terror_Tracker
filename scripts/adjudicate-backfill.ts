@@ -13,8 +13,10 @@
  *
  * Decisions are deterministic and auditable. Merging requires a claim link.
  * A held candidate is attached to the existing record only when the place and
- * date agree and neither side names a different victim set; otherwise it is a
- * distinct event and is promoted.
+ * date agree and neither side names a different victim set. It is promoted only
+ * on positive evidence of a different event. When the settlement names merely
+ * fail the spelling rule inside the same state, LGA and date, the verdict is
+ * `hold` and the row is left for a person.
  *
  * Dry run only. It writes decisions; it never changes an attack.
  *
@@ -27,7 +29,7 @@ config({ path: ".env.local" });
 
 import fs from "node:fs";
 import mongoose from "mongoose";
-import { placesPlausiblySame, sameLga } from "../src/lib/location-identity";
+import { lgaCompatible, placesPlausiblySame, sameLga } from "../src/lib/location-identity";
 import { incidentDateKey } from "../src/lib/incident-date";
 
 type AnyAttack = Record<string, any>;
@@ -226,7 +228,10 @@ async function main() {
     const bothNamed = left.claims.people.length >= 2 && right.claims.people.length >= 2;
     const distinctVictims = bothNamed && !linkage.linked;
 
-    let verdict: "same_event" | "promote";
+    const sameState = String(existing.location?.state || "").trim().toLowerCase() === String(candidate.location?.state || "").trim().toLowerCase();
+    const lgaAgrees = lgaCompatible(existing.location?.lga, candidate.location?.lga);
+
+    let verdict: "same_event" | "promote" | "hold";
     const reasons: string[] = [];
     if (linkage.linked) {
       verdict = "same_event";
@@ -234,6 +239,20 @@ async function main() {
     } else if (distinctVictims) {
       verdict = "promote";
       reasons.push("both sides name distinct people with no overlap", `no claim link: ${linkage.why}`);
+    } else if (samePlace && !lgaAgrees) {
+      // One settlement name can exist in two LGAs, and a city's LGA is often a
+      // model guess. Without a claim link neither attaching nor promoting is
+      // supported by evidence.
+      verdict = "hold";
+      reasons.push("same settlement name but the LGAs disagree, and no claim link settles whether it is one place");
+    } else if (!samePlace && sameState && sameDate && lgaAgrees && assessment.classification !== "distinct_events") {
+      // A spelling rule that fails to match two settlement names is not
+      // evidence that they are different places: transliterations vary by more
+      // than the rule tolerates ("Lumma" / "Luman"). With the same state, LGA
+      // and date and no model verdict of distinct events, an automatic insert
+      // would be a guess, so the row is left for a person.
+      verdict = "hold";
+      reasons.push("settlement names differ only by the spelling rule; same state, LGA and event date, and the identity model did not find distinct events");
     } else if (!samePlace) {
       verdict = "promote";
       reasons.push("candidate settlement differs from the stored record");

@@ -58,7 +58,9 @@ async function main() {
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 15_000 });
   const IncidentReview = (await import("../src/lib/models/IncidentReview")).default;
 
-  const rows = await IncidentReview.find({ status: "pending", kind: "duplicate" })
+  // A row an earlier pass held for a person is not re-adjudicated; it would
+  // cost a model call per scan and crowd newer rows out of the limit.
+  const rows = await IncidentReview.find({ status: "pending", kind: "duplicate", dispositionNote: { $not: /^Automatic adjudication held this for a person:/ } })
     .select("sourceUrl title reason candidates sourceEvidence")
     .sort({ createdAt: 1 })
     .limit(limit)

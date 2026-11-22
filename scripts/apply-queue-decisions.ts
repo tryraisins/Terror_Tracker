@@ -6,6 +6,7 @@
  *   same_event, toll conflict, no claim link -> dismiss with the reason
  *   promote -> run promote-review-lead on the row; a guard refusal becomes an
  *              attach to the blocking record and the row is resolved
+ *   hold -> the row stays pending with a note, for a person to decide
  *   dismiss -> dismiss with the recorded reason
  *
  * Dry run by default. `--apply` writes.
@@ -27,6 +28,8 @@ const arg = (name: string, fallback?: string) => {
 };
 
 const ACTOR = "backfill-adjudication";
+/** Marks a pending row the automatic pass declined to decide; drain-duplicate-queue skips it (same literal there). */
+const HOLD_NOTE_PREFIX = "Automatic adjudication held this for a person:";
 
 function readLines(file: string): Array<Record<string, any>> {
   return fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
@@ -51,13 +54,25 @@ async function main() {
   const Attack = (await import("../src/lib/models/Attack")).default;
   const IncidentReview = (await import("../src/lib/models/IncidentReview")).default;
 
-  const report = { reviewed: decisions.length, attached: 0, alreadyPresent: 0, resolved: 0, dismissed: 0, promoted: 0, blockedAttached: 0, failed: [] as Array<{ id: string; error: string }> };
+  const report = { reviewed: decisions.length, attached: 0, alreadyPresent: 0, resolved: 0, dismissed: 0, promoted: 0, blockedAttached: 0, held: 0, failed: [] as Array<{ id: string; error: string }> };
 
   for (const decision of decisions) {
     const item = queue.get(decision.reviewId || "");
     if (!item) { report.failed.push({ id: decision.id, error: "queue row not found in the export" }); continue; }
     const review = await IncidentReview.findById(item.reviewId).lean() as Record<string, any> | null;
     if (!review || review.status !== "pending") continue;
+
+    if (decision.verdict === "hold") {
+      // Stays pending for a person. The note marks it so the next drain does
+      // not spend a model call re-deciding a row it already could not settle.
+      if (apply) {
+        await IncidentReview.updateOne({ _id: item.reviewId, status: "pending" }, { $set: {
+          dispositionNote: `${HOLD_NOTE_PREFIX} ${(decision.reasons || []).join("; ")}`.slice(0, 2000), updatedAt: new Date(),
+        } });
+      }
+      report.held += 1;
+      continue;
+    }
 
     if (decision.verdict === "promote") {
       if (!apply) { report.promoted += 1; continue; }

@@ -1,6 +1,33 @@
 # Project Handoff
 
-## Spot check of the incidents added from queue review, 2026-11-20 22:10 UTC (latest)
+## Duplicate leak fixes and 5-day sweep, 2026-11-22 12:55 UTC (latest)
+
+- **Two holes, two pairs reported by the user.**
+  - **Odegbami, Abeokuta.** `6b00d41a` and `6b00d42b` were created 17 s apart in the same scan. The model inferred Abeokuta South for one and Abeokuta North for the other. The ingest semantic gate only compared pairs whose LGAs pass `lgaCompatible`, so the model was never asked. The post-scan pair check flagged it, but stored-pair rows are not drained automatically.
+  - **Lumma/Luman Ba'are, Borgu.** Ingest held this one correctly. `drain-duplicate-queue.ts` then ran `adjudicate-backfill.ts`. `placesPlausiblySame` rejected lumma/luman (two edits), so the verdict was `promote` ("settlement differs"). `promote-review-lead.ts` uses the same rule in its guard, so the guard missed it and inserted `6b022657`. Separately, the promotion did not resolve its own row, so the next drain tried again.
+- **Code changes (not deployed; production picks them up on the next `deploy/deploy.sh`).**
+  - `location-identity.ts`: in-word apostrophes no longer split tokens (Ba'are becomes `baare`). `placesPlausiblySame` also accepts a two-edit variant word when there is an unchanged anchor token, the word is at least 5 chars, and the spellings share a 3-char prefix. `placesEquivalent` is unchanged. Hong/Song, Kajuru/Kauru, Ibadan SE/SW and Abeokuta N/S are still rejected. Live diff over all active same-state pairs within 14 days: 22 flagged pairs before, 22 after, identical (`identity-before.txt` / `identity-after.txt`).
+  - `ingestSearchLedAttacks`: a same-state, same-day record now reaches the model even when the LGAs conflict, provided it has the same specific town or shares a normalized source URL. Such a pair is never merged at ingest; any verdict other than `distinct_events` holds it.
+  - `adjudicate-backfill.ts` (held branch) has a new verdict, `hold`, used in two cases:
+    - the settlement names fail the spelling rule, but state, LGA and date agree and the model did not say `distinct_events`
+    - the same settlement name appears with conflicting LGAs and no claim link
+  - `apply-queue-decisions.ts`: a `hold` row stays pending with a note starting `Automatic adjudication held this for a person:`. `drain-duplicate-queue.ts` skips rows with that note, so they cost no model call per scan. **These rows need a person.**
+  - `promote-review-lead.ts`: resolves the promoted row by `_id`, and matches siblings whether `candidates.date` is stored as a Date or as a string.
+- **Data (all through `merge-incidents`, dry run then apply; artifacts in `scratch/duplicate-reconciliation-20261122/run-2026-11-22T12-37-42-138Z/`; active 1022 -> 1019, date integrity PASS).**
+  - Odegbami: `6b00d42b` absorbed into `6b00d41a`. 19 sources. Injured set to 1+ (Daily Post quote). No source names the LGA ("Ibara GRA, Abeokuta"), and the location note says so.
+  - Ba'are: `6b022657` absorbed into `6b0225b8`. Killed is a 5-11 range: state government and police say 5, a resident quoted by SaharaReporters/Papers and by Nigeria Daily Post says 11+. Injured 5. Abducted is unknown. Status `developing`.
+  - Kukawa APC rally: `6b00d4a2` absorbed into `6afe31fb`. Legit.ng's three-mortar Tuesday attack is the recorded campaign attack. Kekeno stays separate.
+  - Lawanti, Gombe `6b017d5f`: date corrected from Nov 21 (the report day) to Friday night Nov 20, and LGA from Unknown to Akko (Daily Trust). Its two held leads were resolved as the same event already recorded. The Kantoma/Tanjol pair row was dismissed as distinct events (one roundup, two settlements). See `settle-rows-apply.json`.
+  - **Pending duplicate rows: 0.**
+- **5-day sweep.** Compared 64 recent active records pairwise. Beyond the pairs above, the flagged pairs are already-decided distinct events or roundup siblings: Kaura mosque vs Sabuwar Kaura household, Kekeno vs Kukawa campaign, the Chikun Agui Rido/Anguwan Suleja/Kaso Kurmi roundup, Plateau Zwagal/Sambak/Sho, and Kantoma/Tanjol.
+- **Verification.**
+  - `npx tsx scratch/e2e-dedup-20261122.ts` passed 14/14 (`scratch/e2e-dedup-20261122/results.json`). It drives the real `ingestSearchLedAttacks` (8 cases) and the real `drain-duplicate-queue.ts --apply` chain (6 checks) against a disposable `tt_e2e_dedup_*` database, which is dropped afterwards. The stub model answers `same_event` adversarially.
+  - `tsc`, focused ESLint, and `npm run build` pass.
+  - Live: the 3 absorbed ids return 404 on API and page; the 4 survivors return 200 with merged sources; the Ba'are page renders "Killed 5-11" (`live-verification-*.txt`).
+  - The probes named in AGENTS (`scratch/probe-claim-linkage.ts`, `probe-quote-gate.ts`, `e2e-adjudicate.mjs`) are not in this checkout, so they were not rerun.
+- **Not done.** No deploy. The stored-pair drain stays manual (commit 4996dfb). Six old `tt_e2e_*` databases from earlier sessions are still on the cluster. The Ba'are survivor lists the Peoples Gazette URL twice (once with `?tztc=1`), which predates this work.
+
+## Spot check of the incidents added from queue review, 2026-11-20 22:10 UTC
 
 - **Scope and count.** 22 incidents were inserted today from source review (`queue-insert-D1..D7.mjs`; earlier messages that said 20 or 35 were wrong). All 22 were checked by `scratch/spotcheck.mjs`, `scratch/spotcheck-live.mjs` and a render check.
 - **Checks and results.** Each stored toll appears in its own quote (one implicit-two and one singular quote noted, both fine); weekday words match the stored dates; each date lies inside its own range; no unrelated near-duplicate (the 11 'similar nearby' flags were siblings from one article or different places and dates, each checked); all 22 incident pages render with the right title; 21 of 22 `dateEvidence`/toll quotes were re-found in a fresh copy of the primary source, and the 22nd (Ungwan Joshua Kaso) differs only by a volatile 'N days ago' prefix that the stored quote picked up, with the cited sentence present verbatim.

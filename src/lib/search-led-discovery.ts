@@ -959,6 +959,11 @@ export async function ingestSearchLedAttacks(
         continue;
       }
 
+      const lgaConflictWorthComparing = (record: (typeof possibleMatches)[number]): boolean => {
+        if (hasSpecificTown && sameSpecificLocation(town, record.location?.town || "")) return true;
+        return (record.sources || []).some((source) => candidateUrls.includes(normalizeSourceUrl(source.url)));
+      };
+
       // A city-level label or a multi-community report can refer to an already
       // recorded neighbourhood. Compare event evidence before inserting it.
       const semanticMatches = possibleMatches.filter((record) => {
@@ -973,7 +978,13 @@ export async function ingestSearchLedAttacks(
         // model, and a "same_event" verdict across days is still only held.
         const sameTownLabel = hasSpecificTown && placesPlausiblySame(town, record.location?.town || "");
         const tolerance = sameTownLabel ? SEMANTIC_DUPLICATE_WINDOW_MS : 24 * 60 * 60 * 1000;
-        return Boolean(recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, tolerance));
+        if (recordDate && sameState && compatibleLga && incidentDateIntervalsOverlap(candidateDate, recordDate, tolerance)) return true;
+        // The LGA is often the model's guess for a city that spans several
+        // ("Abeokuta" placed in Abeokuta North by one report, South by another).
+        // Incompatible LGAs stay apart by rule, but the same named settlement or
+        // a shared article on the same day is evidence enough to ask the model.
+        return Boolean(recordDate && sameState && lgaConflictWorthComparing(record)
+          && incidentDateIntervalsOverlap(candidateDate, recordDate, 24 * 60 * 60 * 1000));
       });
       let semanticMerged = false;
       let semanticHeld = false;
@@ -983,7 +994,11 @@ export async function ingestSearchLedAttacks(
           : { classification: "review_required", reason: "Pre-insert semantic duplicate assessment budget exhausted" };
         assessments++;
         if (assessment.classification === "distinct_events") continue;
-        if (assessment.classification === "same_event" && incidentDateKey(record) === incidentDateKey(candidate) && casualtiesCompatible(candidate.casualties, record.casualties)) {
+        // A model verdict never overrides the LGA rule on its own: a pair that
+        // reached the model only through the wider evidence is held, so the
+        // queue drain decides it from the articles' claims.
+        const lgaAgrees = lgaCompatible(record.location?.lga || "", lga);
+        if (lgaAgrees && assessment.classification === "same_event" && incidentDateKey(record) === incidentDateKey(candidate) && casualtiesCompatible(candidate.casualties, record.casualties)) {
           const sourceMerge = mergeSourceMetadata(record.sources || [], candidate.sources || []);
           if (sourceMerge.changed) await Attack.findByIdAndUpdate(record._id, { $set: { sources: sourceMerge.sources, updatedAt: new Date() } });
           merged++;

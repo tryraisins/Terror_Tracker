@@ -127,15 +127,24 @@ async function main() {
   }
 
   const inserted = await attacks.insertOne(doc);
+  // The promoted row itself is always resolved by id. Siblings match on the
+  // candidate date stored either as a BSON date or as an ISO string, because
+  // queue rows hold both; matching only one left the promoted row pending and
+  // the next drain tried to promote it again.
   const siblings = await reviews.updateMany(
     {
-      sourceUrl: row.sourceUrl,
       kind: "duplicate",
       status: "pending",
-      "sourceEvidence.candidateId": { $exists: false },
-      "candidates.date": date,
-      "candidates.location.town": candidate.location.town,
-      "candidates.location.lga": candidate.location.lga,
+      $or: [
+        { _id: row._id },
+        {
+          sourceUrl: row.sourceUrl,
+          "sourceEvidence.candidateId": { $exists: false },
+          "candidates.date": { $in: [date, date.toISOString(), candidate.date] },
+          "candidates.location.town": candidate.location.town,
+          "candidates.location.lga": candidate.location.lga,
+        },
+      ],
     },
     { $set: {
       status: "resolved",
