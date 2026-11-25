@@ -1,6 +1,6 @@
 # Project Handoff
 
-## Briefing-period dates and evidence-quote decoding, 2026-11-25 21:00 UTC (latest)
+## Briefing-period dates and evidence-quote decoding, 2026-11-25 21:00 UTC 
 
 - **Why.** Scans were healthy, but every report of the Zamfara attack on 20-23 Nov (2 teachers killed at Tungar Janbuzu, 13 abducted at Jabaka, Maru LGA) was held or dismissed: the outlets relay a police briefing ("in the past 72 hours", released on Monday) and name no event day. About 10 copies sat as `Event date or location lacks specific supporting article text` / `no explicit incident date`.
 - **Briefing window** (`briefingWindowFromText` in `src/lib/free-news.ts`, checked in `scanEventDateInner` ahead of single days). A window of at most 7 days ("past/last N hours|days", "past week") plus exactly one release day named in the same, previous or next sentence, plus a reporting cue (said/disclosed/revealed/statement/briefing/update...), gives `date_range` [release - window, release] with `basis: "briefing_window"`. No release day, more than one day nearby, a release day after publication, a window over a week, or no reporting cue: no range, and the old rules apply. The publication date is never the anchor.
