@@ -170,6 +170,8 @@ export type ExtractedIncidentDate = {
   datePrecision: "exact_day" | "date_range";
   dateRange?: { start: Date; end: Date };
   evidence: string;
+  /** Set when the range comes from a briefing that covers "the past N hours" up to a named release day. */
+  basis?: "briefing_window";
 };
 
 const MONTH_INDEX: Record<string, number> = {
@@ -241,6 +243,88 @@ export function hasOnlyNonEventDates(text: string, publishedAt: Date | null = nu
   return scan.result === null && scan.skippedNonEvent;
 }
 
+const BRIEFING_WINDOW_PATTERN = /\b(?:in|within|over|during)\s+the\s+(?:past|last|preceding)\s+(?:(\d{1,3}|one|two|three|four|five|six|seven|twenty[- ]four|forty[- ]eight|seventy[- ]two)\s+(hours?|days?)|(week))\b/gi;
+const BRIEFING_WINDOW_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+  "twenty-four": 24, "twenty four": 24, "forty-eight": 48, "forty eight": 48, "seventy-two": 72, "seventy two": 72,
+};
+// The release has to be stated as a release: a window sentence with no reporting
+// word ("tension has risen in the past 72 hours") is not a briefing period.
+const BRIEFING_CUE_PATTERN = /\b(?:said|says|disclosed|revealed|confirmed|stated|announced|released|briefing|statement|update|press\s+conference|told)\b/i;
+const BRIEFING_MAX_DAYS = 7;
+
+function sentenceBounds(text: string): Array<{ start: number; end: number }> {
+  const bounds: Array<{ start: number; end: number }> = [];
+  let start = 0;
+  for (const match of text.matchAll(/[.!?]+(?:\s+|$)/g)) {
+    const end = (match.index ?? 0) + match[0].length;
+    bounds.push({ start, end });
+    start = end;
+  }
+  if (start < text.length) bounds.push({ start, end: text.length });
+  return bounds;
+}
+
+/**
+ * A police or official briefing often lists incidents "in the past 72 hours" and
+ * gives no day for any of them. The only honest date is the period the briefing
+ * covers: from the release day minus that period to the release day. The release
+ * day must be named next to the window (same, previous or next sentence) and be the
+ * only day named there, so a page dateline or the publication date is never used
+ * as the anchor. Windows longer than a week are not briefings and are refused.
+ */
+export function briefingWindowFromText(text: string, publishedAt: Date | null): ExtractedIncidentDate | null {
+  const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;
+  const sentences = sentenceBounds(text);
+  const monthName = "January|February|March|April|May|June|July|August|September|October|November|December";
+  for (const window of text.matchAll(BRIEFING_WINDOW_PATTERN)) {
+    const windowStart = window.index ?? 0;
+    const windowEnd = windowStart + window[0].length;
+    const amountToken = (window[1] || "").toLowerCase();
+    const amount = window[3] ? 1 : /^\d+$/.test(amountToken) ? Number(amountToken) : BRIEFING_WINDOW_WORDS[amountToken];
+    if (!amount) continue;
+    const unit = window[3] ? "week" : (window[2] || "").toLowerCase();
+    const days = unit === "week" ? 7 : unit.startsWith("hour") ? Math.ceil(amount / 24) : amount;
+    if (days < 1 || days > BRIEFING_MAX_DAYS) continue;
+
+    const sentenceIndex = sentences.findIndex((sentence) => windowStart >= sentence.start && windowStart < sentence.end);
+    if (sentenceIndex < 0) continue;
+    const regionStart = sentences[Math.max(0, sentenceIndex - 1)].start;
+    const regionEnd = sentences[Math.min(sentences.length - 1, sentenceIndex + 1)].end;
+    const region = text.slice(regionStart, regionEnd);
+    if (!BRIEFING_CUE_PATTERN.test(region)) continue;
+
+    const releaseDays: Array<{ day: Date; start: number; end: number }> = [];
+    let unresolved = false;
+    for (const found of region.matchAll(new RegExp(`\\b((?:${monthName})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(20\\d{2})|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthName}),?\\s+(20\\d{2}))\\b`, "gi"))) {
+      const month = found[0].match(new RegExp(monthName, "i"))?.[0] || "";
+      const day = validUtcDate(Number(found[3] || found[6]), MONTH_INDEX[month.toLowerCase()], Number(found[2] || found[4]));
+      if (!day) { unresolved = true; continue; }
+      releaseDays.push({ day, start: regionStart + (found.index ?? 0), end: regionStart + (found.index ?? 0) + found[0].length });
+    }
+    for (const found of region.matchAll(/\b(last|next)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi)) {
+      if (!publishedAt || Number.isNaN(publishedAt.getTime()) || (found[1] || "").toLowerCase() === "next") { unresolved = true; continue; }
+      const day = recentWeekday(found[2], publishedAt, (found[1] || "").toLowerCase() === "last");
+      releaseDays.push({ day, start: regionStart + (found.index ?? 0), end: regionStart + (found.index ?? 0) + found[0].length });
+    }
+    const distinct = new Set(releaseDays.map((entry) => entry.day.getTime()));
+    if (unresolved || distinct.size !== 1) continue;
+    const release = releaseDays[0].day;
+    if (publicationDay && release > publicationDay) continue;
+    const start = new Date(release.getTime() - days * 86_400_000);
+    const spanStart = Math.min(windowStart, ...releaseDays.map((entry) => entry.start));
+    const spanEnd = Math.max(windowEnd, ...releaseDays.map((entry) => entry.end));
+    return {
+      date: start,
+      datePrecision: "date_range",
+      dateRange: { start, end: release },
+      evidence: text.slice(spanStart, spanEnd).trim(),
+      basis: "briefing_window",
+    };
+  }
+  return null;
+}
+
 function scanEventDate(text: string, publishedAt: Date | null): { result: ExtractedIncidentDate | null; skippedNonEvent: boolean } {
   let skippedNonEvent = false;
   const result = scanEventDateInner(text, publishedAt, () => { skippedNonEvent = true; });
@@ -287,6 +371,13 @@ function scanEventDateInner(text: string, publishedAt: Date | null, markSkipped:
       return { date: start, datePrecision: "date_range", dateRange: { start, end }, evidence: weekdayRange[0] };
     }
     return null;
+  }
+
+  // Ahead of single days: in a briefing, the only named day is usually the release
+  // ("police said on Monday"), which is the end of the period, not the event day.
+  if (hasSecurityIncidentSignal(text)) {
+    const briefing = briefingWindowFromText(text, publishedAt);
+    if (briefing) return briefing;
   }
 
   const publicationDay = publishedAt && !Number.isNaN(publishedAt.getTime()) ? lagosPublicationDay(publishedAt) : null;

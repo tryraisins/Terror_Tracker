@@ -9,7 +9,7 @@
  * normalizer, never a source of new URLs.
  */
 
-import { RawAttackData, dateEvidenceFromText, hasOnlyNonEventDates } from "./free-news";
+import { RawAttackData, briefingWindowFromText, dateEvidenceFromText, hasOnlyNonEventDates } from "./free-news";
 import { normalizeStateName } from "./normalize-state";
 import { plausiblePlaceVariant } from "./location-identity";
 import { screenIncidentCandidate } from "./incident-scope";
@@ -387,6 +387,14 @@ date/location. RULES:
 - Use null when a count is not stated. Do not invent numbers.
 - Resolve relative event dates such as "yesterday" or a named weekday only against sourcePublishedAt. If sourcePublishedAt is absent or the relative phrase remains ambiguous, request review.
 - Use "exact_day" only when one original event day is supported. Use "date_range" when the source supports a bounded multi-day period. In that case date is the range start and dateRange contains both bounds. Never substitute the publication date.
+- Briefing period: when the article relays a police, military or official briefing/statement that
+  covers a stated period ("in the past 72 hours", "in the last 48 hours", up to one week) released
+  on a named day, and gives no day of its own for an event, that event is dated by the briefing
+  period: datePrecision "date_range", start = release day minus the period (72 hours = 3 days),
+  end = release day, date = start. dateEvidence quotes the period phrase and the release day. Do
+  not use "review_required" only because a briefing gives no per-event day; the other fields
+  (place, counts) still need their own evidence for each event. Without a named release day, or
+  without a stated period, the date stays unclear.
 - "state" must be one canonical Nigerian state. "lga"/"town" use "Unknown" if not stated.
 - Keep "status": "confirmed" if two+ independent sources clearly agree, "developing" if casualty figures conflict, otherwise "unconfirmed".
 
@@ -544,6 +552,29 @@ export async function cleanAndConfirmIncident(
       }
     }
 
+    // A briefing period ("in the past 72 hours", released on Monday) is one span shared
+    // by every event the briefing lists, so it is read from the article, not from the
+    // model's quote. It is used only when the model chose the same range itself; a
+    // different range is never substituted. The stored quote is the deterministic one,
+    // which runs from the window phrase to the release day and so reparses below.
+    let briefingWindowDate = false;
+    if (normalizedDate?.datePrecision === "date_range") {
+      const briefing = briefingWindowFromText(
+        articleText.slice(0, MAX_ARTICLE_CHARS),
+        sourcePublishedAt && !Number.isNaN(sourcePublishedAt.getTime()) ? sourcePublishedAt : null,
+      );
+      const briefingDate = briefing
+        ? normalizeIncidentDate({ date: briefing.date, datePrecision: briefing.datePrecision, dateRange: briefing.dateRange })
+        : null;
+      if (briefing && briefingDate &&
+          briefingDate.interval.start.getTime() === normalizedDate.interval.start.getTime() &&
+          briefingDate.interval.end.getTime() === normalizedDate.interval.end.getTime()) {
+        effectiveDate = briefingDate;
+        effectiveDateEvidence = normalizeEvidenceText(briefing.evidence);
+        briefingWindowDate = true;
+      }
+    }
+
     // Judge the date quote the way the reader would see it: with the words before
     // it. A bare quote drops the introducer, and the scanner now skips a page
     // dateline or a reacting body's own sitting day, so reparsing the quote alone
@@ -593,6 +624,9 @@ export async function cleanAndConfirmIncident(
     // be about a different attack in the same piece.
     const placeForQuote = hasTown ? normalizeEvidenceText(town) : hasLga ? normalizeEvidenceText(lga) : normalizeEvidenceText(stateValue);
     const quoteNamesPlace = (quote: string) => !multiEventArticle || textNamesPlace(quote, placeForQuote);
+    // The briefing period covers every event in the briefing, so it cannot belong to a
+    // different attack. Only the date quote is excused; place and toll quotes are not.
+    const dateQuoteNamesPlace = (quote: string) => briefingWindowDate || quoteNamesPlace(quote);
     // The quote must not be the page dateline or a reacting body's own sitting
     // ("The Senate Wednesday called for..."). The context was built above so the
     // date reparse and this guard judge the same words.
@@ -609,7 +643,7 @@ export async function cleanAndConfirmIncident(
 
     // Per-event placement is checked after the general guard, so a rejection names the
     // real cause: a missing or unverifiable date is not a multi-event problem.
-    if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !quoteNamesPlace(effectiveDateEvidence))) {
+    if (multiEventArticle && (!quoteNamesPlace(locationEvidence) || !dateQuoteNamesPlace(effectiveDateEvidence))) {
       // A different spelling of the same settlement is not a licence to attach a
       // figure, and it is not a reason to lose one either. Name the discrepancy and
       // let a person decide, the same way the project treats any plausible pair.
@@ -746,7 +780,9 @@ export async function cleanAndConfirmIncident(
       // Identity is the sentence's position in the article, not its wording: two
       // events quoting different fragments of one sentence must collide, and two
       // sentences that happen to read the same must not.
-      const eventSentenceStarts = [effectiveDateEvidence, locationEvidence,
+      // A shared briefing period is meant to date several events, so its sentence is
+      // left out of the collision check; the place and toll sentences stay in.
+      const eventSentenceStarts = [briefingWindowDate ? "" : effectiveDateEvidence, locationEvidence,
         ...countFields.map((field) => String(casualtyMeta[field]?.sourceText || ""))]
         .map((value) => normalizeForQuote(value))
         .filter(Boolean)
@@ -777,6 +813,30 @@ export async function cleanAndConfirmIncident(
   };
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " ",
+  lsquo: "'", rsquo: "'", sbquo: "'", ldquo: '"', rdquo: '"', bdquo: '"',
+  ndash: "-", mdash: "-", hellip: "...", prime: "'",
+};
+
+// Article text can still carry HTML entities ("Army&#8217;s") and typographic quotes and
+// dashes ("Army’s"), while the model quotes them back as ASCII ("Army's"). Both sides
+// pass through here, so decoding and folding them keeps a verbatim quote verbatim instead
+// of holding the whole article as unsupported. Stored titles are not touched.
 function normalizeEvidenceText(value: string): string {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
+  return value
+    .replace(/&#(\d{1,7});/g, (match, code: string) => {
+      const point = Number(code);
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : match;
+    })
+    .replace(/&#x([0-9a-f]{1,6});/gi, (match, code: string) => {
+      const point = parseInt(code, 16);
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : match;
+    })
+    .replace(/&([a-z]+);/gi, (match, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? match)
+    .replace(/[‘’‚‛′]/g, "'")
+    .replace(/[“”„‟″]/g, '"')
+    .replace(/[‐-―−]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/\s+/g, " ").trim().toLowerCase();
 }
