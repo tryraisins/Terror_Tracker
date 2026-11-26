@@ -1,6 +1,12 @@
 # Project Handoff
 
-## Remaining-states sweep (no DeepSeek/Brave), 2026-11-26 (latest)
+## Mongoose security bump, 2026-11-26 (latest)
+
+- `npm update mongoose` moved the lockfile from 9.11.0 to 9.13.1 (`package.json` range `^9.2.1` unchanged), clearing Dependabot alerts 3-6 (fixed in 9.11.4). Transitive driver packages moved too (mongodb 7.7 to 7.9.1, bson, whatwg-url). Alert 7 (minimatch 10.2.6 under `typescript-eslint`) is dev-only and needs a major bump; left open.
+- Verified: `npx tsc --noEmit` clean, `npm run build` passes, and `scratch/e2e-mongoose-bump.ts` (7 checks through `ingestSearchLedAttacks` on a disposable database: insert, re-ingest, same-place hold, same name in another state, date-range and casualtyMeta round trip, unique hash, prototype-key payload) passes 7/7. The app's shared-source rule holds a cross-state candidate that cites the same article; the probe gives its own source.
+- Not verified: the deployed container has not run on 9.13.1 yet; check `/api/attacks` and the next scan after the deploy.
+
+## Remaining-states sweep (no DeepSeek/Brave), 2026-11-26
 
 - Method as in the section below, now over every other state (`coverage2.mjs` prints active records per state per month; `sweep5.mjs`/`sweep6.mjs` are the candidate checks; `build4.cjs` built the rows). Regional web searches covered Bauchi/Gombe, Nasarawa, Kano/Jigawa, Yobe, Ondo/Ekiti/Ogun, Oyo/Osun, the south-east, the south-south, Kogi, FCT, Cross River/Akwa Ibom/Abia, and Katsina/Yobe for November.
 - Coverage outside the north-west was already good: about 30 candidates checked, 28 already recorded or out of scope. Added 2, both 200 on `/api/attacks/<id>`, no duplicate hashes, active count 1062: Edo, Benin-Ore Expressway bus ambush 26 Apr (driver killed, passengers kidnapped, state-level precision) and FCT Kagini, Kubwa kidnapping 1 Nov (woman and two children).
