@@ -1,6 +1,13 @@
 # Project Handoff
 
-## National month-by-month re-check, 2026-11-26 (latest)
+## Thematic and southern-Kaduna sweep, 2026-11-26 (latest)
+
+- Searched by theme (ambushes on troops, vigilantes, worship and school abductions, Benue, Borno) and by region (Plateau, Niger, Sokoto/Kebbi, Kwara/Kogi, Kaduna, north-east), and checked about 60 candidates (`sweep9.mjs`, `sweep10.mjs`). Nearly all of Benue, Borno, Plateau, Sokoto and Niger were already recorded; the gap was multi-village SaharaReporters roundups for southern Kaduna.
+- Added 12, all 200 (via the browser pane), no duplicate hashes, active count 1077 (`build6.cjs`): Kaduna Arak, Sanga (killings 3 Jan and abduction 5 Jan, the second inserted past the same-place hold), Mafofadiya/Zagom Mazuga (7-8 Jun), Kallah/Kufana (6-7 Jun), Umaso and Unguwa-Ku (25 Jun), Hanya Maro (13 Jul), Ungwan Busa and Banono Angwaku (11-12 Jul); Plateau Rangarasa, Jos South (17 Jun); Kwara Koro (23 Feb) and Mari/Dina, Patigi (2 Apr). Day-of-week dates were checked against the article date; multi-day phrases are `date_range` records.
+- Left out: Kebbi/Niger border vigilante killings around 25 Sep (the article does not say which state the ambush was in); Kachia town family of four killed the night of 2 Jan and the Kauru 12-13 Jan items (only referenced inside other roundups, no own article read); Plateau Vodni (Mangu) and Tahoos (Riyom) deaths of mid-September (no day given); Bauchi Dass 8 Jul (year not confirmed); Adamawa FOB Garaha around 12 Oct (date unconfirmed); Katsina 20 Aug foiled kidnap (24 bandits killed, no civilian harm).
+- Remaining gap type: multi-event roundups where each village needs its own date and toll. SaharaReporters is the main source for these.
+
+## National month-by-month re-check, 2026-11-26
 
 - Ran one national web search per month (Feb-Nov) with wording different from the earlier state sweeps, extracted every named incident, and checked each against `attacks` (`sweep7.mjs`, `sweep8.mjs`). About 30 candidates: 27 already recorded, 3 added, all 200 (checked through the browser pane because local curl to the Cloudflare edge timed out; the site itself was up) with no duplicate hashes, active count 1065: Zamfara Dandalla/Dansadau villages 16 Sep (33 feared killed), Borno Kuwawu 20 Jun (7 farmers, ISWAP per militia), Plateau Kogot, Jos South 11 May (2 killed). Built in `build5.cjs`.
 - Not added: the four farmers killed near Kross Kauwa the same day as Kuwawu (the article does not name a state). The Sokoto Danchadi/Kyaluje 1-2 Jul attack is already the "Chief Imam, Two Others Killed" record (6 killed, state-level). The Ghandi/Gandi record is dated 30 Aug; the Legit article says "Sunday, July 20", but 20 July 2026 is a Monday and 30 Aug is a Sunday, so the record's date was left alone.
