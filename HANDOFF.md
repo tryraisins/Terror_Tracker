@@ -1,6 +1,14 @@
 # Project Handoff
 
-## Per-state sweep of thin months (no DeepSeek/Brave), 2026-11-26 (latest)
+## Remaining-states sweep (no DeepSeek/Brave), 2026-11-26 (latest)
+
+- Method as in the section below, now over every other state (`coverage2.mjs` prints active records per state per month; `sweep5.mjs`/`sweep6.mjs` are the candidate checks; `build4.cjs` built the rows). Regional web searches covered Bauchi/Gombe, Nasarawa, Kano/Jigawa, Yobe, Ondo/Ekiti/Ogun, Oyo/Osun, the south-east, the south-south, Kogi, FCT, Cross River/Akwa Ibom/Abia, and Katsina/Yobe for November.
+- Coverage outside the north-west was already good: about 30 candidates checked, 28 already recorded or out of scope. Added 2, both 200 on `/api/attacks/<id>`, no duplicate hashes, active count 1062: Edo, Benin-Ore Expressway bus ambush 26 Apr (driver killed, passengers kidnapped, state-level precision) and FCT Kagini, Kubwa kidnapping 1 Nov (woman and two children).
+- Rejected as out of year: Ondo Itaogbolu farmers (July 2025), Kogi Ayetoro-Kiri church (Dec 2025), Taraba Tse Ajogo (Dec 2025), Cross River Akparabong (2024), Maidabino (2024). Imo Ohaji/Egbema oil-worker ambush has no retrievable date. Katsina Dutsinma/Kiliya 29 May is probably the existing "Gunmen attack Katsina community after Friday prayers" record (no town stored), so it was not added.
+- Katsina has no November records; searches found only 2025 items, so this may be a real lull or a gap in indexed reporting. Not verifiable without a Katsina-specific source.
+- Nothing here changes code.
+
+## Per-state sweep of thin months (no DeepSeek/Brave), 2026-11-26
 
 - Method: counted active records per state per month, then web-searched the empty cells (Zamfara Jan/Mar, Kebbi/Kwara Jan, Adamawa Mar, Kaduna May, Katsina Nov, Taraba Feb, Yobe Jan). Each candidate was checked against `attacks` by state/date/place (`scratch/rejected-scan/sweep2.mjs`..`sweep4.mjs`, `coverage.mjs`, `q.mjs`), the article was fetched with `fetchev.mts`, and rows were built in `build3.cjs` and inserted with `insert-held.ts` (indices must be passed explicitly: its default skips the first two rows).
 - Added 11, all 200 on `/api/attacks/<id>`, no duplicate hashes, active count 1060: Zamfara Farin Ruwa 5 Jan (ASP + 5 killed), Matuna and Tashar Kuturu (Talata Mafara, 24-25 Jan range, 3 and 23 abducted), Bingi-Kekun Waje-Gusau road ambush 19 Jan (5 soldiers + 1 police), Kyaram/Maga Market ambush 4 Feb, Arafa 14 Mar (5 Burkinabe miners abducted), Dangoro 28 Mar (3 killed); Kaduna Kasaru-B 2 Mar and Kurmin Bongo 21 May (Kagarko, parish letter); Taraba Mchia 10 Feb (10 killed); Borno Sabon Gari labourers 29 Jan (25+ killed). The Sabon Gari row was inserted past the same-place hold because Reuters calls the army-base assault the same day a separate attack; the existing base record is untouched.
