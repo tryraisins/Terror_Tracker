@@ -1,6 +1,12 @@
 # Project Handoff
 
-## SaharaReporters roundup sweep, 2026-11-26 (latest)
+## Zagazola/Premium Times follow-up sweep, 2026-11-26 (latest)
+
+- Searched Zagazola Makama, Punch, Daily Post and Leadership-sourced reports by region and checked 15 more candidates (`sweep12.mjs`); only 3 were new (Benue): Igbayima, Kyado-Jootar road, Ukum, 13 Aug (truck driver and a woman found dead, Zagazola via SaharaReporters, attribution to Tiv militias is a security source's); Otukpo Asa 2, 11 Jan (retired soldier killed); Obaganya, Otukpo, 11 Jan (man shot, wife and infant abducted). All 200 via the browser pane, no duplicate hashes, active count 1088 (`build8.cjs`). Titles say "found dead" where the article does not say shot.
+- Skipped on purpose: SaharaReporters' Naino, Malumfashi item (2 killed, 6 hurt) says "Wednesday, January 1", which is 2025's calendar, although its URL is dated 2026-01-02, so the year is in doubt. The Benue Agatu traditional ruler killing (23-24 Apr) and the Abande/Kwande ASP killing (3 Feb) were already recorded. Nasarawa Doma patrol ambush and Katsina Tafoki 25 Feb (troops repelled) have no usable date or casualties.
+- Yield per search round has fallen from 12 to 8 to 3. Further rounds are unlikely to be worth the effort without a new source type (for example a state police command feed).
+
+## SaharaReporters roundup sweep, 2026-11-26
 
 - Searched SaharaReporters/Bakatsine-sourced reports by region (Katsina, Zamfara, Plateau/Benue, Niger/Kwara/Kogi, Sokoto/Kebbi); SaharaReporters URLs carry the publication date, which fixes the weekday-to-date arithmetic. Checked 20 candidates (`sweep11.mjs`); 8 were new and added, all 200 via the browser pane, no duplicate hashes, active count 1085 (`build7.cjs`): Katsina Jargaba, Bakori (25 Jun, 3 vigilantes + several residents); Zamfara Danjibga-Kuncin Kalgo road (2 Jan, all passengers abducted), Mada, Gusau (29 Jan, businessman and two wives), Marake/Kaura/Karazau, Gusau (16 Jul, 5 security + 2 residents); Kogi Mopamuro (27 Feb, mass abduction, number unstated); Niger Gwadam, Kontagora (16-17 Oct) and Dukku, Rijau (20 Feb); Sokoto Kaya, Tambuwal (14 Aug, Lakurawa occupation, 2 killed).
 - Not added: Kebbi Jega (Alelu, Kimba, Jandutsi) abductions of 13 Oct (no event day); Kogi Odo-Ere NSCDC officer 8 Jun (the article says both killed and rushed to hospital); Katsina severed-head report (12 Sep) and the farmer killed despite ransom (13 Nov), both aftermaths of undated abductions; Kachia town family of four (2 Jan, only a dateless repost found).
