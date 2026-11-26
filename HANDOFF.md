@@ -1,6 +1,12 @@
 # Project Handoff
 
-## Thematic and southern-Kaduna sweep, 2026-11-26 (latest)
+## SaharaReporters roundup sweep, 2026-11-26 (latest)
+
+- Searched SaharaReporters/Bakatsine-sourced reports by region (Katsina, Zamfara, Plateau/Benue, Niger/Kwara/Kogi, Sokoto/Kebbi); SaharaReporters URLs carry the publication date, which fixes the weekday-to-date arithmetic. Checked 20 candidates (`sweep11.mjs`); 8 were new and added, all 200 via the browser pane, no duplicate hashes, active count 1085 (`build7.cjs`): Katsina Jargaba, Bakori (25 Jun, 3 vigilantes + several residents); Zamfara Danjibga-Kuncin Kalgo road (2 Jan, all passengers abducted), Mada, Gusau (29 Jan, businessman and two wives), Marake/Kaura/Karazau, Gusau (16 Jul, 5 security + 2 residents); Kogi Mopamuro (27 Feb, mass abduction, number unstated); Niger Gwadam, Kontagora (16-17 Oct) and Dukku, Rijau (20 Feb); Sokoto Kaya, Tambuwal (14 Aug, Lakurawa occupation, 2 killed).
+- Not added: Kebbi Jega (Alelu, Kimba, Jandutsi) abductions of 13 Oct (no event day); Kogi Odo-Ere NSCDC officer 8 Jun (the article says both killed and rushed to hospital); Katsina severed-head report (12 Sep) and the farmer killed despite ransom (13 Nov), both aftermaths of undated abductions; Kachia town family of four (2 Jan, only a dateless repost found).
+- Pattern: what is still missing is mostly one-outlet, one-village kidnappings. Each remaining find needs its own article and weekday arithmetic.
+
+## Thematic and southern-Kaduna sweep, 2026-11-26
 
 - Searched by theme (ambushes on troops, vigilantes, worship and school abductions, Benue, Borno) and by region (Plateau, Niger, Sokoto/Kebbi, Kwara/Kogi, Kaduna, north-east), and checked about 60 candidates (`sweep9.mjs`, `sweep10.mjs`). Nearly all of Benue, Borno, Plateau, Sokoto and Niger were already recorded; the gap was multi-village SaharaReporters roundups for southern Kaduna.
 - Added 12, all 200 (via the browser pane), no duplicate hashes, active count 1077 (`build6.cjs`): Kaduna Arak, Sanga (killings 3 Jan and abduction 5 Jan, the second inserted past the same-place hold), Mafofadiya/Zagom Mazuga (7-8 Jun), Kallah/Kufana (6-7 Jun), Umaso and Unguwa-Ku (25 Jun), Hanya Maro (13 Jul), Ungwan Busa and Banono Angwaku (11-12 Jul); Plateau Rangarasa, Jos South (17 Jun); Kwara Koro (23 Feb) and Mari/Dina, Patigi (2 Apr). Day-of-week dates were checked against the article date; multi-day phrases are `date_range` records.
