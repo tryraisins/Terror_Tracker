@@ -1,6 +1,12 @@
 # Project Handoff
 
-## Mongoose security bump, 2026-11-26 (latest)
+## National month-by-month re-check, 2026-11-26 (latest)
+
+- Ran one national web search per month (Feb-Nov) with wording different from the earlier state sweeps, extracted every named incident, and checked each against `attacks` (`sweep7.mjs`, `sweep8.mjs`). About 30 candidates: 27 already recorded, 3 added, all 200 (checked through the browser pane because local curl to the Cloudflare edge timed out; the site itself was up) with no duplicate hashes, active count 1065: Zamfara Dandalla/Dansadau villages 16 Sep (33 feared killed), Borno Kuwawu 20 Jun (7 farmers, ISWAP per militia), Plateau Kogot, Jos South 11 May (2 killed). Built in `build5.cjs`.
+- Not added: the four farmers killed near Kross Kauwa the same day as Kuwawu (the article does not name a state). The Sokoto Danchadi/Kyaluje 1-2 Jul attack is already the "Chief Imam, Two Others Killed" record (6 killed, state-level). The Ghandi/Gandi record is dated 30 Aug; the Legit article says "Sunday, July 20", but 20 July 2026 is a Monday and 30 Aug is a Sunday, so the record's date was left alone.
+- Takeaway: coverage of mass-casualty and well-reported incidents is now close to complete; what remains missing is mostly single-village incidents reported once by one outlet.
+
+## Mongoose security bump, 2026-11-26
 
 - `npm update mongoose` moved the lockfile from 9.11.0 to 9.13.1 (`package.json` range `^9.2.1` unchanged), clearing Dependabot alerts 3-6 (fixed in 9.11.4). Transitive driver packages moved too (mongodb 7.7 to 7.9.1, bson, whatwg-url). Alert 7 (minimatch 10.2.6 under `typescript-eslint`) is dev-only and needs a major bump; left open.
 - Verified: `npx tsc --noEmit` clean, `npm run build` passes, and `scratch/e2e-mongoose-bump.ts` (7 checks through `ingestSearchLedAttacks` on a disposable database: insert, re-ingest, same-place hold, same name in another state, date-range and casualtyMeta round trip, unique hash, prototype-key payload) passes 7/7. The app's shared-source rule holds a cross-state candidate that cites the same article; the probe gives its own source.
